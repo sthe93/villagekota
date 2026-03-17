@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Loader2, RefreshCw, Save, Crosshair } from "lucide-react";
+import { Loader2, RefreshCw, Save, Crosshair, Play, Square } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
@@ -70,6 +70,8 @@ export default function AdminOrdersPage() {
   const [filter, setFilter] = useState<OrderStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [locationInputs, setLocationInputs] = useState<Record<string, { lat: string; lng: string }>>({});
+  const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
+const [watchId, setWatchId] = useState<number | null>(null);
 
   const loadOrders = async () => {
     setPageLoading(true);
@@ -157,6 +159,14 @@ export default function AdminOrdersPage() {
     };
   }, [isAdmin]);
 
+  useEffect(() => {
+  return () => {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+    }
+  };
+}, [watchId]);
+
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const matchesFilter = filter === "all" || order.status === filter;
@@ -172,25 +182,37 @@ export default function AdminOrdersPage() {
     });
   }, [orders, filter, search]);
 
-  const updateStatus = async (orderId: string, status: OrderStatus) => {
-    setSavingId(orderId);
+ const updateStatus = async (orderId: string, status: OrderStatus) => {
+  setSavingId(orderId);
 
-    const { error } = await supabase
-      .from("orders")
-      .update({ status })
-      .eq("id", orderId);
+  const { error } = await supabase
+    .from("orders")
+    .update({ status })
+    .eq("id", orderId);
 
-    if (error) {
-      toast.error(error.message || "Failed to update status");
-    } else {
-      setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, status } : o))
-      );
-      toast.success(`Order marked as ${statusLabel[status]}`);
-    }
-
+  if (error) {
+    toast.error(error.message || "Failed to update status");
     setSavingId(null);
-  };
+    return;
+  }
+
+  setOrders((prev) =>
+    prev.map((o) => (o.id === orderId ? { ...o, status } : o))
+  );
+
+  toast.success(`Order marked as ${statusLabel[status]}`);
+  setSavingId(null);
+
+  if (status === "out_for_delivery") {
+    startLiveTracking(orderId);
+  }
+
+  if (status === "delivered" || status === "cancelled") {
+    if (trackingOrderId === orderId) {
+      stopLiveTracking();
+    }
+  }
+};
 
   const updateDriver = async (orderId: string, driverId: string) => {
     const { error } = await supabase
@@ -344,6 +366,155 @@ const useCurrentLocationForOrder = (orderId: string) => {
 
     setSavingId(null);
   };
+
+  const geocodeAddress = async (address: string) => {
+  const key = import.meta.env.VITE_MAPTILER_KEY;
+  const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(address)}.json?limit=1&country=za&key=${key}`;
+
+  const res = await fetch(url);
+  const json = await res.json();
+
+  const first = json?.features?.[0];
+  if (!first?.center) return null;
+
+  return {
+    lng: first.center[0],
+    lat: first.center[1],
+  };
+};
+
+const fetchRouteMeta = async (
+  driverLat: number,
+  driverLng: number,
+  destLat: number,
+  destLng: number
+) => {
+  const url = `https://router.project-osrm.org/route/v1/driving/${driverLng},${driverLat};${destLng},${destLat}?overview=false`;
+
+  const res = await fetch(url);
+  const json = await res.json();
+
+  const route = json?.routes?.[0];
+  if (!route) return null;
+
+  return {
+    durationMinutes: Math.round((route.duration || 0) / 60),
+    distanceKm: Number(((route.distance || 0) / 1000).toFixed(1)),
+  };
+};
+
+const pushLiveLocationUpdate = async (orderId: string, lat: number, lng: number) => {
+  const order = orders.find((o) => o.id === orderId);
+  const timestamp = new Date().toISOString();
+
+  let driver_distance_km: number | null = null;
+  let estimated_delivery_time: string | null = null;
+
+  if (order?.delivery_address) {
+    const dest = await geocodeAddress(order.delivery_address);
+    if (dest) {
+      const route = await fetchRouteMeta(lat, lng, dest.lat, dest.lng);
+      if (route) {
+        driver_distance_km = route.distanceKm;
+        estimated_delivery_time = new Date(Date.now() + route.durationMinutes * 60000).toISOString();
+      }
+    }
+  }
+
+  const { error } = await supabase
+    .from("orders")
+    .update({
+      driver_lat: lat,
+      driver_lng: lng,
+      driver_last_updated: timestamp,
+      driver_distance_km,
+      estimated_delivery_time,
+    })
+    .eq("id", orderId);
+
+  if (!error) {
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              driver_lat: lat,
+              driver_lng: lng,
+              driver_last_updated: timestamp,
+              driver_distance_km,
+              estimated_delivery_time,
+            }
+          : o
+      )
+    );
+  }
+};
+
+const startLiveTracking = (orderId: string) => {
+  if (!navigator.geolocation) {
+    toast.error("Geolocation is not supported on this device");
+    return;
+  }
+
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    setWatchId(null);
+  }
+
+  setTrackingOrderId(orderId);
+
+  const id = navigator.geolocation.watchPosition(
+    async (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+
+      setLocationInputs((prev) => ({
+        ...prev,
+        [orderId]: {
+          lat: String(lat),
+          lng: String(lng),
+        },
+      }));
+
+      await pushLiveLocationUpdate(orderId, lat, lng);
+    },
+    (error) => {
+      switch (error.code) {
+        case error.PERMISSION_DENIED:
+          toast.error("Location permission was denied");
+          break;
+        case error.POSITION_UNAVAILABLE:
+          toast.error("Location information is unavailable");
+          break;
+        case error.TIMEOUT:
+          toast.error("Live tracking request timed out");
+          break;
+        default:
+          toast.error("Failed to start live tracking");
+      }
+
+      setTrackingOrderId(null);
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 3000,
+      timeout: 10000,
+    }
+  );
+
+  setWatchId(id);
+  toast.success("Live tracking started");
+};
+
+const stopLiveTracking = () => {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    setWatchId(null);
+  }
+
+  setTrackingOrderId(null);
+  toast.success("Live tracking stopped");
+};
 
   if (loading || pageLoading) {
     return (
@@ -529,7 +700,7 @@ const useCurrentLocationForOrder = (orderId: string) => {
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4">
   <div>
     <label className="block text-xs text-muted-foreground mb-1">Driver Latitude</label>
     <input
@@ -568,6 +739,28 @@ const useCurrentLocationForOrder = (orderId: string) => {
       )}
       Use My Current Location
     </button>
+  </div>
+
+  <div className="flex items-end">
+    {trackingOrderId === order.id ? (
+      <button
+        type="button"
+        onClick={stopLiveTracking}
+        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+      >
+        <Square className="w-4 h-4" />
+        Stop Live Tracking
+      </button>
+    ) : (
+      <button
+        type="button"
+        onClick={() => startLiveTracking(order.id)}
+        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+      >
+        <Play className="w-4 h-4" />
+        Start Live Tracking
+      </button>
+    )}
   </div>
 
   <div className="flex items-end">

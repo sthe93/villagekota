@@ -1,11 +1,14 @@
-import { useMemo, useState } from "react";
-import Map, { Marker, NavigationControl } from "react-map-gl/maplibre";
+import { useEffect, useMemo, useState } from "react";
+import Map, { Marker, NavigationControl, Source, Layer } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 interface DriverLiveMapProps {
   driverLat: number | null;
   driverLng: number | null;
+  destinationLat: number | null;
+  destinationLng: number | null;
   destinationLabel: string;
+  routeGeoJson?: GeoJSON.Feature<GeoJSON.LineString> | null;
 }
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
@@ -14,42 +17,81 @@ const MAP_STYLE = `https://api.maptiler.com/maps/streets/style.json?key=${MAPTIL
 export default function DriverLiveMap({
   driverLat,
   driverLng,
+  destinationLat,
+  destinationLng,
   destinationLabel,
+  routeGeoJson,
 }: DriverLiveMapProps) {
   const hasDriverLocation = driverLat != null && driverLng != null;
+  const hasDestination = destinationLat != null && destinationLng != null;
 
   const center = useMemo(() => {
-    if (!hasDriverLocation) {
-      return { longitude: 28.0473, latitude: -26.2041, zoom: 10 };
+    if (hasDriverLocation && hasDestination) {
+      return {
+        longitude: (driverLng! + destinationLng!) / 2,
+        latitude: (driverLat! + destinationLat!) / 2,
+        zoom: 10.8,
+      };
     }
 
-    return {
-      longitude: driverLng!,
-      latitude: driverLat!,
-      zoom: 13,
-    };
-  }, [driverLat, driverLng, hasDriverLocation]);
+    if (hasDriverLocation) {
+      return { longitude: driverLng!, latitude: driverLat!, zoom: 13 };
+    }
+
+    if (hasDestination) {
+      return { longitude: destinationLng!, latitude: destinationLat!, zoom: 13 };
+    }
+
+    return { longitude: 28.0473, latitude: -26.2041, zoom: 10 };
+  }, [driverLat, driverLng, destinationLat, destinationLng, hasDriverLocation, hasDestination]);
 
   const [viewState, setViewState] = useState(center);
+
+  useEffect(() => {
+    setViewState(center);
+  }, [center]);
 
   return (
     <div className="rounded-lg overflow-hidden border border-border">
       <Map
         {...viewState}
-        longitude={center.longitude}
-        latitude={center.latitude}
-        zoom={center.zoom}
         onMove={(evt) => setViewState(evt.viewState)}
         mapStyle={MAP_STYLE}
         reuseMaps
-        style={{ width: "100%", height: 320 }}
+        style={{ width: "100%", height: 360 }}
       >
         <NavigationControl position="top-right" />
+
+        {routeGeoJson && (
+          <Source id="route-source" type="geojson" data={routeGeoJson}>
+            <Layer
+              id="route-line"
+              type="line"
+              paint={{
+                "line-color": "#ea580c",
+                "line-width": 6,
+                "line-opacity": 0.95,
+              }}
+              layout={{
+                "line-cap": "round",
+                "line-join": "round",
+              }}
+            />
+          </Source>
+        )}
 
         {hasDriverLocation && (
           <Marker longitude={driverLng!} latitude={driverLat!} anchor="bottom">
             <div className="bg-primary text-primary-foreground px-3 py-1 rounded-full text-xs font-medium shadow">
               Driver
+            </div>
+          </Marker>
+        )}
+
+        {hasDestination && (
+          <Marker longitude={destinationLng!} latitude={destinationLat!} anchor="bottom">
+            <div className="bg-success text-success-foreground px-3 py-1 rounded-full text-xs font-medium shadow">
+              Destination
             </div>
           </Marker>
         )}

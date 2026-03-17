@@ -45,6 +45,54 @@ export default function OrderTrackingPage() {
   const navigate = useNavigate();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
+  const [destinationCoords, setDestinationCoords] = useState<{ lat: number | null; lng: number | null }>({
+    lat: null,
+    lng: null,
+  });
+  const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
+  const [routeEtaMinutes, setRouteEtaMinutes] = useState<number | null>(null);
+  const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
+
+  const geocodeAddress = async (address: string) => {
+    const key = import.meta.env.VITE_MAPTILER_KEY;
+    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(address)}.json?limit=1&country=za&key=${key}`;
+
+    const res = await fetch(url);
+    const json = await res.json();
+
+    const first = json?.features?.[0];
+    if (!first?.center) return null;
+
+    return {
+      lng: first.center[0],
+      lat: first.center[1],
+    };
+  };
+
+const fetchRoute = async (
+  driverLat: number,
+  driverLng: number,
+  destLat: number,
+  destLng: number
+) => {
+  const url = `https://router.project-osrm.org/route/v1/driving/${driverLng},${driverLat};${destLng},${destLat}?overview=full&geometries=geojson`;
+
+  const res = await fetch(url);
+  const json = await res.json();
+
+  const route = json?.routes?.[0];
+  if (!route?.geometry) return null;
+
+  return {
+    geometry: {
+      type: "Feature",
+      properties: {},
+      geometry: route.geometry,
+    } as GeoJSON.Feature<GeoJSON.LineString>,
+    durationMinutes: Math.round((route.duration || 0) / 60),
+    distanceKm: Number(((route.distance || 0) / 1000).toFixed(1)),
+  };
+};
 
   useEffect(() => {
     if (!user || !orderId) {
@@ -134,6 +182,36 @@ export default function OrderTrackingPage() {
       supabase.removeChannel(channel);
     };
   }, [user, orderId, navigate]);
+
+ useEffect(() => {
+  const run = async () => {
+    if (!order?.delivery_address) return;
+
+    const dest = await geocodeAddress(order.delivery_address);
+    if (!dest) return;
+
+    setDestinationCoords(dest);
+
+    if (order.driver_lat != null && order.driver_lng != null) {
+      const route = await fetchRoute(order.driver_lat, order.driver_lng, dest.lat, dest.lng);
+      if (route) {
+        setRouteGeoJson(route.geometry);
+        setRouteEtaMinutes(route.durationMinutes);
+        setRouteDistanceKm(route.distanceKm);
+      } else {
+        setRouteGeoJson(null);
+        setRouteEtaMinutes(null);
+        setRouteDistanceKm(null);
+      }
+    } else {
+      setRouteGeoJson(null);
+      setRouteEtaMinutes(null);
+      setRouteDistanceKm(null);
+    }
+  };
+
+  run();
+}, [order?.delivery_address, order?.driver_lat, order?.driver_lng]);
 
   if (loading) {
     return (
@@ -233,74 +311,81 @@ export default function OrderTrackingPage() {
         )}
 
         {order.status === "out_for_delivery" && (
-  <div className="space-y-4 mb-8">
-    <div className="bg-card rounded-lg border border-border p-5 space-y-4">
-      <h3 className="font-display text-xl text-foreground">DELIVERY LIVE INFO</h3>
+          <div className="space-y-4 mb-8">
+            <div className="bg-card rounded-lg border border-border p-5 space-y-4">
+              <h3 className="font-display text-xl text-foreground">DELIVERY LIVE INFO</h3>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        <div className="flex items-start gap-3">
-          <UserRound className="w-5 h-5 text-primary mt-0.5" />
-          <div>
-            <p className="text-muted-foreground">Driver</p>
-            <p className="font-medium text-foreground">
-              {order.drivers?.name || "Driver will be assigned soon"}
-            </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="flex items-start gap-3">
+                  <UserRound className="w-5 h-5 text-primary mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground">Driver</p>
+                    <p className="font-medium text-foreground">
+                      {order.drivers?.name || "Driver will be assigned soon"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Phone className="w-5 h-5 text-primary mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground">Driver Phone</p>
+                    <p className="font-medium text-foreground">
+                      {order.drivers?.phone || "Not available yet"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-primary mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground">Estimated Arrival</p>
+                    <p className="font-medium text-foreground">
+                      {routeEtaMinutes != null
+                        ? `${routeEtaMinutes} min away`
+                        : etaText || "ETA will be updated soon"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-5 h-5 text-primary mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground">Distance Away</p>
+                    <p className="font-medium text-foreground">
+                     {routeDistanceKm != null
+  ? `${routeDistanceKm} km away`
+  : order.driver_distance_km != null
+    ? `${Number(order.driver_distance_km).toFixed(1)} km away`
+    : "Distance will be updated soon"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {order.driver_last_updated && (
+                <p className="text-xs text-muted-foreground">
+                  Last updated:{" "}
+                  {new Date(order.driver_last_updated).toLocaleString("en-ZA", {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              )}
+            </div>
+
+            <DriverLiveMap
+              driverLat={order.driver_lat}
+              driverLng={order.driver_lng}
+              destinationLat={destinationCoords.lat}
+              destinationLng={destinationCoords.lng}
+              destinationLabel={order.delivery_address}
+              routeGeoJson={routeGeoJson}
+            />
           </div>
-        </div>
-
-        <div className="flex items-start gap-3">
-          <Phone className="w-5 h-5 text-primary mt-0.5" />
-          <div>
-            <p className="text-muted-foreground">Driver Phone</p>
-            <p className="font-medium text-foreground">
-              {order.drivers?.phone || "Not available yet"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-start gap-3">
-          <Clock className="w-5 h-5 text-primary mt-0.5" />
-          <div>
-            <p className="text-muted-foreground">Estimated Arrival</p>
-            <p className="font-medium text-foreground">
-              {etaText || "ETA will be updated soon"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-start gap-3">
-          <MapPin className="w-5 h-5 text-primary mt-0.5" />
-          <div>
-            <p className="text-muted-foreground">Distance Away</p>
-            <p className="font-medium text-foreground">
-              {order.driver_distance_km != null
-                ? `${Number(order.driver_distance_km).toFixed(1)} km away`
-                : "Distance will be updated soon"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {order.driver_last_updated && (
-        <p className="text-xs text-muted-foreground">
-          Last updated:{" "}
-          {new Date(order.driver_last_updated).toLocaleString("en-ZA", {
-            day: "numeric",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </p>
-      )}
-    </div>
-
-    <DriverLiveMap
-      driverLat={order.driver_lat}
-      driverLng={order.driver_lng}
-      destinationLabel={order.delivery_address}
-    />
-  </div>
-)}
+        )}
 
         <div className="bg-card rounded-lg border border-border p-5 space-y-3">
           <h3 className="font-display text-xl text-foreground">ORDER DETAILS</h3>
