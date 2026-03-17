@@ -142,7 +142,8 @@ export default function AccountPage() {
                 <p className="text-muted-foreground font-medium">No orders yet</p>
               </div>
             ) : orders.map((o) => (
-              <div key={o.id} className="bg-card rounded-lg border border-border p-4 flex items-center justify-between">
+              <div key={o.id} onClick={() => navigate(`/order-tracking/${o.id}`)}
+                className="bg-card rounded-lg border border-border p-4 flex items-center justify-between cursor-pointer hover:border-primary/30 transition-colors">
                 <div>
                   <p className="font-medium text-foreground text-sm">{o.customer_name}</p>
                   <p className="text-xs text-muted-foreground">{new Date(o.created_at).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })}</p>
