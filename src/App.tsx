@@ -15,6 +15,7 @@ import AccountPage from "./pages/AccountPage";
 import AdminPage from "./pages/AdminPage";
 import OrderTrackingPage from "./pages/OrderTrackingPage";
 import AdminOrdersPage from "@/pages/AdminOrdersPage";
+import "maplibre-gl/dist/maplibre-gl.css";
 import NotFound from "./pages/NotFound";
 
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Save, Crosshair } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
@@ -38,6 +38,9 @@ interface AdminOrder {
   driver_id: string | null;
   estimated_delivery_time: string | null;
   driver_distance_km: number | null;
+  driver_lat: number | null;
+  driver_lng: number | null;
+  driver_last_updated: string | null;
 }
 
 const statusOptions: OrderStatus[] = [
@@ -66,6 +69,7 @@ export default function AdminOrdersPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<OrderStatus | "all">("all");
   const [search, setSearch] = useState("");
+  const [locationInputs, setLocationInputs] = useState<Record<string, { lat: string; lng: string }>>({});
 
   const loadOrders = async () => {
     setPageLoading(true);
@@ -89,14 +93,27 @@ export default function AdminOrdersPage() {
         voucher_code,
         driver_id,
         estimated_delivery_time,
-        driver_distance_km
+        driver_distance_km,
+        driver_lat,
+        driver_lng,
+        driver_last_updated
       `)
       .order("created_at", { ascending: false });
 
     if (error) {
       toast.error(error.message || "Failed to load orders");
     } else {
-      setOrders((data || []) as AdminOrder[]);
+      const nextOrders = (data || []) as AdminOrder[];
+      setOrders(nextOrders);
+
+      const nextInputs: Record<string, { lat: string; lng: string }> = {};
+      nextOrders.forEach((order) => {
+        nextInputs[order.id] = {
+          lat: order.driver_lat != null ? String(order.driver_lat) : "",
+          lng: order.driver_lng != null ? String(order.driver_lng) : "",
+        };
+      });
+      setLocationInputs(nextInputs);
     }
 
     setPageLoading(false);
@@ -225,6 +242,107 @@ export default function AdminOrdersPage() {
       );
       toast.success("Distance updated");
     }
+  };
+
+  const handleLocationInputChange = (orderId: string, field: "lat" | "lng", value: string) => {
+    setLocationInputs((prev) => ({
+      ...prev,
+      [orderId]: {
+        lat: prev[orderId]?.lat ?? "",
+        lng: prev[orderId]?.lng ?? "",
+        [field]: value,
+      },
+    }));
+  };
+const useCurrentLocationForOrder = (orderId: string) => {
+  if (!navigator.geolocation) {
+    toast.error("Geolocation is not supported on this device");
+    return;
+  }
+
+  setSavingId(orderId);
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const lat = String(position.coords.latitude);
+      const lng = String(position.coords.longitude);
+
+      setLocationInputs((prev) => ({
+        ...prev,
+        [orderId]: { lat, lng },
+      }));
+
+      setSavingId(null);
+      toast.success("Current location captured");
+    },
+    (error) => {
+      setSavingId(null);
+
+      switch (error.code) {
+        case error.PERMISSION_DENIED:
+          toast.error("Location permission was denied");
+          break;
+        case error.POSITION_UNAVAILABLE:
+          toast.error("Location information is unavailable");
+          break;
+        case error.TIMEOUT:
+          toast.error("Location request timed out");
+          break;
+        default:
+          toast.error("Failed to get current location");
+      }
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0,
+    }
+  );
+};
+  const updateDriverLocation = async (orderId: string) => {
+    const latValue = locationInputs[orderId]?.lat?.trim() || "";
+    const lngValue = locationInputs[orderId]?.lng?.trim() || "";
+
+    const driverLat = latValue ? Number(latValue) : null;
+    const driverLng = lngValue ? Number(lngValue) : null;
+
+    if ((latValue && Number.isNaN(driverLat)) || (lngValue && Number.isNaN(driverLng))) {
+      toast.error("Please enter valid latitude and longitude values");
+      return;
+    }
+
+    setSavingId(orderId);
+
+    const timestamp = driverLat != null && driverLng != null ? new Date().toISOString() : null;
+
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        driver_lat: driverLat,
+        driver_lng: driverLng,
+        driver_last_updated: timestamp,
+      })
+      .eq("id", orderId);
+
+    if (error) {
+      toast.error(error.message || "Failed to update driver location");
+    } else {
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderId
+            ? {
+                ...o,
+                driver_lat: driverLat,
+                driver_lng: driverLng,
+                driver_last_updated: timestamp,
+              }
+            : o
+        )
+      );
+      toast.success("Driver location updated");
+    }
+
+    setSavingId(null);
   };
 
   if (loading || pageLoading) {
@@ -410,6 +528,76 @@ export default function AdminOrdersPage() {
                     />
                   </div>
                 </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+  <div>
+    <label className="block text-xs text-muted-foreground mb-1">Driver Latitude</label>
+    <input
+      type="number"
+      step="0.0000001"
+      value={locationInputs[order.id]?.lat ?? ""}
+      onChange={(e) => handleLocationInputChange(order.id, "lat", e.target.value)}
+      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+      placeholder="-26.2041"
+    />
+  </div>
+
+  <div>
+    <label className="block text-xs text-muted-foreground mb-1">Driver Longitude</label>
+    <input
+      type="number"
+      step="0.0000001"
+      value={locationInputs[order.id]?.lng ?? ""}
+      onChange={(e) => handleLocationInputChange(order.id, "lng", e.target.value)}
+      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+      placeholder="28.0473"
+    />
+  </div>
+
+  <div className="flex items-end">
+    <button
+      type="button"
+      onClick={() => useCurrentLocationForOrder(order.id)}
+      disabled={savingId === order.id}
+      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+    >
+      {savingId === order.id ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : (
+        <Crosshair className="w-4 h-4" />
+      )}
+      Use My Current Location
+    </button>
+  </div>
+
+  <div className="flex items-end">
+    <button
+      type="button"
+      onClick={() => updateDriverLocation(order.id)}
+      disabled={savingId === order.id}
+      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+    >
+      {savingId === order.id ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : (
+        <Save className="w-4 h-4" />
+      )}
+      Save Driver Location
+    </button>
+  </div>
+</div>
+
+                {order.driver_last_updated && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Driver location last updated:{" "}
+                    {new Date(order.driver_last_updated).toLocaleString("en-ZA", {
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                )}
 
                 {order.notes && (
                   <div className="mt-4 pt-4 border-t border-border">
