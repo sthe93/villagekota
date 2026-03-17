@@ -1,44 +1,69 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Search, SlidersHorizontal } from "lucide-react";
-import { products, categories, type Category, type SpiceLevel } from "@/data/products";
+import { getProducts, categories, type Category, type SpiceLevel, type Product } from "@/data/products";
 import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
+import { toast } from "sonner";
 
 const spiceLevels: SpiceLevel[] = ["Mild", "Medium", "Hot", "Extra Hot"];
 
 export default function MenuPage() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<Category | "All">("All");
   const [activeSpice, setActiveSpice] = useState<SpiceLevel | "All">("All");
   const [sortBy, setSortBy] = useState<"default" | "price-asc" | "price-desc" | "popular">("default");
   const [showFilters, setShowFilters] = useState(false);
 
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const data = await getProducts();
+        setProducts(data);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to load products");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProducts();
+  }, []);
+
   const filtered = useMemo(() => {
-    let result = products.filter((p) => {
-      const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase());
+    const result = products.filter((p) => {
+      const matchesSearch =
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
+        p.description.toLowerCase().includes(search.toLowerCase());
       const matchesCat = activeCategory === "All" || p.category === activeCategory;
       const matchesSpice = activeSpice === "All" || p.spiceLevel === activeSpice;
       return matchesSearch && matchesCat && matchesSpice;
     });
 
     switch (sortBy) {
-      case "price-asc": result.sort((a, b) => a.price - b.price); break;
-      case "price-desc": result.sort((a, b) => b.price - a.price); break;
-      case "popular": result.sort((a, b) => b.reviewCount - a.reviewCount); break;
+      case "price-asc":
+        result.sort((a, b) => a.price - b.price);
+        break;
+      case "price-desc":
+        result.sort((a, b) => b.price - a.price);
+        break;
+      case "popular":
+        result.sort((a, b) => b.reviewCount - a.reviewCount);
+        break;
     }
+
     return result;
-  }, [search, activeCategory, activeSpice, sortBy]);
+  }, [products, search, activeCategory, activeSpice, sortBy]);
 
   return (
     <div>
       <div className="container py-8">
-        {/* Header */}
         <div className="text-center mb-8">
           <h1 className="font-display text-5xl sm:text-6xl text-foreground mb-2">OUR MENU</h1>
           <p className="text-muted-foreground font-body">Explore our full range of Kotas, Bunny Chows & more</p>
         </div>
 
-        {/* Search */}
         <div className="flex gap-3 mb-6 max-w-xl mx-auto">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -59,7 +84,6 @@ export default function MenuPage() {
           </button>
         </div>
 
-        {/* Filters */}
         {showFilters && (
           <div className="max-w-xl mx-auto mb-6 bg-card rounded-lg border border-border p-4 animate-fade-in space-y-4">
             <div>
@@ -102,7 +126,6 @@ export default function MenuPage() {
           </div>
         )}
 
-        {/* Category tabs */}
         <div className="flex gap-2 overflow-x-auto pb-2 mb-8 scrollbar-hide">
           {["All", ...categories].map((cat) => (
             <button
@@ -119,8 +142,11 @@ export default function MenuPage() {
           ))}
         </div>
 
-        {/* Product grid */}
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-20">
+            <p className="text-muted-foreground font-medium text-lg">Loading menu...</p>
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-muted-foreground font-medium text-lg">No items found</p>
             <p className="text-muted-foreground text-sm mt-1">Try adjusting your filters</p>

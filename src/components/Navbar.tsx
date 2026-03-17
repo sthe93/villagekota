@@ -23,7 +23,6 @@ export default function Navbar() {
           KOTA KING
         </Link>
 
-        {/* Desktop links */}
         <div className="hidden md:flex items-center gap-8">
           {links.map((l) => (
             <Link
@@ -40,10 +39,15 @@ export default function Navbar() {
 
         <div className="flex items-center gap-2">
           {isAdmin && (
-            <Link to="/admin" className="p-2 rounded-lg hover:bg-muted transition-colors" aria-label="Admin">
+            <Link
+              to="/admin/orders"
+              className="p-2 rounded-lg hover:bg-muted transition-colors"
+              aria-label="Admin Orders"
+            >
               <Shield className="w-5 h-5 text-primary" />
             </Link>
           )}
+
           <Link
             to={user ? "/account" : "/auth"}
             className="p-2 rounded-lg hover:bg-muted transition-colors"
@@ -51,6 +55,7 @@ export default function Navbar() {
           >
             <User className="w-5 h-5 text-foreground" />
           </Link>
+
           <button
             onClick={toggleCart}
             className="relative p-2 rounded-lg hover:bg-muted transition-colors"
@@ -74,7 +79,6 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* Mobile menu */}
       {mobileOpen && (
         <div className="md:hidden border-t border-border bg-card animate-fade-in">
           {links.map((l) => (
@@ -89,6 +93,7 @@ export default function Navbar() {
               {l.label}
             </Link>
           ))}
+
           <Link
             to={user ? "/account" : "/auth"}
             onClick={() => setMobileOpen(false)}
@@ -96,10 +101,14 @@ export default function Navbar() {
           >
             {user ? "My Account" : "Sign In"}
           </Link>
+
           {isAdmin && (
-            <Link to="/admin" onClick={() => setMobileOpen(false)}
-              className="block px-6 py-3 text-sm font-medium text-primary hover:bg-muted">
-              Admin Dashboard
+            <Link
+              to="/admin/orders"
+              onClick={() => setMobileOpen(false)}
+              className="block px-6 py-3 text-sm font-medium text-primary hover:bg-muted"
+            >
+              Admin Orders
             </Link>
           )}
         </div>

@@ -105,14 +105,18 @@ export default function CheckoutPage() {
       if (orderError) throw orderError;
 
       // Create order items
-      const orderItems = items.map((item) => ({
-        order_id: order.id,
-        product_id: item.product.id,
-        product_name: item.product.name,
-        quantity: item.quantity,
-        unit_price: item.product.price,
-        total_price: item.product.price * item.quantity,
-      }));
+     // Create order items
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const orderItems = items.map((item) => ({
+  order_id: order.id,
+  product_id: isUuid(item.product.id) ? item.product.id : null,
+  product_name: item.product.name,
+  quantity: item.quantity,
+  unit_price: item.product.price,
+  total_price: item.product.price * item.quantity,
+}));
 
       const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
       if (itemsError) throw itemsError;

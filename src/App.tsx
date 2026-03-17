@@ -14,7 +14,9 @@ import AuthPage from "./pages/AuthPage";
 import AccountPage from "./pages/AccountPage";
 import AdminPage from "./pages/AdminPage";
 import OrderTrackingPage from "./pages/OrderTrackingPage";
+import AdminOrdersPage from "@/pages/AdminOrdersPage";
 import NotFound from "./pages/NotFound";
+
 
 const queryClient = new QueryClient();
 
@@ -37,6 +39,7 @@ const App = () => (
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
               <Route path="*" element={<NotFound />} />
+              <Route path="/admin/orders" element={<AdminOrdersPage />} />
             </Routes>
           </BrowserRouter>
         </CartProvider>

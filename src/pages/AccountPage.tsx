@@ -3,7 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { User, Package, Heart, LogOut } from "lucide-react";
+import { User, Package, Heart, LogOut, Shield } from "lucide-react";
 import Footer from "@/components/Footer";
 
 interface Order {
@@ -21,7 +21,7 @@ interface Favorite {
 }
 
 export default function AccountPage() {
-  const { user, profile, signOut, refreshProfile } = useAuth();
+  const { user, profile, signOut, refreshProfile, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState<"profile" | "orders" | "favorites">("profile");
   const [orders, setOrders] = useState<Order[]>([]);
@@ -121,16 +121,32 @@ export default function AccountPage() {
               <textarea value={editForm.default_address} onChange={(e) => setEditForm(f => ({ ...f, default_address: e.target.value }))}
                 rows={2} className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-body resize-none" />
             </div>
-            <div className="flex gap-3">
-              <button onClick={handleSaveProfile} disabled={saving}
-                className="bg-primary text-primary-foreground px-6 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50">
-                {saving ? "Saving..." : "Save Profile"}
-              </button>
-              <button onClick={handleSignOut}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
-                <LogOut className="w-4 h-4" /> Sign Out
-              </button>
-            </div>
+           <div className="flex gap-3 flex-wrap">
+  <button
+    onClick={handleSaveProfile}
+    disabled={saving}
+    className="bg-primary text-primary-foreground px-6 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+  >
+    {saving ? "Saving..." : "Save Profile"}
+  </button>
+
+  {isAdmin && (
+    <button
+      onClick={() => navigate("/admin/orders")}
+      className="flex items-center gap-2 px-6 py-2.5 rounded-lg border border-primary text-primary text-sm font-medium hover:bg-primary/10 transition-colors"
+    >
+      <Shield className="w-4 h-4" />
+      Admin Orders
+    </button>
+  )}
+
+  <button
+    onClick={handleSignOut}
+    className="flex items-center gap-2 px-6 py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+  >
+    <LogOut className="w-4 h-4" /> Sign Out
+  </button>
+</div>
           </div>
         )}
 

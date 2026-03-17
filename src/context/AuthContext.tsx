@@ -16,6 +16,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   profile: Profile | null;
+  roles: string[];
   isAdmin: boolean;
   loading: boolean;
   signUp: (email: string, password: string, displayName?: string) => Promise<{ error: Error | null }>;
@@ -30,6 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [roles, setRoles] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -39,23 +41,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .select("*")
       .eq("user_id", userId)
       .single();
+
     setProfile(data);
   };
 
-  const checkAdmin = async (userId: string) => {
+  const fetchRoles = async (userId: string) => {
     const { data } = await supabase
       .from("user_roles")
       .select("role")
-      .eq("user_id", userId)
-      .eq("role", "admin")
-      .maybeSingle();
-    setIsAdmin(!!data);
+      .eq("user_id", userId);
+
+    const nextRoles = (data || []).map((row) => row.role);
+    setRoles(nextRoles);
+    setIsAdmin(nextRoles.includes("admin"));
   };
 
   const refreshProfile = async () => {
     if (user) {
       await fetchProfile(user.id);
-      await checkAdmin(user.id);
+      await fetchRoles(user.id);
     }
   };
 
@@ -64,15 +68,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+
         if (session?.user) {
           setTimeout(() => {
             fetchProfile(session.user.id);
-            checkAdmin(session.user.id);
+            fetchRoles(session.user.id);
           }, 0);
         } else {
           setProfile(null);
+          setRoles([]);
           setIsAdmin(false);
         }
+
         setLoading(false);
       }
     );
@@ -80,10 +87,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+
       if (session?.user) {
         fetchProfile(session.user.id);
-        checkAdmin(session.user.id);
+        fetchRoles(session.user.id);
+      } else {
+        setProfile(null);
+        setRoles([]);
+        setIsAdmin(false);
       }
+
       setLoading(false);
     });
 
@@ -99,6 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         data: { display_name: displayName || email.split("@")[0] },
       },
     });
+
     return { error: error as Error | null };
   };
 
@@ -112,12 +126,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setSession(null);
     setProfile(null);
+    setRoles([]);
     setIsAdmin(false);
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, session, profile, isAdmin, loading, signUp, signIn, signOut, refreshProfile }}
+      value={{
+        user,
+        session,
+        profile,
+        roles,
+        isAdmin,
+        loading,
+        signUp,
+        signIn,
+        signOut,
+        refreshProfile,
+      }}
     >
       {children}
     </AuthContext.Provider>

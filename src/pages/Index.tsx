@@ -1,8 +1,10 @@
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { ArrowRight, Star, Truck, Clock, Shield } from "lucide-react";
-import { products } from "@/data/products";
+import { getProducts, type Product } from "@/data/products";
 import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
+import { toast } from "sonner";
 import heroBg from "@/assets/hero-bunny-chow.jpg";
 
 const testimonials = [
@@ -12,11 +14,28 @@ const testimonials = [
 ];
 
 export default function HomePage() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const data = await getProducts();
+        setProducts(data);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to load products");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProducts();
+  }, []);
+
   const featured = products.filter((p) => p.isFeatured);
 
   return (
     <div>
-      {/* Hero */}
       <section className="relative min-h-[70vh] flex items-center">
         <div className="absolute inset-0">
           <img src={heroBg} alt="Bunny Chow" className="w-full h-full object-cover" />
@@ -52,7 +71,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Features bar */}
       <section className="bg-card border-b border-border">
         <div className="container py-6 grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
@@ -69,7 +87,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Promo banner */}
       <section className="bg-primary">
         <div className="container py-4 text-center">
           <p className="font-display text-xl text-primary-foreground tracking-wider">
@@ -78,17 +95,24 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Featured items */}
       <section id="featured" className="container py-16">
         <div className="text-center mb-10">
           <h2 className="font-display text-4xl sm:text-5xl text-foreground mb-2">FEATURED MEALS</h2>
           <p className="text-muted-foreground font-body">Our most loved creations, handpicked for you</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {featured.map((p) => (
-            <ProductCard key={p.id} product={p} />
-          ))}
-        </div>
+
+        {loading ? (
+          <div className="text-center py-10 text-muted-foreground">Loading products...</div>
+        ) : featured.length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground">No featured products found.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {featured.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        )}
+
         <div className="text-center mt-10">
           <Link
             to="/menu"
@@ -99,7 +123,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Testimonials */}
       <section className="bg-muted">
         <div className="container py-16">
           <h2 className="font-display text-4xl text-center text-foreground mb-10">WHAT OUR CUSTOMERS SAY</h2>
@@ -119,7 +142,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* CTA */}
       <section className="container py-16 text-center">
         <h2 className="font-display text-4xl sm:text-5xl text-foreground mb-4">HUNGRY YET?</h2>
         <p className="text-muted-foreground mb-8 font-body max-w-md mx-auto">
