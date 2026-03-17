@@ -123,14 +123,17 @@ export type Database = {
           customer_phone: string
           delivery_address: string
           delivery_fee: number
+          discount_amount: number | null
           id: string
           notes: string | null
           payment_method: string
           status: string
+          stripe_session_id: string | null
           subtotal: number
           total: number
           updated_at: string
           user_id: string | null
+          voucher_code: string | null
         }
         Insert: {
           created_at?: string
@@ -139,14 +142,17 @@ export type Database = {
           customer_phone: string
           delivery_address: string
           delivery_fee?: number
+          discount_amount?: number | null
           id?: string
           notes?: string | null
           payment_method?: string
           status?: string
+          stripe_session_id?: string | null
           subtotal: number
           total: number
           updated_at?: string
           user_id?: string | null
+          voucher_code?: string | null
         }
         Update: {
           created_at?: string
@@ -155,14 +161,17 @@ export type Database = {
           customer_phone?: string
           delivery_address?: string
           delivery_fee?: number
+          discount_amount?: number | null
           id?: string
           notes?: string | null
           payment_method?: string
           status?: string
+          stripe_session_id?: string | null
           subtotal?: number
           total?: number
           updated_at?: string
           user_id?: string | null
+          voucher_code?: string | null
         }
         Relationships: []
       }
@@ -311,6 +320,90 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      voucher_redemptions: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          order_id: string
+          user_id: string
+          voucher_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          order_id: string
+          user_id: string
+          voucher_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          order_id?: string
+          user_id?: string
+          voucher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voucher_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voucher_redemptions_voucher_id_fkey"
+            columns: ["voucher_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vouchers: {
+        Row: {
+          balance: number | null
+          code: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          max_uses: number | null
+          min_order: number | null
+          type: string
+          used_count: number | null
+          value: number
+        }
+        Insert: {
+          balance?: number | null
+          code: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_uses?: number | null
+          min_order?: number | null
+          type: string
+          used_count?: number | null
+          value: number
+        }
+        Update: {
+          balance?: number | null
+          code?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_uses?: number | null
+          min_order?: number | null
+          type?: string
+          used_count?: number | null
+          value?: number
         }
         Relationships: []
       }
