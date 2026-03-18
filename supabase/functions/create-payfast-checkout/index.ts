@@ -2,11 +2,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import md5 from "npm:crypto-js/md5";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
 type Payload = {
   orderId: string;
   total: number;
@@ -14,6 +9,23 @@ type Payload = {
   customerEmail: string;
   itemName: string;
 };
+
+const allowedOrigins = [
+  "http://localhost:8080",
+  "https://sthe93.github.io",
+];
+
+function getCorsHeaders(origin: string | null) {
+  const allowedOrigin =
+    origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json",
+  };
+}
 
 function sanitizeValue(value: string) {
   return value.replace(/\+/g, " ").trim();
@@ -25,7 +37,10 @@ function buildPayfastSignature(data: Record<string, string>, passphrase?: string
   );
 
   const queryString = filteredEntries
-    .map(([key, value]) => `${key}=${encodeURIComponent(sanitizeValue(String(value))).replace(/%20/g, "+")}`)
+    .map(
+      ([key, value]) =>
+        `${key}=${encodeURIComponent(sanitizeValue(String(value))).replace(/%20/g, "+")}`
+    )
     .join("&");
 
   const signatureBase = passphrase
@@ -36,8 +51,14 @@ function buildPayfastSignature(data: Record<string, string>, passphrase?: string
 }
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get("origin");
+  const corsHeaders = getCorsHeaders(origin);
+
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", {
+      status: 200,
+      headers: corsHeaders,
+    });
   }
 
   try {
@@ -53,7 +74,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "Missing required fields" }),
         {
           status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: corsHeaders,
         }
       );
     }
@@ -69,7 +90,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "Missing PayFast configuration" }),
         {
           status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: corsHeaders,
         }
       );
     }
@@ -118,7 +139,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: updateError.message }),
         {
           status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: corsHeaders,
         }
       );
     }
@@ -127,7 +148,7 @@ Deno.serve(async (req) => {
       JSON.stringify({ url: paymentUrl }),
       {
         status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: corsHeaders,
       }
     );
   } catch (error) {
@@ -137,7 +158,7 @@ Deno.serve(async (req) => {
       }),
       {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: corsHeaders,
       }
     );
   }

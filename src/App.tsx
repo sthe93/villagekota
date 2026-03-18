@@ -18,7 +18,6 @@ import AdminOrdersPage from "@/pages/AdminOrdersPage";
 import "maplibre-gl/dist/maplibre-gl.css";
 import NotFound from "./pages/NotFound";
 
-
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -27,7 +26,7 @@ const App = () => (
       <Sonner />
       <AuthProvider>
         <CartProvider>
-          <BrowserRouter>
+          <BrowserRouter basename="/villagekota">
             <Navbar />
             <CartDrawer />
             <CartFAB />
@@ -39,8 +38,8 @@ const App = () => (
               <Route path="/account" element={<AccountPage />} />
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
-              <Route path="*" element={<NotFound />} />
               <Route path="/admin/orders" element={<AdminOrdersPage />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
         </CartProvider>
