@@ -55,43 +55,35 @@ Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(origin);
 
   if (req.method === "OPTIONS") {
-    return new Response("ok", {
+    return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: corsHeaders,
     });
   }
 
   try {
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
-    const body = (await req.json()) as Payload;
-
-    if (!body.orderId || !body.total || !body.customerEmail || !body.itemName) {
-      return new Response(
-        JSON.stringify({ error: "Missing required fields" }),
-        {
-          status: 400,
-          headers: corsHeaders,
-        }
-      );
-    }
-
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const merchantId = Deno.env.get("PAYFAST_MERCHANT_ID");
     const merchantKey = Deno.env.get("PAYFAST_MERCHANT_KEY");
     const passphrase = Deno.env.get("PAYFAST_PASSPHRASE") || "";
     const isSandbox = Deno.env.get("PAYFAST_SANDBOX") === "true";
     const siteUrl = Deno.env.get("SITE_URL");
 
-    if (!merchantId || !merchantKey || !siteUrl) {
+    if (!supabaseUrl || !serviceRoleKey || !merchantId || !merchantKey || !siteUrl) {
       return new Response(
-        JSON.stringify({ error: "Missing PayFast configuration" }),
-        {
-          status: 500,
-          headers: corsHeaders,
-        }
+        JSON.stringify({ error: "Missing environment configuration" }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+    const body = (await req.json()) as Payload;
+
+    if (!body.orderId || !body.total || !body.customerEmail || !body.itemName) {
+      return new Response(
+        JSON.stringify({ error: "Missing required fields" }),
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -99,7 +91,7 @@ Deno.serve(async (req) => {
 
     const returnUrl = `${siteUrl}/payment/success?orderId=${encodeURIComponent(body.orderId)}`;
     const cancelUrl = `${siteUrl}/payment/cancel?orderId=${encodeURIComponent(body.orderId)}`;
-    const notifyUrl = `${siteUrl}/functions/v1/payfast-notify`;
+    const notifyUrl = `${supabaseUrl}/functions/v1/payfast-notify`;
 
     const paymentData: Record<string, string> = {
       merchant_id: merchantId,
@@ -137,29 +129,20 @@ Deno.serve(async (req) => {
     if (updateError) {
       return new Response(
         JSON.stringify({ error: updateError.message }),
-        {
-          status: 500,
-          headers: corsHeaders,
-        }
+        { status: 500, headers: corsHeaders }
       );
     }
 
     return new Response(
       JSON.stringify({ url: paymentUrl }),
-      {
-        status: 200,
-        headers: corsHeaders,
-      }
+      { status: 200, headers: corsHeaders }
     );
   } catch (error) {
     return new Response(
       JSON.stringify({
         error: error instanceof Error ? error.message : "Unexpected error",
       }),
-      {
-        status: 500,
-        headers: corsHeaders,
-      }
+      { status: 500, headers: corsHeaders }
     );
   }
 });
