@@ -1,6 +1,7 @@
 import { ShoppingBag, Menu, X, User, Shield } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
+import logo from "@/assets/star-village-logo.png";
 import { useAuth } from "@/context/AuthContext";
 import { useState } from "react";
 
@@ -17,19 +18,23 @@ export default function Navbar() {
   ];
 
   return (
-    <nav className="sticky top-0 z-50 bg-card/90 backdrop-blur-md border-b border-border">
-      <div className="container flex items-center justify-between h-16">
-        <Link to="/" className="font-display text-2xl tracking-wider text-primary">
-          KOTA KING
+    <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border shadow-sm">
+      <div className="container flex items-center justify-between h-20">
+        <Link to="/" className="flex items-center">
+          <img
+            src={logo}
+            alt="Village Eats"
+            className="h-14 md:h-16 w-auto object-contain mix-blend-multiply"
+          />
         </Link>
 
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden md:flex items-center gap-10">
           {links.map((l) => (
             <Link
               key={l.to}
               to={l.to}
-              className={`text-sm font-medium transition-colors hover:text-primary ${
-                location.pathname === l.to ? "text-primary" : "text-muted-foreground"
+              className={`text-lg font-medium transition-colors hover:text-primary ${
+                location.pathname === l.to ? "text-primary" : "text-foreground/75"
               }`}
             >
               {l.label}
@@ -80,14 +85,14 @@ export default function Navbar() {
       </div>
 
       {mobileOpen && (
-        <div className="md:hidden border-t border-border bg-card animate-fade-in">
+        <div className="md:hidden border-t border-border bg-background animate-fade-in">
           {links.map((l) => (
             <Link
               key={l.to}
               to={l.to}
               onClick={() => setMobileOpen(false)}
               className={`block px-6 py-3 text-sm font-medium transition-colors hover:bg-muted ${
-                location.pathname === l.to ? "text-primary" : "text-muted-foreground"
+                location.pathname === l.to ? "text-primary" : "text-foreground/75"
               }`}
             >
               {l.label}
@@ -97,7 +102,7 @@ export default function Navbar() {
           <Link
             to={user ? "/account" : "/auth"}
             onClick={() => setMobileOpen(false)}
-            className="block px-6 py-3 text-sm font-medium text-muted-foreground hover:bg-muted"
+            className="block px-6 py-3 text-sm font-medium text-foreground/75 hover:bg-muted"
           >
             {user ? "My Account" : "Sign In"}
           </Link>
