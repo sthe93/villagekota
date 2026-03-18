@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import md5 from "npm:crypto-js/md5";
+import CryptoJS from "npm:crypto-js";
 
 type Payload = {
   orderId: string;
@@ -10,23 +10,12 @@ type Payload = {
   itemName: string;
 };
 
-const allowedOrigins = [
-  "http://localhost:8080",
-  "https://sthe93.github.io",
-  "https://sthe93.github.io/villagekota",
-];
-
-function getCorsHeaders(origin: string | null) {
-  const allowedOrigin =
-    origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
-
-  return {
-    "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Content-Type": "application/json",
-  };
-}
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
 
 function sanitizeValue(value: string) {
   return value.replace(/\+/g, " ").trim();
@@ -48,15 +37,12 @@ function buildPayfastSignature(data: Record<string, string>, passphrase?: string
     ? `${queryString}&passphrase=${encodeURIComponent(passphrase).replace(/%20/g, "+")}`
     : queryString;
 
-  return md5(signatureBase).toString();
+  return CryptoJS.MD5(signatureBase).toString();
 }
 
 Deno.serve(async (req) => {
-  const origin = req.headers.get("origin");
-  const corsHeaders = getCorsHeaders(origin);
-
   if (req.method === "OPTIONS") {
-    return new Response(JSON.stringify({ ok: true }), {
+    return new Response("ok", {
       status: 200,
       headers: corsHeaders,
     });
@@ -69,14 +55,19 @@ Deno.serve(async (req) => {
     const merchantKey = Deno.env.get("PAYFAST_MERCHANT_KEY");
     const passphrase = Deno.env.get("PAYFAST_PASSPHRASE") || "";
     const isSandbox = Deno.env.get("PAYFAST_SANDBOX") === "true";
-    const siteUrl = Deno.env.get("SITE_URL");
 
-    if (!supabaseUrl || !serviceRoleKey || !merchantId || !merchantKey || !siteUrl) {
+    if (!supabaseUrl || !serviceRoleKey || !merchantId || !merchantKey) {
       return new Response(
         JSON.stringify({ error: "Missing environment configuration" }),
         { status: 500, headers: corsHeaders }
       );
     }
+
+    const origin = req.headers.get("origin");
+    const appBaseUrl =
+      origin === "http://localhost:8080"
+        ? "http://localhost:8080"
+        : "https://sthe93.github.io/villagekota";
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
     const body = (await req.json()) as Payload;
@@ -90,8 +81,8 @@ Deno.serve(async (req) => {
 
     const amount = Number(body.total).toFixed(2);
 
-    const returnUrl = `${siteUrl}/payment/success?orderId=${encodeURIComponent(body.orderId)}`;
-    const cancelUrl = `${siteUrl}/payment/cancel?orderId=${encodeURIComponent(body.orderId)}`;
+    const returnUrl = `${appBaseUrl}/payment/success?orderId=${encodeURIComponent(body.orderId)}`;
+    const cancelUrl = `${appBaseUrl}/payment/cancel?orderId=${encodeURIComponent(body.orderId)}`;
     const notifyUrl = `${supabaseUrl}/functions/v1/payfast-notify`;
 
     const paymentData: Record<string, string> = {

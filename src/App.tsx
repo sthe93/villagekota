@@ -15,6 +15,8 @@ import AccountPage from "./pages/AccountPage";
 import AdminPage from "./pages/AdminPage";
 import OrderTrackingPage from "./pages/OrderTrackingPage";
 import AdminOrdersPage from "@/pages/AdminOrdersPage";
+import PaymentSuccessPage from "./pages/PaymentSuccessPage";
+import PaymentCancelPage from "./pages/PaymentCancelPage";
 import "maplibre-gl/dist/maplibre-gl.css";
 import NotFound from "./pages/NotFound";
 
@@ -26,7 +28,7 @@ const App = () => (
       <Sonner />
       <AuthProvider>
         <CartProvider>
-          <BrowserRouter basename="/villagekota">
+          <BrowserRouter basename={import.meta.env.DEV ? "/" : "/villagekota"}>
             <Navbar />
             <CartDrawer />
             <CartFAB />
@@ -37,8 +39,10 @@ const App = () => (
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/account" element={<AccountPage />} />
               <Route path="/admin" element={<AdminPage />} />
-              <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
               <Route path="/admin/orders" element={<AdminOrdersPage />} />
+              <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
+              <Route path="/payment/success" element={<PaymentSuccessPage />} />
+              <Route path="/payment/cancel" element={<PaymentCancelPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
