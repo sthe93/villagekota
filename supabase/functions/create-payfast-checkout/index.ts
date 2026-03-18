@@ -13,6 +13,7 @@ type Payload = {
 const allowedOrigins = [
   "http://localhost:8080",
   "https://sthe93.github.io",
+  "https://sthe93.github.io/villagekota",
 ];
 
 function getCorsHeaders(origin: string | null) {
