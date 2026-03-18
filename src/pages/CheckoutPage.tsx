@@ -306,7 +306,14 @@ export default function CheckoutPage() {
         }
       }
 
-   if (form.payment === "card") {
+  if (form.payment === "card") {
+  console.log("Starting PayFast checkout", {
+    orderId: order.id,
+    total: adjustedTotal,
+    customerName: form.name,
+    customerEmail: form.email || user.email,
+  });
+
   const { data: payfastData, error: payfastError } = await supabase.functions.invoke("create-payfast-checkout", {
     body: {
       orderId: order.id,
@@ -317,8 +324,12 @@ export default function CheckoutPage() {
     },
   });
 
+  console.log("PayFast function response", { payfastData, payfastError });
+
   if (payfastError || !payfastData?.url) {
-    toast.error("Failed to start payment. Your order has been saved — please try again or choose another payment method.");
+    toast.error(
+      `Failed to start payment: ${payfastError?.message || "No payment URL returned"}`
+    );
     navigate(`/order-tracking/${order.id}`);
   } else {
     clearCart();
