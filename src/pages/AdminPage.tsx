@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -17,6 +17,15 @@ import {
   Bike,
   TrendingUp,
   CreditCard,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Search,
+  RefreshCw,
+  MapPin,
+  Mail,
+  Phone,
+  Clock3,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 
@@ -126,18 +135,130 @@ const ORDER_STATUSES = [
 ];
 
 const statusColors: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  confirmed: "bg-blue-100 text-blue-700",
-  preparing: "bg-purple-100 text-purple-700",
-  on_the_way: "bg-indigo-100 text-indigo-700",
-  delivered: "bg-green-100 text-green-700",
-  cancelled: "bg-red-100 text-red-700",
+  pending: "bg-amber-100 text-amber-700 border-amber-200",
+  confirmed: "bg-blue-100 text-blue-700 border-blue-200",
+  preparing: "bg-purple-100 text-purple-700 border-purple-200",
+  on_the_way: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  delivered: "bg-green-100 text-green-700 border-green-200",
+  cancelled: "bg-red-100 text-red-700 border-red-200",
+};
+
+const paymentStatusColors: Record<string, string> = {
+  paid: "bg-green-100 text-green-700 border-green-200",
+  pending: "bg-amber-100 text-amber-700 border-amber-200",
+  failed: "bg-red-100 text-red-700 border-red-200",
+  cancelled: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
 const currency = (value: number) => `R${Number(value || 0).toFixed(2)}`;
 
 const formatDayLabel = (date: Date) =>
   date.toLocaleDateString("en-ZA", { day: "numeric", month: "short" });
+
+const formatStatusLabel = (value: string) => value.replace(/_/g, " ");
+
+const formatOrderId = (id: string) => `#${id.slice(0, 8).toUpperCase()}`;
+
+const inputClassName =
+  "w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary";
+
+const textareaClassName =
+  "w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary resize-none";
+
+const selectClassName =
+  "w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary";
+
+function Badge({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium capitalize ${className}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function StatCard({
+  title,
+  value,
+  icon,
+  valueClassName = "text-foreground",
+}: {
+  title: string;
+  value: ReactNode;
+  icon: ReactNode;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="mb-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            {title}
+          </p>
+          <p className={`font-display text-3xl ${valueClassName}`}>{value}</p>
+        </div>
+        <div className="rounded-2xl bg-primary/10 p-3 text-primary">{icon}</div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({
+  icon,
+  title,
+  description,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+      <div className="mb-3 inline-flex rounded-2xl bg-muted p-3 text-muted-foreground">
+        {icon}
+      </div>
+      <h3 className="text-base font-semibold text-foreground">{title}</h3>
+      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function AdminModal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h3 className="font-display text-2xl text-foreground">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="max-h-[calc(90vh-81px)] overflow-y-auto px-6 py-5">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminPage() {
   const { user, isAdmin, loading } = useAuth();
@@ -161,6 +282,18 @@ export default function AdminPage() {
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [showVoucherForm, setShowVoucherForm] = useState(false);
   const [showDriverForm, setShowDriverForm] = useState(false);
+
+  const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
+  const [paymentFilter, setPaymentFilter] = useState<
+    "all" | "paid" | "pending" | "failed" | "cancelled"
+  >("all");
+  const [orderSearch, setOrderSearch] = useState("");
+
+  const [productSearch, setProductSearch] = useState("");
+  const [productCategoryFilter, setProductCategoryFilter] = useState("all");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [voucherSearch, setVoucherSearch] = useState("");
+  const [driverSearch, setDriverSearch] = useState("");
 
   const [pageLoading, setPageLoading] = useState(true);
 
@@ -258,7 +391,10 @@ export default function AdminPage() {
     };
 
     if (editingProduct.id) {
-      const { error } = await supabase.from("products").update(payload).eq("id", editingProduct.id);
+      const { error } = await supabase
+        .from("products")
+        .update(payload)
+        .eq("id", editingProduct.id);
       if (error) toast.error(error.message);
       else toast.success("Product updated");
     } else {
@@ -270,6 +406,13 @@ export default function AdminPage() {
     setShowProductForm(false);
     setEditingProduct(null);
     fetchProducts();
+  };
+
+  const toggleOrderExpanded = (orderId: string) => {
+    setExpandedOrders((prev) => ({
+      ...prev,
+      [orderId]: !prev[orderId],
+    }));
   };
 
   const handleDeleteProduct = async (id: string) => {
@@ -294,7 +437,10 @@ export default function AdminPage() {
     };
 
     if (editingCategory.id) {
-      const { error } = await supabase.from("categories").update(payload).eq("id", editingCategory.id);
+      const { error } = await supabase
+        .from("categories")
+        .update(payload)
+        .eq("id", editingCategory.id);
       if (error) toast.error(error.message);
       else toast.success("Category updated");
     } else {
@@ -336,7 +482,10 @@ export default function AdminPage() {
     };
 
     if (editingVoucher.id) {
-      const { error } = await supabase.from("vouchers").update(payload).eq("id", editingVoucher.id);
+      const { error } = await supabase
+        .from("vouchers")
+        .update(payload)
+        .eq("id", editingVoucher.id);
       if (error) toast.error(error.message);
       else toast.success("Voucher updated");
     } else {
@@ -373,7 +522,10 @@ export default function AdminPage() {
     };
 
     if (editingDriver.id) {
-      const { error } = await supabase.from("drivers").update(payload).eq("id", editingDriver.id);
+      const { error } = await supabase
+        .from("drivers")
+        .update(payload)
+        .eq("id", editingDriver.id);
       if (error) toast.error(error.message);
       else toast.success("Driver updated");
     } else {
@@ -396,6 +548,24 @@ export default function AdminPage() {
       fetchDrivers();
     }
   };
+
+  const filteredAdminOrders = useMemo(() => {
+    return orders.filter((o) => {
+      const searchTerm = orderSearch.trim().toLowerCase();
+
+      const matchesSearch =
+        !searchTerm ||
+        o.customer_name.toLowerCase().includes(searchTerm) ||
+        o.customer_phone.toLowerCase().includes(searchTerm) ||
+        (o.customer_email || "").toLowerCase().includes(searchTerm) ||
+        o.id.toLowerCase().includes(searchTerm);
+
+      const paymentStatus = (o.payment_status || "pending").toLowerCase();
+      const matchesPayment = paymentFilter === "all" || paymentStatus === paymentFilter;
+
+      return matchesSearch && matchesPayment;
+    });
+  }, [orders, orderSearch, paymentFilter]);
 
   const handleUpdateOrderStatus = async (orderId: string, status: string) => {
     const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
@@ -450,17 +620,17 @@ export default function AdminPage() {
   }, [orders]);
 
   const orderItemsByOrderId = useMemo(() => {
-  const grouped: Record<string, OrderItemRow[]> = {};
+    const grouped: Record<string, OrderItemRow[]> = {};
 
-  orderItems.forEach((item) => {
-    if (!grouped[item.order_id]) {
-      grouped[item.order_id] = [];
-    }
-    grouped[item.order_id].push(item);
-  });
+    orderItems.forEach((item) => {
+      if (!grouped[item.order_id]) {
+        grouped[item.order_id] = [];
+      }
+      grouped[item.order_id].push(item);
+    });
 
-  return grouped;
-}, [orderItems]);
+    return grouped;
+  }, [orderItems]);
 
   const topSellingItems = useMemo<TopItem[]>(() => {
     const map = new Map<string, TopItem>();
@@ -515,79 +685,209 @@ export default function AdminPage() {
     );
   }, [orders]);
 
+  const categoryNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    categories.forEach((c) => map.set(c.id, c.name));
+    return map;
+  }, [categories]);
+
+  const filteredProducts = useMemo(() => {
+    const term = productSearch.trim().toLowerCase();
+
+    return products.filter((p) => {
+      const matchesSearch =
+        !term ||
+        p.name.toLowerCase().includes(term) ||
+        (p.description || "").toLowerCase().includes(term);
+
+      const matchesCategory =
+        productCategoryFilter === "all" || p.category_id === productCategoryFilter;
+
+      return matchesSearch && matchesCategory;
+    });
+  }, [products, productSearch, productCategoryFilter]);
+
+  const filteredCustomers = useMemo(() => {
+    const term = customerSearch.trim().toLowerCase();
+
+    return customers.filter((c) => {
+      return (
+        !term ||
+        c.name.toLowerCase().includes(term) ||
+        (c.email || "").toLowerCase().includes(term) ||
+        (c.phone || "").toLowerCase().includes(term)
+      );
+    });
+  }, [customers, customerSearch]);
+
+  const filteredVouchers = useMemo(() => {
+    const term = voucherSearch.trim().toLowerCase();
+
+    return vouchers.filter((v) => {
+      return !term || v.code.toLowerCase().includes(term) || v.type.toLowerCase().includes(term);
+    });
+  }, [vouchers, voucherSearch]);
+
+  const filteredDrivers = useMemo(() => {
+    const term = driverSearch.trim().toLowerCase();
+
+    return drivers.filter((d) => {
+      return (
+        !term ||
+        d.name.toLowerCase().includes(term) ||
+        (d.phone || "").toLowerCase().includes(term)
+      );
+    });
+  }, [drivers, driverSearch]);
+
+  const paidOrdersCount = useMemo(
+    () => orders.filter((o) => (o.payment_status || "pending").toLowerCase() === "paid").length,
+    [orders]
+  );
+
+  const pendingPaymentCount = useMemo(
+    () => orders.filter((o) => (o.payment_status || "pending").toLowerCase() === "pending").length,
+    [orders]
+  );
+
+  const failedPaymentCount = useMemo(
+    () => orders.filter((o) => (o.payment_status || "pending").toLowerCase() === "failed").length,
+    [orders]
+  );
+
+  const cancelledPaymentCount = useMemo(
+    () =>
+      orders.filter((o) => (o.payment_status || "pending").toLowerCase() === "cancelled").length,
+    [orders]
+  );
+
   const maxRevenue = Math.max(...salesData.map((s) => s.revenue), 1);
 
-  if (loading || pageLoading || !isAdmin) return null;
+  const tabs = [
+    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { key: "orders", label: "Orders", icon: ShoppingBag },
+    { key: "products", label: "Products", icon: Package },
+    { key: "categories", label: "Categories", icon: Tags },
+    { key: "vouchers", label: "Vouchers", icon: TicketPercent },
+    { key: "customers", label: "Customers", icon: Users },
+    { key: "drivers", label: "Drivers", icon: Bike },
+  ] as const;
 
-  return (
-    <div>
-      <div className="container py-8">
-        <h1 className="font-display text-5xl text-foreground text-center mb-8">ADMIN DASHBOARD</h1>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-card border border-border rounded-lg p-5">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Total Orders Today</p>
-            <p className="font-display text-3xl text-foreground">{dashboardStats.totalOrdersToday}</p>
-          </div>
-          <div className="bg-card border border-border rounded-lg p-5">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Revenue Today</p>
-            <p className="font-display text-3xl text-primary">{currency(dashboardStats.revenueToday)}</p>
-          </div>
-          <div className="bg-card border border-border rounded-lg p-5">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Active Drivers</p>
-            <p className="font-display text-3xl text-foreground">{dashboardStats.activeDrivers}</p>
-          </div>
-          <div className="bg-card border border-border rounded-lg p-5">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Pending Orders</p>
-            <p className="font-display text-3xl text-foreground">{dashboardStats.pendingOrders}</p>
+  if (loading || pageLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="flex min-h-screen items-center justify-center px-4">
+          <div className="space-y-3 text-center">
+            <div className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Loader2 className="h-7 w-7 animate-spin" />
+            </div>
+            <div>
+              <p className="font-medium text-foreground">Loading admin dashboard...</p>
+              <p className="text-sm text-muted-foreground">
+                Fetching products, orders, vouchers, and drivers
+              </p>
+            </div>
           </div>
         </div>
+      </div>
+    );
+  }
 
-        <div className="flex flex-wrap gap-2 mb-8 justify-center">
-          {([
-            { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-            { key: "orders", label: "Orders", icon: ShoppingBag },
-            { key: "products", label: "Products", icon: Package },
-            { key: "categories", label: "Categories", icon: Tags },
-            { key: "vouchers", label: "Vouchers", icon: TicketPercent },
-            { key: "customers", label: "Customers", icon: Users },
-            { key: "drivers", label: "Drivers", icon: Bike },
-          ] as const).map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                tab === key
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-border"
-              }`}
-            >
-              <Icon className="w-4 h-4" /> {label}
-            </button>
-          ))}
+  if (!isAdmin) return null;
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="container max-w-7xl py-6 md:py-8">
+        <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="font-display text-3xl text-foreground md:text-5xl">
+              Admin Dashboard
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Manage orders, products, categories, vouchers, customers, and drivers.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={fetchAll}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh Data
+          </button>
+        </div>
+
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            title="Total Orders Today"
+            value={dashboardStats.totalOrdersToday}
+            icon={<ShoppingBag className="h-5 w-5" />}
+          />
+          <StatCard
+            title="Revenue Today"
+            value={currency(dashboardStats.revenueToday)}
+            valueClassName="text-primary"
+            icon={<CreditCard className="h-5 w-5" />}
+          />
+          <StatCard
+            title="Active Drivers"
+            value={dashboardStats.activeDrivers}
+            icon={<Bike className="h-5 w-5" />}
+          />
+          <StatCard
+            title="Pending Orders"
+            value={dashboardStats.pendingOrders}
+            icon={<Clock3 className="h-5 w-5" />}
+          />
+        </div>
+
+        <div className="sticky top-0 z-20 mb-8 bg-background/90 pb-2 pt-1 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+          <div className="flex gap-2 overflow-x-auto rounded-2xl border border-border bg-card p-2 shadow-sm">
+            {tabs.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+                  tab === key
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {tab === "dashboard" && (
-          <div className="max-w-6xl mx-auto space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 bg-card border border-border rounded-lg p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <TrendingUp className="w-5 h-5 text-primary" />
-                  <h2 className="font-display text-2xl text-foreground">Sales Chart</h2>
+          <div className="mx-auto max-w-6xl space-y-6">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <div className="rounded-3xl border border-border bg-card p-5 shadow-sm lg:col-span-2">
+                <div className="mb-5 flex items-center gap-2">
+                  <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="font-display text-2xl text-foreground">Sales Overview</h2>
+                    <p className="text-sm text-muted-foreground">Last 7 days revenue and orders</p>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
                   {salesData.map((point) => (
-                    <div key={point.label}>
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="text-foreground">{point.label}</span>
+                    <div key={point.label} className="rounded-2xl border border-border bg-background/50 p-4">
+                      <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium text-foreground">{point.label}</span>
                         <span className="text-muted-foreground">
                           {currency(point.revenue)} · {point.orders} orders
                         </span>
                       </div>
-                      <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
+                      <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
                         <div
-                          className="h-full bg-primary rounded-full"
+                          className="h-full rounded-full bg-primary transition-all"
                           style={{ width: `${(point.revenue / maxRevenue) * 100}%` }}
                         />
                       </div>
@@ -596,21 +896,34 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className="bg-card border border-border rounded-lg p-5">
-                <h2 className="font-display text-2xl text-foreground mb-4">Top-Selling Items</h2>
+              <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
+                <div className="mb-5">
+                  <h2 className="font-display text-2xl text-foreground">Top-Selling Items</h2>
+                  <p className="text-sm text-muted-foreground">Best performing menu items</p>
+                </div>
+
                 <div className="space-y-3">
                   {topSellingItems.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No sales data yet.</p>
+                    <EmptyState
+                      icon={<Package className="h-5 w-5" />}
+                      title="No sales data yet"
+                      description="Top-selling items will appear after orders are placed."
+                    />
                   ) : (
                     topSellingItems.map((item, index) => (
-                      <div key={item.name} className="flex items-center justify-between gap-3">
+                      <div
+                        key={item.name}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/50 p-4"
+                      >
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">
+                          <p className="truncate text-sm font-medium text-foreground">
                             {index + 1}. {item.name}
                           </p>
                           <p className="text-xs text-muted-foreground">{item.qty} sold</p>
                         </div>
-                        <span className="text-sm font-medium text-primary">{currency(item.revenue)}</span>
+                        <span className="shrink-0 text-sm font-semibold text-primary">
+                          {currency(item.revenue)}
+                        </span>
                       </div>
                     ))
                   )}
@@ -618,188 +931,448 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div className="bg-card border border-border rounded-lg p-5">
-              <h2 className="font-display text-2xl text-foreground mb-4">Recent Orders</h2>
-              <div className="space-y-3">
-                {orders.slice(0, 6).map((o) => (
-                  <div key={o.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border border-border rounded-lg p-4">
-                    <div>
-                      <p className="font-medium text-foreground">{o.customer_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        #{o.id.slice(0, 8).toUpperCase()} · {new Date(o.created_at).toLocaleString("en-ZA")}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`px-2.5 py-1 rounded-md text-xs font-medium ${statusColors[o.status] || "bg-muted text-muted-foreground"}`}>
-                        {o.status.replace("_", " ")}
-                      </span>
-                      <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-muted text-muted-foreground">
-                        {currency(o.total)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+            <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
+              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="font-display text-2xl text-foreground">Recent Orders</h2>
+                  <p className="text-sm text-muted-foreground">Latest customer activity</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTab("orders")}
+                  className="inline-flex items-center justify-center rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  View All Orders
+                </button>
               </div>
+
+              {orders.length === 0 ? (
+                <EmptyState
+                  icon={<ShoppingBag className="h-5 w-5" />}
+                  title="No orders yet"
+                  description="New orders will appear here as customers start ordering."
+                />
+              ) : (
+                <div className="space-y-3">
+                  {orders.slice(0, 6).map((o) => {
+                    const paymentStatus = (o.payment_status || "pending").toLowerCase();
+
+                    return (
+                      <div
+                        key={o.id}
+                        className="rounded-2xl border border-border bg-background/50 p-4"
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground">{o.customer_name}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {formatOrderId(o.id)} ·{" "}
+                              {new Date(o.created_at).toLocaleString("en-ZA")}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              className={
+                                statusColors[o.status] || "border-border bg-muted text-muted-foreground"
+                              }
+                            >
+                              {formatStatusLabel(o.status)}
+                            </Badge>
+                            <Badge
+                              className={
+                                paymentStatusColors[paymentStatus] ||
+                                "border-border bg-muted text-muted-foreground"
+                              }
+                            >
+                              Payment: {paymentStatus}
+                            </Badge>
+                            <Badge className="border-border bg-muted text-foreground">
+                              {currency(o.total)}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {tab === "orders" && (
-  <div className="space-y-3 max-w-5xl mx-auto">
-    {orders.length === 0 ? (
-      <p className="text-center text-muted-foreground py-16">No orders yet</p>
-    ) : (
-      orders.map((o) => {
-        const itemsForOrder = orderItemsByOrderId[o.id] || [];
-
-        return (
-          <div key={o.id} className="bg-card rounded-lg border border-border p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-              <div>
-                <p className="font-medium text-foreground">{o.customer_name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {o.customer_phone} · {o.customer_email || "—"}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">{o.delivery_address}</p>
-                {o.notes && (
-                  <p className="text-xs text-muted-foreground italic mt-1">
-                    Note: {o.notes}
-                  </p>
-                )}
-              </div>
-
-              <div className="text-right">
-                <span className="font-display text-xl text-primary">{currency(o.total)}</span>
-                <p className="text-xs text-muted-foreground">
-                  {o.payment_method} · {o.payment_status || "pending"} ·{" "}
-                  {new Date(o.created_at).toLocaleDateString("en-ZA")}
-                </p>
-              </div>
-            </div>
-
-            <div className="mb-4 rounded-lg border border-border bg-background/50 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-foreground">Order Items</h3>
-                <span className="text-xs text-muted-foreground">
-                  {itemsForOrder.length} item{itemsForOrder.length === 1 ? "" : "s"}
-                </span>
-              </div>
-
-              {itemsForOrder.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No order items found.</p>
-              ) : (
-                <div className="space-y-2">
-                  {itemsForOrder.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">
-                          {item.product_name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Qty: {item.quantity}
-                        </p>
-                      </div>
-                      <p className="text-sm font-medium text-primary whitespace-nowrap">
-                        {currency(item.total_price)}
-                      </p>
-                    </div>
-                  ))}
+          <div className="mx-auto max-w-6xl space-y-4">
+            <div className="sticky top-[84px] z-10 rounded-3xl border border-border bg-card p-4 shadow-sm backdrop-blur">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                <div className="relative lg:col-span-2">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search by customer, phone, email, or order ID"
+                    value={orderSearch}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    className={`${inputClassName} pl-10`}
+                  />
                 </div>
-              )}
+
+                <select
+                  value={paymentFilter}
+                  onChange={(e) =>
+                    setPaymentFilter(
+                      e.target.value as "all" | "paid" | "pending" | "failed" | "cancelled"
+                    )
+                  }
+                  className={selectClassName}
+                >
+                  <option value="all">All payment statuses</option>
+                  <option value="paid">Paid</option>
+                  <option value="pending">Pending</option>
+                  <option value="failed">Failed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+
+                <div className="flex items-center justify-start rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-muted-foreground lg:justify-center">
+                  {filteredAdminOrders.length} order{filteredAdminOrders.length === 1 ? "" : "s"} found
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Badge className="border-border bg-muted text-foreground">
+                  All: {orders.length}
+                </Badge>
+                <Badge className="bg-green-100 text-green-700 border-green-200">
+                  Paid: {paidOrdersCount}
+                </Badge>
+                <Badge className="bg-amber-100 text-amber-700 border-amber-200">
+                  Pending: {pendingPaymentCount}
+                </Badge>
+                <Badge className="bg-red-100 text-red-700 border-red-200">
+                  Failed: {failedPaymentCount}
+                </Badge>
+                <Badge className="bg-slate-100 text-slate-700 border-slate-200">
+                  Cancelled: {cancelledPaymentCount}
+                </Badge>
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {ORDER_STATUSES.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => handleUpdateOrderStatus(o.id, s)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium capitalize transition-colors ${
-                    o.status === s
-                      ? statusColors[s]
-                      : "bg-muted text-muted-foreground hover:bg-border"
-                  }`}
-                >
-                  {s.replace("_", " ")}
-                </button>
-              ))}
-            </div>
+            {filteredAdminOrders.length === 0 ? (
+              <EmptyState
+                icon={<ShoppingBag className="h-5 w-5" />}
+                title="No orders found"
+                description="Try changing the search term or payment status filter."
+              />
+            ) : (
+              filteredAdminOrders.map((o) => {
+                const itemsForOrder = orderItemsByOrderId[o.id] || [];
+                const isExpanded = !!expandedOrders[o.id];
+                const paymentStatus = (o.payment_status || "pending").toLowerCase();
+
+                return (
+                  <div
+                    key={o.id}
+                    className="rounded-3xl border border-border bg-card p-5 shadow-sm"
+                  >
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0 space-y-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-lg font-semibold text-foreground">
+                              {o.customer_name}
+                            </p>
+                            <Badge
+                              className={
+                                statusColors[o.status] ||
+                                "border-border bg-muted text-muted-foreground"
+                              }
+                            >
+                              {formatStatusLabel(o.status)}
+                            </Badge>
+                            <Badge
+                              className={
+                                paymentStatusColors[paymentStatus] ||
+                                "border-border bg-muted text-muted-foreground"
+                              }
+                            >
+                              Payment: {paymentStatus}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {formatOrderId(o.id)} ·{" "}
+                            {new Date(o.created_at).toLocaleString("en-ZA")}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                          <div className="rounded-2xl border border-border bg-background/50 p-3">
+                            <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                              Contact
+                            </p>
+                            <div className="space-y-1.5 text-sm text-foreground">
+                              <p className="flex items-center gap-2">
+                                <Phone className="h-4 w-4 text-muted-foreground" />
+                                <span className="break-all">{o.customer_phone}</span>
+                              </p>
+                              <p className="flex items-center gap-2">
+                                <Mail className="h-4 w-4 text-muted-foreground" />
+                                <span className="break-all">{o.customer_email || "—"}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-background/50 p-3 md:col-span-2">
+                            <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                              Delivery Address
+                            </p>
+                            <p className="flex items-start gap-2 text-sm text-foreground">
+                              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                              <span>{o.delivery_address}</span>
+                            </p>
+                            {o.notes && (
+                              <p className="mt-2 text-xs italic text-muted-foreground">
+                                Note: {o.notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="w-full max-w-sm space-y-3 xl:w-[320px]">
+                        <div className="rounded-2xl border border-border bg-background/50 p-4">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Total
+                          </p>
+                          <p className="mt-1 font-display text-3xl text-primary">
+                            {currency(o.total)}
+                          </p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {o.payment_method} · {o.payment_provider || "No provider"}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-border bg-background/50 p-4">
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Update Order Status
+                          </label>
+                          <select
+                            value={o.status}
+                            onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
+                            className={selectClassName}
+                          >
+                            {ORDER_STATUSES.map((s) => (
+                              <option key={s} value={s}>
+                                {formatStatusLabel(s)}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleOrderExpanded(o.id)}
+                            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                          >
+                            {isExpanded ? (
+                              <>
+                                <ChevronUp className="h-4 w-4" />
+                                Hide Details
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="h-4 w-4" />
+                                View Details ({itemsForOrder.length})
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="mt-5 space-y-4 border-t border-border pt-5">
+                        <div className="rounded-2xl border border-border bg-background/50 p-4">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <h3 className="text-sm font-semibold text-foreground">Order Items</h3>
+                            <span className="text-xs text-muted-foreground">
+                              {itemsForOrder.length} item{itemsForOrder.length === 1 ? "" : "s"}
+                            </span>
+                          </div>
+
+                          {itemsForOrder.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No order items found.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {itemsForOrder.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-foreground">
+                                      {item.product_name}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      Qty: {item.quantity}
+                                    </p>
+                                  </div>
+                                  <p className="shrink-0 text-sm font-semibold text-primary">
+                                    {currency(item.total_price)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                          <div className="rounded-2xl border border-border bg-background/50 p-4">
+                            <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                              Order ID
+                            </p>
+                            <p className="break-all text-sm font-medium text-foreground">{o.id}</p>
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-background/50 p-4">
+                            <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                              Payment Provider
+                            </p>
+                            <p className="text-sm font-medium text-foreground">
+                              {o.payment_provider || "N/A"}
+                            </p>
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-background/50 p-4">
+                            <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                              Payment Status
+                            </p>
+                            <p className="text-sm font-medium capitalize text-foreground">
+                              {paymentStatus}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
-        );
-      })
-    )}
-  </div>
-)}
+        )}
 
         {tab === "products" && (
-          <div className="max-w-5xl mx-auto">
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={() => {
-                  setEditingProduct({});
-                  setShowProductForm(true);
-                }}
-                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                <Plus className="w-4 h-4" /> Add Product
-              </button>
+          <div className="mx-auto max-w-6xl space-y-4">
+            <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                <div className="relative lg:col-span-2">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search products"
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    className={`${inputClassName} pl-10`}
+                  />
+                </div>
+
+                <select
+                  value={productCategoryFilter}
+                  onChange={(e) => setProductCategoryFilter(e.target.value)}
+                  className={selectClassName}
+                >
+                  <option value="all">All categories</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingProduct({
+                      is_available: true,
+                      is_featured: false,
+                      is_popular: false,
+                      spice_level: 0,
+                    });
+                    setShowProductForm(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Product
+                </button>
+              </div>
             </div>
 
             {showProductForm && editingProduct && (
-              <div className="fixed inset-0 bg-secondary/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-card rounded-lg border border-border p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-display text-2xl text-foreground">
-                      {editingProduct.id ? "EDIT PRODUCT" : "NEW PRODUCT"}
-                    </h3>
-                    <button
-                      onClick={() => {
-                        setShowProductForm(false);
-                        setEditingProduct(null);
-                      }}
-                    >
-                      <X className="w-5 h-5 text-muted-foreground" />
-                    </button>
-                  </div>
-
+              <AdminModal
+                title={editingProduct.id ? "Edit Product" : "New Product"}
+                onClose={() => {
+                  setShowProductForm(false);
+                  setEditingProduct(null);
+                }}
+              >
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Name *</label>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Name *
+                    </label>
                     <input
                       type="text"
                       value={editingProduct.name || ""}
-                      onChange={(e) => setEditingProduct((p) => ({ ...p, name: e.target.value }))}
-                      className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
+                      onChange={(e) =>
+                        setEditingProduct((p) => ({ ...p, name: e.target.value }))
+                      }
+                      className={inputClassName}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Description</label>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Description
+                    </label>
                     <textarea
                       value={editingProduct.description || ""}
-                      onChange={(e) => setEditingProduct((p) => ({ ...p, description: e.target.value }))}
-                      rows={2}
-                      className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm resize-none"
+                      onChange={(e) =>
+                        setEditingProduct((p) => ({ ...p, description: e.target.value }))
+                      }
+                      rows={3}
+                      className={textareaClassName}
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Price *</label>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Price *
+                      </label>
                       <input
                         type="number"
-                        value={editingProduct.price || ""}
-                        onChange={(e) => setEditingProduct((p) => ({ ...p, price: parseFloat(e.target.value) }))}
-                        className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
+                        value={editingProduct.price ?? ""}
+                        onChange={(e) =>
+                          setEditingProduct((p) => ({
+                            ...p,
+                            price: e.target.value === "" ? undefined : parseFloat(e.target.value),
+                          }))
+                        }
+                        className={inputClassName}
                       />
                     </div>
+
                     <div>
-                      <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Category</label>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Category
+                      </label>
                       <select
                         value={editingProduct.category_id || ""}
-                        onChange={(e) => setEditingProduct((p) => ({ ...p, category_id: e.target.value || null }))}
-                        className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
+                        onChange={(e) =>
+                          setEditingProduct((p) => ({
+                            ...p,
+                            category_id: e.target.value || null,
+                          }))
+                        }
+                        className={selectClassName}
                       >
                         <option value="">None</option>
                         {categories.map((c) => (
@@ -811,459 +1384,814 @@ export default function AdminPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Spice Level</label>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Spice Level
+                      </label>
                       <input
                         type="number"
                         min={0}
                         max={5}
                         value={editingProduct.spice_level ?? 0}
-                        onChange={(e) => setEditingProduct((p) => ({ ...p, spice_level: parseInt(e.target.value) }))}
-                        className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
+                        onChange={(e) =>
+                          setEditingProduct((p) => ({
+                            ...p,
+                            spice_level: parseInt(e.target.value || "0"),
+                          }))
+                        }
+                        className={inputClassName}
                       />
                     </div>
+
                     <div>
-                      <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Image URL</label>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Image URL
+                      </label>
                       <input
                         type="text"
                         value={editingProduct.image_url || ""}
-                        onChange={(e) => setEditingProduct((p) => ({ ...p, image_url: e.target.value }))}
-                        className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
+                        onChange={(e) =>
+                          setEditingProduct((p) => ({ ...p, image_url: e.target.value }))
+                        }
+                        className={inputClassName}
                       />
                     </div>
                   </div>
 
-                  <div className="flex gap-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     {[
                       { key: "is_available", label: "Available" },
                       { key: "is_featured", label: "Featured" },
                       { key: "is_popular", label: "Popular" },
                     ].map(({ key, label }) => (
-                      <label key={key} className="flex items-center gap-2 text-sm text-foreground">
+                      <label
+                        key={key}
+                        className="flex items-center gap-3 rounded-2xl border border-border bg-background/50 p-4 text-sm text-foreground"
+                      >
                         <input
                           type="checkbox"
                           checked={(editingProduct as any)[key] ?? (key === "is_available")}
-                          onChange={(e) => setEditingProduct((p) => ({ ...p, [key]: e.target.checked }))}
+                          onChange={(e) =>
+                            setEditingProduct((p) => ({ ...p, [key]: e.target.checked }))
+                          }
                         />
                         {label}
                       </label>
                     ))}
                   </div>
 
-                  <button
-                    onClick={handleSaveProduct}
-                    className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
-                  >
-                    {editingProduct.id ? "Update Product" : "Add Product"}
-                  </button>
+                  <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProductForm(false);
+                        setEditingProduct(null);
+                      }}
+                      className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveProduct}
+                      className="rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                    >
+                      {editingProduct.id ? "Update Product" : "Add Product"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </AdminModal>
             )}
 
-            <div className="space-y-2">
-              {products.map((p) => (
-                <div key={p.id} className="bg-card rounded-lg border border-border p-4 flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-foreground text-sm truncate">{p.name}</p>
-                      {!p.is_available && (
-                        <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">Unavailable</span>
-                      )}
-                      {p.is_featured && (
-                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">Featured</span>
-                      )}
+            {filteredProducts.length === 0 ? (
+              <EmptyState
+                icon={<Package className="h-5 w-5" />}
+                title="No products found"
+                description="Try changing the search term or selected category."
+              />
+            ) : (
+              <div className="space-y-3">
+                {filteredProducts.map((p) => (
+                  <div
+                    key={p.id}
+                    className="rounded-3xl border border-border bg-card p-4 shadow-sm"
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-start gap-4">
+                        <img
+                          src={p.image_url || "/placeholder.svg"}
+                          alt={p.name}
+                          className="h-16 w-16 shrink-0 rounded-2xl border border-border object-cover"
+                        />
+
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-base font-semibold text-foreground">
+                              {p.name}
+                            </p>
+                            {!p.is_available && (
+                              <Badge className="bg-red-100 text-red-700 border-red-200">
+                                Unavailable
+                              </Badge>
+                            )}
+                            {p.is_featured && (
+                              <Badge className="bg-amber-100 text-amber-700 border-amber-200">
+                                Featured
+                              </Badge>
+                            )}
+                            {p.is_popular && (
+                              <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200">
+                                Popular
+                              </Badge>
+                            )}
+                          </div>
+
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {p.description || "No description"}
+                          </p>
+
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            <span className="rounded-full bg-muted px-2.5 py-1">
+                              {categoryNameById.get(p.category_id || "") || "No category"}
+                            </span>
+                            <span className="rounded-full bg-muted px-2.5 py-1">
+                              Spice level: {p.spice_level ?? 0}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 sm:justify-end">
+                        <span className="font-display text-2xl text-primary">
+                          {currency(p.price)}
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingProduct(p);
+                              setShowProductForm(true);
+                            }}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProduct(p.id)}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 text-destructive transition-colors hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground truncate">{p.description}</p>
                   </div>
-                  <div className="flex items-center gap-3 ml-4">
-                    <span className="font-display text-lg text-primary">{currency(p.price)}</span>
-                    <button
-                      onClick={() => {
-                        setEditingProduct(p);
-                        setShowProductForm(true);
-                      }}
-                      className="p-2 rounded-lg hover:bg-muted transition-colors"
-                    >
-                      <Pencil className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteProduct(p.id)}
-                      className="p-2 rounded-lg hover:bg-destructive/10 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {tab === "categories" && (
-          <div className="max-w-4xl mx-auto">
-            <div className="flex justify-end mb-4">
+          <div className="mx-auto max-w-4xl space-y-4">
+            <div className="flex justify-end">
               <button
+                type="button"
                 onClick={() => {
                   setEditingCategory({});
                   setShowCategoryForm(true);
                 }}
-                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
               >
-                <Plus className="w-4 h-4" /> Add Category
+                <Plus className="h-4 w-4" />
+                Add Category
               </button>
             </div>
 
             {showCategoryForm && editingCategory && (
-              <div className="fixed inset-0 bg-secondary/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-card rounded-lg border border-border p-6 w-full max-w-md space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-display text-2xl text-foreground">
-                      {editingCategory.id ? "EDIT CATEGORY" : "NEW CATEGORY"}
-                    </h3>
+              <AdminModal
+                title={editingCategory.id ? "Edit Category" : "New Category"}
+                onClose={() => {
+                  setShowCategoryForm(false);
+                  setEditingCategory(null);
+                }}
+              >
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Category Name *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Category name"
+                      value={editingCategory.name || ""}
+                      onChange={(e) =>
+                        setEditingCategory((p) => ({ ...p, name: e.target.value }))
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Sort Order
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="Sort order"
+                      value={editingCategory.sort_order || 0}
+                      onChange={(e) =>
+                        setEditingCategory((p) => ({
+                          ...p,
+                          sort_order: Number(e.target.value),
+                        }))
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:justify-end">
                     <button
+                      type="button"
                       onClick={() => {
                         setShowCategoryForm(false);
                         setEditingCategory(null);
                       }}
+                      className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                     >
-                      <X className="w-5 h-5 text-muted-foreground" />
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveCategory}
+                      className="rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                    >
+                      {editingCategory.id ? "Update Category" : "Add Category"}
                     </button>
                   </div>
-
-                  <input
-                    type="text"
-                    placeholder="Category name"
-                    value={editingCategory.name || ""}
-                    onChange={(e) => setEditingCategory((p) => ({ ...p, name: e.target.value }))}
-                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                  />
-
-                  <input
-                    type="number"
-                    placeholder="Sort order"
-                    value={editingCategory.sort_order || 0}
-                    onChange={(e) => setEditingCategory((p) => ({ ...p, sort_order: Number(e.target.value) }))}
-                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                  />
-
-                  <button
-                    onClick={handleSaveCategory}
-                    className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
-                  >
-                    {editingCategory.id ? "Update Category" : "Add Category"}
-                  </button>
                 </div>
-              </div>
+              </AdminModal>
             )}
 
-            <div className="space-y-2">
-              {categories.map((c) => (
-                <div key={c.id} className="bg-card rounded-lg border border-border p-4 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-foreground">{c.name}</p>
-                    <p className="text-xs text-muted-foreground">Sort: {c.sort_order ?? 0}</p>
+            {categories.length === 0 ? (
+              <EmptyState
+                icon={<Tags className="h-5 w-5" />}
+                title="No categories yet"
+                description="Create categories to organize your products better."
+              />
+            ) : (
+              <div className="space-y-3">
+                {categories.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex flex-col gap-4 rounded-3xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <p className="font-semibold text-foreground">{c.name}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Sort order: {c.sort_order ?? 0}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingCategory(c);
+                          setShowCategoryForm(true);
+                        }}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCategory(c.id)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 text-destructive transition-colors hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setEditingCategory(c);
-                        setShowCategoryForm(true);
-                      }}
-                      className="p-2 rounded-lg hover:bg-muted"
-                    >
-                      <Pencil className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteCategory(c.id)}
-                      className="p-2 rounded-lg hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {tab === "vouchers" && (
-          <div className="max-w-5xl mx-auto">
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={() => {
-                  setEditingVoucher({ type: "discount_fixed", is_active: true });
-                  setShowVoucherForm(true);
-                }}
-                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                <Plus className="w-4 h-4" /> Add Voucher
-              </button>
+          <div className="mx-auto max-w-6xl space-y-4">
+            <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search vouchers by code or type"
+                    value={voucherSearch}
+                    onChange={(e) => setVoucherSearch(e.target.value)}
+                    className={`${inputClassName} pl-10`}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingVoucher({ type: "discount_fixed", is_active: true });
+                    setShowVoucherForm(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Voucher
+                </button>
+              </div>
             </div>
 
             {showVoucherForm && editingVoucher && (
-              <div className="fixed inset-0 bg-secondary/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-card rounded-lg border border-border p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-display text-2xl text-foreground">
-                      {editingVoucher.id ? "EDIT VOUCHER" : "NEW VOUCHER"}
-                    </h3>
-                    <button
-                      onClick={() => {
-                        setShowVoucherForm(false);
-                        setEditingVoucher(null);
-                      }}
-                    >
-                      <X className="w-5 h-5 text-muted-foreground" />
-                    </button>
+              <AdminModal
+                title={editingVoucher.id ? "Edit Voucher" : "New Voucher"}
+                onClose={() => {
+                  setShowVoucherForm(false);
+                  setEditingVoucher(null);
+                }}
+              >
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Code *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Code"
+                        value={editingVoucher.code || ""}
+                        onChange={(e) =>
+                          setEditingVoucher((p) => ({
+                            ...p,
+                            code: e.target.value.toUpperCase(),
+                          }))
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Type *
+                      </label>
+                      <select
+                        value={editingVoucher.type || "discount_fixed"}
+                        onChange={(e) =>
+                          setEditingVoucher((p) => ({ ...p, type: e.target.value }))
+                        }
+                        className={selectClassName}
+                      >
+                        <option value="discount_fixed">Fixed Discount</option>
+                        <option value="discount_percentage">Percentage Discount</option>
+                        <option value="prepaid">Prepaid</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <input
-                      type="text"
-                      placeholder="Code"
-                      value={editingVoucher.code || ""}
-                      onChange={(e) => setEditingVoucher((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
-                      className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                    />
-                    <select
-                      value={editingVoucher.type || "discount_fixed"}
-                      onChange={(e) => setEditingVoucher((p) => ({ ...p, type: e.target.value }))}
-                      className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                    >
-                      <option value="discount_fixed">Fixed Discount</option>
-                      <option value="discount_percentage">Percentage Discount</option>
-                      <option value="prepaid">Prepaid</option>
-                    </select>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Value
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="Value"
+                        value={editingVoucher.value ?? ""}
+                        onChange={(e) =>
+                          setEditingVoucher((p) => ({
+                            ...p,
+                            value: e.target.value === "" ? undefined : Number(e.target.value),
+                          }))
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Balance
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="Balance"
+                        value={editingVoucher.balance ?? ""}
+                        onChange={(e) =>
+                          setEditingVoucher((p) => ({
+                            ...p,
+                            balance: e.target.value === "" ? null : Number(e.target.value),
+                          }))
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Minimum Order
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="Minimum order"
+                        value={editingVoucher.min_order ?? ""}
+                        onChange={(e) =>
+                          setEditingVoucher((p) => ({
+                            ...p,
+                            min_order: e.target.value === "" ? null : Number(e.target.value),
+                          }))
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Max Uses
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="Max uses"
+                        value={editingVoucher.max_uses ?? ""}
+                        onChange={(e) =>
+                          setEditingVoucher((p) => ({
+                            ...p,
+                            max_uses: e.target.value === "" ? null : Number(e.target.value),
+                          }))
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Expiry Date
+                    </label>
                     <input
-                      type="number"
-                      placeholder="Value"
-                      value={editingVoucher.value || ""}
-                      onChange={(e) => setEditingVoucher((p) => ({ ...p, value: Number(e.target.value) }))}
-                      className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Balance"
-                      value={editingVoucher.balance || ""}
-                      onChange={(e) => setEditingVoucher((p) => ({ ...p, balance: Number(e.target.value) }))}
-                      className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
+                      type="datetime-local"
+                      value={
+                        editingVoucher.expires_at
+                          ? new Date(editingVoucher.expires_at).toISOString().slice(0, 16)
+                          : ""
+                      }
+                      onChange={(e) =>
+                        setEditingVoucher((p) => ({
+                          ...p,
+                          expires_at: e.target.value
+                            ? new Date(e.target.value).toISOString()
+                            : null,
+                        }))
+                      }
+                      className={inputClassName}
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <input
-                      type="number"
-                      placeholder="Minimum order"
-                      value={editingVoucher.min_order || ""}
-                      onChange={(e) => setEditingVoucher((p) => ({ ...p, min_order: Number(e.target.value) }))}
-                      className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Max uses"
-                      value={editingVoucher.max_uses || ""}
-                      onChange={(e) => setEditingVoucher((p) => ({ ...p, max_uses: Number(e.target.value) }))}
-                      className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                    />
-                  </div>
-
-                  <input
-                    type="datetime-local"
-                    value={editingVoucher.expires_at ? new Date(editingVoucher.expires_at).toISOString().slice(0, 16) : ""}
-                    onChange={(e) => setEditingVoucher((p) => ({ ...p, expires_at: e.target.value ? new Date(e.target.value).toISOString() : null }))}
-                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                  />
-
-                  <label className="flex items-center gap-2 text-sm text-foreground">
+                  <label className="flex items-center gap-3 rounded-2xl border border-border bg-background/50 p-4 text-sm text-foreground">
                     <input
                       type="checkbox"
                       checked={editingVoucher.is_active ?? true}
-                      onChange={(e) => setEditingVoucher((p) => ({ ...p, is_active: e.target.checked }))}
+                      onChange={(e) =>
+                        setEditingVoucher((p) => ({ ...p, is_active: e.target.checked }))
+                      }
                     />
                     Active
                   </label>
 
-                  <button
-                    onClick={handleSaveVoucher}
-                    className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
-                  >
-                    {editingVoucher.id ? "Update Voucher" : "Add Voucher"}
-                  </button>
+                  <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowVoucherForm(false);
+                        setEditingVoucher(null);
+                      }}
+                      className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveVoucher}
+                      className="rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                    >
+                      {editingVoucher.id ? "Update Voucher" : "Add Voucher"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </AdminModal>
             )}
 
-            <div className="space-y-2">
-              {vouchers.map((v) => (
-                <div key={v.id} className="bg-card rounded-lg border border-border p-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-medium text-foreground">{v.code}</p>
-                      <span className={`text-xs px-2 py-0.5 rounded ${v.is_active ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
-                        {v.is_active ? "Active" : "Inactive"}
-                      </span>
+            {filteredVouchers.length === 0 ? (
+              <EmptyState
+                icon={<TicketPercent className="h-5 w-5" />}
+                title="No vouchers found"
+                description="Create a voucher or adjust the search term."
+              />
+            ) : (
+              <div className="space-y-3">
+                {filteredVouchers.map((v) => (
+                  <div
+                    key={v.id}
+                    className="flex flex-col gap-4 rounded-3xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-foreground">{v.code}</p>
+                        {v.is_active ? (
+                          <Badge className="bg-green-100 text-green-700 border-green-200">
+                            Active
+                          </Badge>
+                        ) : (
+                          <Badge className="border-border bg-muted text-muted-foreground">
+                            Inactive
+                          </Badge>
+                        )}
+                      </div>
+
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {v.type} · Value: {v.value} · Used: {v.used_count ?? 0}
+                      </p>
+
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full bg-muted px-2.5 py-1">
+                          Balance: {v.balance ?? 0}
+                        </span>
+                        <span className="rounded-full bg-muted px-2.5 py-1">
+                          Min order: {v.min_order != null ? currency(v.min_order) : "None"}
+                        </span>
+                        <span className="rounded-full bg-muted px-2.5 py-1">
+                          Expires:{" "}
+                          {v.expires_at
+                            ? new Date(v.expires_at).toLocaleString("en-ZA")
+                            : "No expiry"}
+                        </span>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {v.type} · Value: {v.value} · Used: {v.used_count ?? 0}
-                    </p>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingVoucher(v);
+                          setShowVoucherForm(true);
+                        }}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteVoucher(v.id)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 text-destructive transition-colors hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setEditingVoucher(v);
-                        setShowVoucherForm(true);
-                      }}
-                      className="p-2 rounded-lg hover:bg-muted"
-                    >
-                      <Pencil className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteVoucher(v.id)}
-                      className="p-2 rounded-lg hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {tab === "customers" && (
-          <div className="max-w-5xl mx-auto space-y-2">
-            {customers.length === 0 ? (
-              <div className="bg-card border border-border rounded-lg p-10 text-center text-muted-foreground">
-                No customers yet
+          <div className="mx-auto max-w-5xl space-y-4">
+            <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search customers by name, email, or phone"
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  className={`${inputClassName} pl-10`}
+                />
               </div>
+            </div>
+
+            {filteredCustomers.length === 0 ? (
+              <EmptyState
+                icon={<Users className="h-5 w-5" />}
+                title="No customers found"
+                description="Customers will appear here after orders are placed."
+              />
             ) : (
-              customers.map((c) => (
-                <div key={c.key} className="bg-card rounded-lg border border-border p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-foreground">{c.name}</p>
-                    <p className="text-xs text-muted-foreground">{c.phone || "—"} · {c.email || "—"}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Last order: {new Date(c.lastOrderAt).toLocaleString("en-ZA")}
-                    </p>
-                  </div>
-                  <div className="flex gap-6 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Orders</p>
-                      <p className="font-medium text-foreground">{c.totalOrders}</p>
+              <div className="space-y-3">
+                {filteredCustomers.map((c) => (
+                  <div
+                    key={c.key}
+                    className="rounded-3xl border border-border bg-card p-4 shadow-sm"
+                  >
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-base font-semibold text-foreground">{c.name}</p>
+                        <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                          <p className="flex items-center gap-2">
+                            <Phone className="h-4 w-4" />
+                            <span>{c.phone || "—"}</span>
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <Mail className="h-4 w-4" />
+                            <span className="break-all">{c.email || "—"}</span>
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <Clock3 className="h-4 w-4" />
+                            <span>
+                              Last order: {new Date(c.lastOrderAt).toLocaleString("en-ZA")}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 sm:min-w-[260px]">
+                        <div className="rounded-2xl border border-border bg-background/50 p-4 text-center">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Orders
+                          </p>
+                          <p className="mt-1 font-display text-2xl text-foreground">
+                            {c.totalOrders}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-border bg-background/50 p-4 text-center">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Spent
+                          </p>
+                          <p className="mt-1 font-display text-2xl text-primary">
+                            {currency(c.totalSpent)}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-muted-foreground">Spent</p>
-                      <p className="font-medium text-primary">{currency(c.totalSpent)}</p>
-                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+              </div>
             )}
           </div>
         )}
 
         {tab === "drivers" && (
-          <div className="max-w-4xl mx-auto">
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={() => {
-                  setEditingDriver({ is_active: true });
-                  setShowDriverForm(true);
-                }}
-                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                <Plus className="w-4 h-4" /> Add Driver
-              </button>
+          <div className="mx-auto max-w-4xl space-y-4">
+            <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search drivers by name or phone"
+                    value={driverSearch}
+                    onChange={(e) => setDriverSearch(e.target.value)}
+                    className={`${inputClassName} pl-10`}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingDriver({ is_active: true });
+                    setShowDriverForm(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Driver
+                </button>
+              </div>
             </div>
 
             {showDriverForm && editingDriver && (
-              <div className="fixed inset-0 bg-secondary/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-card rounded-lg border border-border p-6 w-full max-w-md space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-display text-2xl text-foreground">
-                      {editingDriver.id ? "EDIT DRIVER" : "NEW DRIVER"}
-                    </h3>
-                    <button
-                      onClick={() => {
-                        setShowDriverForm(false);
-                        setEditingDriver(null);
-                      }}
-                    >
-                      <X className="w-5 h-5 text-muted-foreground" />
-                    </button>
+              <AdminModal
+                title={editingDriver.id ? "Edit Driver" : "New Driver"}
+                onClose={() => {
+                  setShowDriverForm(false);
+                  setEditingDriver(null);
+                }}
+              >
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Driver Name *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Driver name"
+                      value={editingDriver.name || ""}
+                      onChange={(e) =>
+                        setEditingDriver((p) => ({ ...p, name: e.target.value }))
+                      }
+                      className={inputClassName}
+                    />
                   </div>
 
-                  <input
-                    type="text"
-                    placeholder="Driver name"
-                    value={editingDriver.name || ""}
-                    onChange={(e) => setEditingDriver((p) => ({ ...p, name: e.target.value }))}
-                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                  />
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Phone
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Phone"
+                      value={editingDriver.phone || ""}
+                      onChange={(e) =>
+                        setEditingDriver((p) => ({ ...p, phone: e.target.value }))
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
 
-                  <input
-                    type="text"
-                    placeholder="Phone"
-                    value={editingDriver.phone || ""}
-                    onChange={(e) => setEditingDriver((p) => ({ ...p, phone: e.target.value }))}
-                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm"
-                  />
-
-                  <label className="flex items-center gap-2 text-sm text-foreground">
+                  <label className="flex items-center gap-3 rounded-2xl border border-border bg-background/50 p-4 text-sm text-foreground">
                     <input
                       type="checkbox"
                       checked={editingDriver.is_active ?? true}
-                      onChange={(e) => setEditingDriver((p) => ({ ...p, is_active: e.target.checked }))}
+                      onChange={(e) =>
+                        setEditingDriver((p) => ({ ...p, is_active: e.target.checked }))
+                      }
                     />
                     Active
                   </label>
 
-                  <button
-                    onClick={handleSaveDriver}
-                    className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
-                  >
-                    {editingDriver.id ? "Update Driver" : "Add Driver"}
-                  </button>
+                  <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDriverForm(false);
+                        setEditingDriver(null);
+                      }}
+                      className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveDriver}
+                      className="rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                    >
+                      {editingDriver.id ? "Update Driver" : "Add Driver"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </AdminModal>
             )}
 
-            <div className="space-y-2">
-              {drivers.map((d) => (
-                <div key={d.id} className="bg-card rounded-lg border border-border p-4 flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-foreground">{d.name}</p>
-                      <span className={`text-xs px-2 py-0.5 rounded ${d.is_active ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
-                        {d.is_active ? "Active" : "Inactive"}
-                      </span>
+            {filteredDrivers.length === 0 ? (
+              <EmptyState
+                icon={<Bike className="h-5 w-5" />}
+                title="No drivers found"
+                description="Add drivers to manage delivery operations."
+              />
+            ) : (
+              <div className="space-y-3">
+                {filteredDrivers.map((d) => (
+                  <div
+                    key={d.id}
+                    className="flex flex-col gap-4 rounded-3xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-foreground">{d.name}</p>
+                        {d.is_active ? (
+                          <Badge className="bg-green-100 text-green-700 border-green-200">
+                            Active
+                          </Badge>
+                        ) : (
+                          <Badge className="border-border bg-muted text-muted-foreground">
+                            Inactive
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">{d.phone || "—"}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground">{d.phone || "—"}</p>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingDriver(d);
+                          setShowDriverForm(true);
+                        }}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDriver(d.id)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 text-destructive transition-colors hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setEditingDriver(d);
-                        setShowDriverForm(true);
-                      }}
-                      className="p-2 rounded-lg hover:bg-muted"
-                    >
-                      <Pencil className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteDriver(d.id)}
-                      className="p-2 rounded-lg hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

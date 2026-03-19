@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   CheckCircle2,
@@ -12,10 +12,12 @@ import {
   Store,
   Truck,
   XCircle,
+  Navigation,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import Footer from "@/components/Footer";
+import maplibregl from "maplibre-gl";
 
 type OrderRecord = {
   id: string;
@@ -34,6 +36,11 @@ type OrderRecord = {
   discount_amount: number | null;
   total: number | null;
   created_at: string;
+  estimated_delivery_time: string | null;
+  driver_distance_km: number | null;
+  driver_lat: number | null;
+  driver_lng: number | null;
+  driver_last_updated: string | null;
 };
 
 type OrderItemRecord = {
@@ -47,41 +54,16 @@ type OrderItemRecord = {
 type TimelineStep = {
   key: string;
   label: string;
-  description: string;
+  shortLabel: string;
   icon: React.ComponentType<{ className?: string }>;
 };
 
 const TIMELINE_STEPS: TimelineStep[] = [
-  {
-    key: "pending",
-    label: "Order Placed",
-    description: "We received your order.",
-    icon: Clock3,
-  },
-  {
-    key: "confirmed",
-    label: "Confirmed",
-    description: "Your order has been confirmed.",
-    icon: Store,
-  },
-  {
-    key: "preparing",
-    label: "Preparing",
-    description: "Your food is being prepared.",
-    icon: ChefHat,
-  },
-  {
-    key: "on_the_way",
-    label: "On The Way",
-    description: "Your order is on the road.",
-    icon: Truck,
-  },
-  {
-    key: "delivered",
-    label: "Delivered",
-    description: "Your order has arrived.",
-    icon: PackageCheck,
-  },
+  { key: "pending", label: "Order Placed", shortLabel: "Placed", icon: Clock3 },
+  { key: "confirmed", label: "Confirmed", shortLabel: "Confirmed", icon: Store },
+  { key: "preparing", label: "Preparing", shortLabel: "Preparing", icon: ChefHat },
+  { key: "on_the_way", label: "On The Way", shortLabel: "On the Way", icon: Truck },
+  { key: "delivered", label: "Delivered", shortLabel: "Delivered", icon: PackageCheck },
 ];
 
 export default function OrderTrackingPage() {
@@ -94,13 +76,12 @@ export default function OrderTrackingPage() {
   const [retryingPayment, setRetryingPayment] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const markerRef = useRef<maplibregl.Marker | null>(null);
+
   const paymentIsPaid = useMemo(
     () => (order?.payment_status || "").toLowerCase() === "paid",
-    [order?.payment_status]
-  );
-
-  const paymentIsPending = useMemo(
-    () => (order?.payment_status || "").toLowerCase() === "pending",
     [order?.payment_status]
   );
 
@@ -124,14 +105,24 @@ export default function OrderTrackingPage() {
     [orderStatus]
   );
 
-  const canRetryPayment = useMemo(() => {
-    if (!order) return false;
+  const isOnTheWay = useMemo(
+    () => orderStatus === "on_the_way",
+    [orderStatus]
+  );
 
-    const method = (order.payment_method || "").toLowerCase();
-    const status = (order.payment_status || "").toLowerCase();
+ const canRetryPayment = useMemo(() => {
+  if (!order) return false;
 
-    return method === "card" && ["pending", "failed", "cancelled", ""].includes(status);
-  }, [order]);
+  const method = (order.payment_method || "").toLowerCase();
+  const paymentStatus = (order.payment_status || "").toLowerCase();
+  const deliveryStatus = (order.status || "").toLowerCase();
+
+  return (
+    method === "card" &&
+    ["pending", "failed", "cancelled", ""].includes(paymentStatus) &&
+    ["pending", "cancelled"].includes(deliveryStatus)
+  );
+}, [order]);
 
   const currentTimelineIndex = useMemo(() => {
     const idx = TIMELINE_STEPS.findIndex((step) => step.key === orderStatus);
@@ -163,7 +154,12 @@ export default function OrderTrackingPage() {
             delivery_fee,
             discount_amount,
             total,
-            created_at
+            created_at,
+            estimated_delivery_time,
+            driver_distance_km,
+            driver_lat,
+            driver_lng,
+            driver_last_updated
           `
         )
         .eq("id", orderId)
@@ -218,6 +214,39 @@ export default function OrderTrackingPage() {
       supabase.removeChannel(channel);
     };
   }, [orderId]);
+
+  useEffect(() => {
+    if (!isOnTheWay || !order?.driver_lat || !order?.driver_lng || !mapContainerRef.current) {
+      return;
+    }
+
+    if (!mapRef.current) {
+      mapRef.current = new maplibregl.Map({
+        container: mapContainerRef.current,
+        style: `https://api.maptiler.com/maps/streets/style.json?key=${import.meta.env.VITE_MAPTILER_KEY}`,
+        center: [order.driver_lng, order.driver_lat],
+        zoom: 14,
+      });
+
+      markerRef.current = new maplibregl.Marker()
+        .setLngLat([order.driver_lng, order.driver_lat])
+        .addTo(mapRef.current);
+    } else {
+      mapRef.current.setCenter([order.driver_lng, order.driver_lat]);
+      markerRef.current?.setLngLat([order.driver_lng, order.driver_lat]);
+    }
+
+    return () => {};
+  }, [isOnTheWay, order?.driver_lat, order?.driver_lng]);
+
+  useEffect(() => {
+    return () => {
+      markerRef.current?.remove();
+      mapRef.current?.remove();
+      markerRef.current = null;
+      mapRef.current = null;
+    };
+  }, []);
 
   const handleRetryPayment = async () => {
     if (!order) return;
@@ -313,39 +342,35 @@ export default function OrderTrackingPage() {
     );
   };
 
-  const timelineStepClasses = (index: number) => {
+  const getStepClasses = (index: number) => {
     if (isOrderCancelled) {
       return {
-        iconWrap: "bg-muted text-muted-foreground border-border",
-        title: "text-muted-foreground",
-        desc: "text-muted-foreground",
+        circle: "bg-muted text-muted-foreground border-border",
         line: "bg-border",
+        text: "text-muted-foreground",
       };
     }
 
     if (index < currentTimelineIndex) {
       return {
-        iconWrap: "bg-green-100 text-green-700 border-green-200",
-        title: "text-foreground",
-        desc: "text-muted-foreground",
+        circle: "bg-green-100 text-green-700 border-green-200",
         line: "bg-green-500",
+        text: "text-foreground",
       };
     }
 
     if (index === currentTimelineIndex) {
       return {
-        iconWrap: "bg-primary/15 text-primary border-primary/30",
-        title: "text-foreground",
-        desc: "text-muted-foreground",
+        circle: "bg-primary/15 text-primary border-primary/30",
         line: "bg-border",
+        text: "text-foreground",
       };
     }
 
     return {
-      iconWrap: "bg-muted text-muted-foreground border-border",
-      title: "text-muted-foreground",
-      desc: "text-muted-foreground",
+      circle: "bg-muted text-muted-foreground border-border",
       line: "bg-border",
+      text: "text-muted-foreground",
     };
   };
 
@@ -381,8 +406,8 @@ export default function OrderTrackingPage() {
 
   return (
     <div>
-      <div className="container py-8 max-w-5xl">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+      <div className="container py-8 max-w-6xl">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="font-display text-4xl text-foreground">Track Order</h1>
             <p className="text-muted-foreground mt-1">Order ID: {order.id}</p>
@@ -398,64 +423,106 @@ export default function OrderTrackingPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          <div className="lg:col-span-3 space-y-6">
-            <div className="bg-card border border-border rounded-2xl p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-5">
+        <div className="bg-card border border-border rounded-2xl p-5 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
+            <div>
+              <h2 className="text-xl font-semibold text-foreground">Order Status</h2>
+              <p className="text-sm text-muted-foreground">
+                Created on {new Date(order.created_at).toLocaleString()}
+              </p>
+            </div>
+            {orderBadge()}
+          </div>
+
+          {isOrderCancelled ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+              <div className="flex items-start gap-3">
+                <XCircle className="w-5 h-5 text-red-600 mt-0.5" />
                 <div>
-                  <h2 className="text-xl font-semibold text-foreground">Order Status</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Created on {new Date(order.created_at).toLocaleString()}
+                  <p className="font-medium text-red-700">Order Cancelled</p>
+                  <p className="text-sm text-red-600 mt-1">
+                    This order has been cancelled and will not continue through the delivery process.
                   </p>
                 </div>
-                {orderBadge()}
               </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="min-w-[760px] flex items-start">
+                {TIMELINE_STEPS.map((step, index) => {
+                  const Icon = step.icon;
+                  const styles = getStepClasses(index);
+                  const isLast = index === TIMELINE_STEPS.length - 1;
 
-              <div className="mb-6">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-4">
-                  Delivery Timeline
-                </h3>
-
-                {isOrderCancelled ? (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                    <div className="flex items-start gap-3">
-                      <XCircle className="w-5 h-5 text-red-600 mt-0.5" />
-                      <div>
-                        <p className="font-medium text-red-700">Order Cancelled</p>
-                        <p className="text-sm text-red-600 mt-1">
-                          This order has been cancelled and will not continue through the delivery process.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-0">
-                    {TIMELINE_STEPS.map((step, index) => {
-                      const Icon = step.icon;
-                      const styles = timelineStepClasses(index);
-                      const isLast = index === TIMELINE_STEPS.length - 1;
-
-                      return (
-                        <div key={step.key} className="flex gap-4">
-                          <div className="flex flex-col items-center">
-                            <div
-                              className={`w-11 h-11 rounded-full border flex items-center justify-center ${styles.iconWrap}`}
-                            >
-                              <Icon className="w-5 h-5" />
-                            </div>
-                            {!isLast && <div className={`w-0.5 flex-1 min-h-[34px] ${styles.line}`} />}
-                          </div>
-
-                          <div className="pb-8">
-                            <p className={`font-medium ${styles.title}`}>{step.label}</p>
-                            <p className={`text-sm mt-1 ${styles.desc}`}>{step.description}</p>
-                          </div>
+                  return (
+                    <div key={step.key} className="flex items-center flex-1 min-w-[140px]">
+                      <div className="flex flex-col items-center text-center w-full">
+                        <div className={`w-11 h-11 rounded-full border flex items-center justify-center ${styles.circle}`}>
+                          <Icon className="w-5 h-5" />
                         </div>
-                      );
-                    })}
+                        <p className={`mt-2 text-sm font-medium ${styles.text}`}>{step.shortLabel}</p>
+                      </div>
+                      {!isLast && <div className={`h-0.5 flex-1 mx-2 mt-[-26px] ${styles.line}`} />}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          <div className="xl:col-span-3 space-y-6">
+            {isOnTheWay && order.driver_lat != null && order.driver_lng != null && (
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <h2 className="text-xl font-semibold text-foreground mb-4">Live Driver Location</h2>
+
+                <div
+                  ref={mapContainerRef}
+                  className="w-full h-[320px] rounded-xl border border-border overflow-hidden"
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4 text-sm">
+                  <div className="rounded-xl border border-border p-4">
+                    <p className="text-muted-foreground mb-1">Driver Status</p>
+                    <p className="font-medium text-foreground inline-flex items-center gap-2">
+                      <Navigation className="w-4 h-4 text-primary" />
+                      On the way
+                    </p>
                   </div>
+
+                  <div className="rounded-xl border border-border p-4">
+                    <p className="text-muted-foreground mb-1">Distance Away</p>
+                    <p className="font-medium text-foreground">
+                      {order.driver_distance_km != null
+                        ? `${order.driver_distance_km.toFixed(1)} km`
+                        : "Calculating..."}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-border p-4">
+                    <p className="text-muted-foreground mb-1">Estimated Arrival</p>
+                    <p className="font-medium text-foreground">
+                      {order.estimated_delivery_time
+                        ? new Date(order.estimated_delivery_time).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "Calculating..."}
+                    </p>
+                  </div>
+                </div>
+
+                {order.driver_last_updated && (
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Last updated: {new Date(order.driver_last_updated).toLocaleString()}
+                  </p>
                 )}
               </div>
+            )}
+
+            <div className="bg-card border border-border rounded-2xl p-6">
+              <h2 className="text-xl font-semibold text-foreground mb-5">Customer & Delivery</h2>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div className="rounded-xl border border-border p-4">
@@ -538,7 +605,7 @@ export default function OrderTrackingPage() {
             </div>
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="xl:col-span-2">
             <div className="bg-card border border-border rounded-2xl p-6 sticky top-24">
               <h2 className="text-xl font-semibold text-foreground mb-5">Order Summary</h2>
 
