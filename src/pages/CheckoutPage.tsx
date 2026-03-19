@@ -134,6 +134,12 @@ export default function CheckoutPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+if (form.payment === "card" && !(form.email || user.email)) {
+  toast.error("Email is required for card payments.");
+  setSubmitting(false);
+  return;
+}
+
   const handleApplyVoucher = async () => {
     if (!voucherCode.trim()) return;
     setApplyingVoucher(true);

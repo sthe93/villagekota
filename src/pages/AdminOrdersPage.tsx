@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Loader2, RefreshCw, Save, Crosshair, Play, Square } from "lucide-react";
+import {
+  Loader2,
+  RefreshCw,
+  Save,
+  Crosshair,
+  Play,
+  Square,
+  CheckCircle2,
+  Clock3,
+  ChefHat,
+  Truck,
+  PackageCheck,
+  XCircle,
+  CreditCard,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
@@ -10,7 +24,7 @@ type OrderStatus =
   | "pending"
   | "confirmed"
   | "preparing"
-  | "out_for_delivery"
+  | "on_the_way"
   | "delivered"
   | "cancelled";
 
@@ -27,6 +41,9 @@ interface AdminOrder {
   customer_email: string | null;
   delivery_address: string;
   payment_method: string;
+  payment_provider: string | null;
+  payment_reference: string | null;
+  payment_status: string | null;
   subtotal: number;
   delivery_fee: number;
   discount_amount: number | null;
@@ -47,7 +64,7 @@ const statusOptions: OrderStatus[] = [
   "pending",
   "confirmed",
   "preparing",
-  "out_for_delivery",
+  "on_the_way",
   "delivered",
   "cancelled",
 ];
@@ -56,7 +73,7 @@ const statusLabel: Record<OrderStatus, string> = {
   pending: "Pending",
   confirmed: "Confirmed",
   preparing: "Preparing",
-  out_for_delivery: "Out for Delivery",
+  on_the_way: "On The Way",
   delivered: "Delivered",
   cancelled: "Cancelled",
 };
@@ -71,7 +88,7 @@ export default function AdminOrdersPage() {
   const [search, setSearch] = useState("");
   const [locationInputs, setLocationInputs] = useState<Record<string, { lat: string; lng: string }>>({});
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
-const [watchId, setWatchId] = useState<number | null>(null);
+  const [watchId, setWatchId] = useState<number | null>(null);
 
   const loadOrders = async () => {
     setPageLoading(true);
@@ -85,6 +102,9 @@ const [watchId, setWatchId] = useState<number | null>(null);
         customer_email,
         delivery_address,
         payment_method,
+        payment_provider,
+        payment_reference,
+        payment_status,
         subtotal,
         delivery_fee,
         discount_amount,
@@ -160,12 +180,12 @@ const [watchId, setWatchId] = useState<number | null>(null);
   }, [isAdmin]);
 
   useEffect(() => {
-  return () => {
-    if (watchId !== null) {
-      navigator.geolocation.clearWatch(watchId);
-    }
-  };
-}, [watchId]);
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
+  }, [watchId]);
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
@@ -182,37 +202,37 @@ const [watchId, setWatchId] = useState<number | null>(null);
     });
   }, [orders, filter, search]);
 
- const updateStatus = async (orderId: string, status: OrderStatus) => {
-  setSavingId(orderId);
+  const updateStatus = async (orderId: string, status: OrderStatus) => {
+    setSavingId(orderId);
 
-  const { error } = await supabase
-    .from("orders")
-    .update({ status })
-    .eq("id", orderId);
+    const { error } = await supabase
+      .from("orders")
+      .update({ status })
+      .eq("id", orderId);
 
-  if (error) {
-    toast.error(error.message || "Failed to update status");
-    setSavingId(null);
-    return;
-  }
-
-  setOrders((prev) =>
-    prev.map((o) => (o.id === orderId ? { ...o, status } : o))
-  );
-
-  toast.success(`Order marked as ${statusLabel[status]}`);
-  setSavingId(null);
-
-  if (status === "out_for_delivery") {
-    startLiveTracking(orderId);
-  }
-
-  if (status === "delivered" || status === "cancelled") {
-    if (trackingOrderId === orderId) {
-      stopLiveTracking();
+    if (error) {
+      toast.error(error.message || "Failed to update status");
+      setSavingId(null);
+      return;
     }
-  }
-};
+
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, status } : o))
+    );
+
+    toast.success(`Order marked as ${statusLabel[status]}`);
+    setSavingId(null);
+
+    if (status === "on_the_way") {
+      startLiveTracking(orderId);
+    }
+
+    if (status === "delivered" || status === "cancelled") {
+      if (trackingOrderId === orderId) {
+        stopLiveTracking();
+      }
+    }
+  };
 
   const updateDriver = async (orderId: string, driverId: string) => {
     const { error } = await supabase
@@ -276,51 +296,53 @@ const [watchId, setWatchId] = useState<number | null>(null);
       },
     }));
   };
-const useCurrentLocationForOrder = (orderId: string) => {
-  if (!navigator.geolocation) {
-    toast.error("Geolocation is not supported on this device");
-    return;
-  }
 
-  setSavingId(orderId);
-
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      const lat = String(position.coords.latitude);
-      const lng = String(position.coords.longitude);
-
-      setLocationInputs((prev) => ({
-        ...prev,
-        [orderId]: { lat, lng },
-      }));
-
-      setSavingId(null);
-      toast.success("Current location captured");
-    },
-    (error) => {
-      setSavingId(null);
-
-      switch (error.code) {
-        case error.PERMISSION_DENIED:
-          toast.error("Location permission was denied");
-          break;
-        case error.POSITION_UNAVAILABLE:
-          toast.error("Location information is unavailable");
-          break;
-        case error.TIMEOUT:
-          toast.error("Location request timed out");
-          break;
-        default:
-          toast.error("Failed to get current location");
-      }
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 0,
+  const useCurrentLocationForOrder = (orderId: string) => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported on this device");
+      return;
     }
-  );
-};
+
+    setSavingId(orderId);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = String(position.coords.latitude);
+        const lng = String(position.coords.longitude);
+
+        setLocationInputs((prev) => ({
+          ...prev,
+          [orderId]: { lat, lng },
+        }));
+
+        setSavingId(null);
+        toast.success("Current location captured");
+      },
+      (error) => {
+        setSavingId(null);
+
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            toast.error("Location permission was denied");
+            break;
+          case error.POSITION_UNAVAILABLE:
+            toast.error("Location information is unavailable");
+            break;
+          case error.TIMEOUT:
+            toast.error("Location request timed out");
+            break;
+          default:
+            toast.error("Failed to get current location");
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  };
+
   const updateDriverLocation = async (orderId: string) => {
     const latValue = locationInputs[orderId]?.lat?.trim() || "";
     const lngValue = locationInputs[orderId]?.lng?.trim() || "";
@@ -368,153 +390,271 @@ const useCurrentLocationForOrder = (orderId: string) => {
   };
 
   const geocodeAddress = async (address: string) => {
-  const key = import.meta.env.VITE_MAPTILER_KEY;
-  const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(address)}.json?limit=1&country=za&key=${key}`;
+    const key = import.meta.env.VITE_MAPTILER_KEY;
+    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(address)}.json?limit=1&country=za&key=${key}`;
 
-  const res = await fetch(url);
-  const json = await res.json();
+    const res = await fetch(url);
+    const json = await res.json();
 
-  const first = json?.features?.[0];
-  if (!first?.center) return null;
+    const first = json?.features?.[0];
+    if (!first?.center) return null;
 
-  return {
-    lng: first.center[0],
-    lat: first.center[1],
+    return {
+      lng: first.center[0],
+      lat: first.center[1],
+    };
   };
-};
 
-const fetchRouteMeta = async (
-  driverLat: number,
-  driverLng: number,
-  destLat: number,
-  destLng: number
-) => {
-  const url = `https://router.project-osrm.org/route/v1/driving/${driverLng},${driverLat};${destLng},${destLat}?overview=false`;
+  const fetchRouteMeta = async (
+    driverLat: number,
+    driverLng: number,
+    destLat: number,
+    destLng: number
+  ) => {
+    const url = `https://router.project-osrm.org/route/v1/driving/${driverLng},${driverLat};${destLng},${destLat}?overview=false`;
 
-  const res = await fetch(url);
-  const json = await res.json();
+    const res = await fetch(url);
+    const json = await res.json();
 
-  const route = json?.routes?.[0];
-  if (!route) return null;
+    const route = json?.routes?.[0];
+    if (!route) return null;
 
-  return {
-    durationMinutes: Math.round((route.duration || 0) / 60),
-    distanceKm: Number(((route.distance || 0) / 1000).toFixed(1)),
+    return {
+      durationMinutes: Math.round((route.duration || 0) / 60),
+      distanceKm: Number(((route.distance || 0) / 1000).toFixed(1)),
+    };
   };
-};
 
-const pushLiveLocationUpdate = async (orderId: string, lat: number, lng: number) => {
-  const order = orders.find((o) => o.id === orderId);
-  const timestamp = new Date().toISOString();
+  const pushLiveLocationUpdate = async (orderId: string, lat: number, lng: number) => {
+    const order = orders.find((o) => o.id === orderId);
+    const timestamp = new Date().toISOString();
 
-  let driver_distance_km: number | null = null;
-  let estimated_delivery_time: string | null = null;
+    let driver_distance_km: number | null = null;
+    let estimated_delivery_time: string | null = null;
 
-  if (order?.delivery_address) {
-    const dest = await geocodeAddress(order.delivery_address);
-    if (dest) {
-      const route = await fetchRouteMeta(lat, lng, dest.lat, dest.lng);
-      if (route) {
-        driver_distance_km = route.distanceKm;
-        estimated_delivery_time = new Date(Date.now() + route.durationMinutes * 60000).toISOString();
+    if (order?.delivery_address) {
+      const dest = await geocodeAddress(order.delivery_address);
+      if (dest) {
+        const route = await fetchRouteMeta(lat, lng, dest.lat, dest.lng);
+        if (route) {
+          driver_distance_km = route.distanceKm;
+          estimated_delivery_time = new Date(Date.now() + route.durationMinutes * 60000).toISOString();
+        }
       }
     }
-  }
 
-  const { error } = await supabase
-    .from("orders")
-    .update({
-      driver_lat: lat,
-      driver_lng: lng,
-      driver_last_updated: timestamp,
-      driver_distance_km,
-      estimated_delivery_time,
-    })
-    .eq("id", orderId);
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        driver_lat: lat,
+        driver_lng: lng,
+        driver_last_updated: timestamp,
+        driver_distance_km,
+        estimated_delivery_time,
+      })
+      .eq("id", orderId);
 
-  if (!error) {
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === orderId
-          ? {
-              ...o,
-              driver_lat: lat,
-              driver_lng: lng,
-              driver_last_updated: timestamp,
-              driver_distance_km,
-              estimated_delivery_time,
-            }
-          : o
-      )
+    if (!error) {
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderId
+            ? {
+                ...o,
+                driver_lat: lat,
+                driver_lng: lng,
+                driver_last_updated: timestamp,
+                driver_distance_km,
+                estimated_delivery_time,
+              }
+            : o
+        )
+      );
+    }
+  };
+
+  const startLiveTracking = (orderId: string) => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported on this device");
+      return;
+    }
+
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      setWatchId(null);
+    }
+
+    setTrackingOrderId(orderId);
+
+    const id = navigator.geolocation.watchPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+
+        setLocationInputs((prev) => ({
+          ...prev,
+          [orderId]: {
+            lat: String(lat),
+            lng: String(lng),
+          },
+        }));
+
+        await pushLiveLocationUpdate(orderId, lat, lng);
+      },
+      (error) => {
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            toast.error("Location permission was denied");
+            break;
+          case error.POSITION_UNAVAILABLE:
+            toast.error("Location information is unavailable");
+            break;
+          case error.TIMEOUT:
+            toast.error("Live tracking request timed out");
+            break;
+          default:
+            toast.error("Failed to start live tracking");
+        }
+
+        setTrackingOrderId(null);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 3000,
+        timeout: 10000,
+      }
     );
-  }
-};
 
-const startLiveTracking = (orderId: string) => {
-  if (!navigator.geolocation) {
-    toast.error("Geolocation is not supported on this device");
-    return;
-  }
+    setWatchId(id);
+    toast.success("Live tracking started");
+  };
 
-  if (watchId !== null) {
-    navigator.geolocation.clearWatch(watchId);
-    setWatchId(null);
-  }
-
-  setTrackingOrderId(orderId);
-
-  const id = navigator.geolocation.watchPosition(
-    async (position) => {
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-
-      setLocationInputs((prev) => ({
-        ...prev,
-        [orderId]: {
-          lat: String(lat),
-          lng: String(lng),
-        },
-      }));
-
-      await pushLiveLocationUpdate(orderId, lat, lng);
-    },
-    (error) => {
-      switch (error.code) {
-        case error.PERMISSION_DENIED:
-          toast.error("Location permission was denied");
-          break;
-        case error.POSITION_UNAVAILABLE:
-          toast.error("Location information is unavailable");
-          break;
-        case error.TIMEOUT:
-          toast.error("Live tracking request timed out");
-          break;
-        default:
-          toast.error("Failed to start live tracking");
-      }
-
-      setTrackingOrderId(null);
-    },
-    {
-      enableHighAccuracy: true,
-      maximumAge: 3000,
-      timeout: 10000,
+  const stopLiveTracking = () => {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      setWatchId(null);
     }
-  );
 
-  setWatchId(id);
-  toast.success("Live tracking started");
-};
+    setTrackingOrderId(null);
+    toast.success("Live tracking stopped");
+  };
 
-const stopLiveTracking = () => {
-  if (watchId !== null) {
-    navigator.geolocation.clearWatch(watchId);
-    setWatchId(null);
-  }
+  const getStatusBadge = (status: OrderStatus) => {
+    const map: Record<OrderStatus, string> = {
+      pending: "bg-amber-100 text-amber-700",
+      confirmed: "bg-blue-100 text-blue-700",
+      preparing: "bg-purple-100 text-purple-700",
+      on_the_way: "bg-indigo-100 text-indigo-700",
+      delivered: "bg-green-100 text-green-700",
+      cancelled: "bg-red-100 text-red-700",
+    };
 
-  setTrackingOrderId(null);
-  toast.success("Live tracking stopped");
-};
+    return (
+      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${map[status]}`}>
+        {statusLabel[status]}
+      </span>
+    );
+  };
+
+  const getPaymentBadge = (paymentStatus: string | null) => {
+    const status = (paymentStatus || "pending").toLowerCase();
+
+    if (status === "paid") {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 px-3 py-1 text-xs font-medium">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Paid
+        </span>
+      );
+    }
+
+    if (status === "failed") {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-3 py-1 text-xs font-medium">
+          <XCircle className="w-3.5 h-3.5" />
+          Failed
+        </span>
+      );
+    }
+
+    if (status === "cancelled") {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 text-orange-700 px-3 py-1 text-xs font-medium">
+          <XCircle className="w-3.5 h-3.5" />
+          Cancelled
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-3 py-1 text-xs font-medium">
+        <Clock3 className="w-3.5 h-3.5" />
+        Pending
+      </span>
+    );
+  };
+
+  const QuickStatusButtons = ({ order }: { order: AdminOrder }) => {
+    const buttons = [
+      {
+        status: "confirmed" as OrderStatus,
+        label: "Confirm",
+        icon: CheckCircle2,
+        className: "bg-blue-600 text-white hover:opacity-90",
+      },
+      {
+        status: "preparing" as OrderStatus,
+        label: "Preparing",
+        icon: ChefHat,
+        className: "bg-purple-600 text-white hover:opacity-90",
+      },
+      {
+        status: "on_the_way" as OrderStatus,
+        label: "On The Way",
+        icon: Truck,
+        className: "bg-indigo-600 text-white hover:opacity-90",
+      },
+      {
+        status: "delivered" as OrderStatus,
+        label: "Delivered",
+        icon: PackageCheck,
+        className: "bg-green-600 text-white hover:opacity-90",
+      },
+      {
+        status: "cancelled" as OrderStatus,
+        label: "Cancel",
+        icon: XCircle,
+        className: "bg-red-600 text-white hover:opacity-90",
+      },
+    ];
+
+    return (
+      <div className="flex flex-wrap gap-2">
+        {buttons.map((btn) => {
+          const Icon = btn.icon;
+          const active = order.status === btn.status;
+
+          return (
+            <button
+              key={btn.status}
+              type="button"
+              onClick={() => updateStatus(order.id, btn.status)}
+              disabled={savingId === order.id || active}
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-opacity disabled:opacity-50 ${
+                active ? "bg-muted text-muted-foreground border border-border" : btn.className
+              }`}
+            >
+              {savingId === order.id && !active ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Icon className="w-3.5 h-3.5" />
+              )}
+              {btn.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
 
   if (loading || pageLoading) {
     return (
@@ -595,33 +735,42 @@ const stopLiveTracking = () => {
                     </p>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-                    <span className="text-sm font-medium text-foreground">
-                      Current: {statusLabel[order.status]}
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={order.status}
-                        disabled={savingId === order.id}
-                        onChange={(e) => updateStatus(order.id, e.target.value as OrderStatus)}
-                        className="px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
-                      >
-                        {statusOptions.map((status) => (
-                          <option key={status} value={status}>
-                            {statusLabel[status]}
-                          </option>
-                        ))}
-                      </select>
-
-                      {savingId === order.id && (
-                        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                      )}
-                    </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {getStatusBadge(order.status)}
+                    {getPaymentBadge(order.payment_status)}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
+                <div className="mb-4">
+                  <QuickStatusButtons order={order} />
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center mb-4">
+                  <span className="text-sm font-medium text-foreground">
+                    Current: {statusLabel[order.status]}
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={order.status}
+                      disabled={savingId === order.id}
+                      onChange={(e) => updateStatus(order.id, e.target.value as OrderStatus)}
+                      className="px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+                    >
+                      {statusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {statusLabel[status]}
+                        </option>
+                      ))}
+                    </select>
+
+                    {savingId === order.id && (
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 text-sm">
                   <div>
                     <p className="text-muted-foreground mb-1">Customer</p>
                     <p className="font-medium text-foreground">{order.customer_name}</p>
@@ -639,6 +788,12 @@ const stopLiveTracking = () => {
                   <div>
                     <p className="text-muted-foreground mb-1">Payment</p>
                     <p className="font-medium text-foreground capitalize">{order.payment_method}</p>
+                    <p className="text-muted-foreground">
+                      Provider: {order.payment_provider || "N/A"}
+                    </p>
+                    <p className="text-muted-foreground break-all">
+                      Ref: {order.payment_reference || "N/A"}
+                    </p>
                     {order.voucher_code && (
                       <p className="text-muted-foreground">Voucher: {order.voucher_code}</p>
                     )}
@@ -649,9 +804,50 @@ const stopLiveTracking = () => {
                     <p className="text-foreground">Subtotal: R{order.subtotal}</p>
                     <p className="text-foreground">Delivery: R{order.delivery_fee}</p>
                     {!!order.discount_amount && order.discount_amount > 0 && (
-                      <p className="text-success">Discount: -R{order.discount_amount}</p>
+                      <p className="text-green-700">Discount: -R{order.discount_amount}</p>
                     )}
                     <p className="font-bold text-primary">Total: R{order.total}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-muted-foreground mb-1">Payment State</p>
+                    <div className="mb-2">{getPaymentBadge(order.payment_status)}</div>
+                    {order.payment_status !== "paid" && order.payment_method === "card" && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            if (!order.customer_email) {
+                              toast.error("Customer email is required to restart payment.");
+                              return;
+                            }
+
+                            const { data, error } = await supabase.functions.invoke("create-payfast-checkout", {
+                              body: {
+                                orderId: order.id,
+                                total: order.total || 0,
+                                customerName: order.customer_name,
+                                customerEmail: order.customer_email,
+                                itemName: `Village Eats Order #${order.id.slice(0, 8).toUpperCase()}`,
+                              },
+                            });
+
+                            if (error || !data?.url) {
+                              toast.error("Failed to restart payment");
+                              return;
+                            }
+
+                            window.open(data.url, "_blank");
+                          } catch (err: any) {
+                            toast.error(err.message || "Failed to restart payment");
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        Retry Payment
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -701,84 +897,84 @@ const stopLiveTracking = () => {
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4">
-  <div>
-    <label className="block text-xs text-muted-foreground mb-1">Driver Latitude</label>
-    <input
-      type="number"
-      step="0.0000001"
-      value={locationInputs[order.id]?.lat ?? ""}
-      onChange={(e) => handleLocationInputChange(order.id, "lat", e.target.value)}
-      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
-      placeholder="-26.2041"
-    />
-  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Driver Latitude</label>
+                    <input
+                      type="number"
+                      step="0.0000001"
+                      value={locationInputs[order.id]?.lat ?? ""}
+                      onChange={(e) => handleLocationInputChange(order.id, "lat", e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                      placeholder="-26.2041"
+                    />
+                  </div>
 
-  <div>
-    <label className="block text-xs text-muted-foreground mb-1">Driver Longitude</label>
-    <input
-      type="number"
-      step="0.0000001"
-      value={locationInputs[order.id]?.lng ?? ""}
-      onChange={(e) => handleLocationInputChange(order.id, "lng", e.target.value)}
-      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
-      placeholder="28.0473"
-    />
-  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Driver Longitude</label>
+                    <input
+                      type="number"
+                      step="0.0000001"
+                      value={locationInputs[order.id]?.lng ?? ""}
+                      onChange={(e) => handleLocationInputChange(order.id, "lng", e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                      placeholder="28.0473"
+                    />
+                  </div>
 
-  <div className="flex items-end">
-    <button
-      type="button"
-      onClick={() => useCurrentLocationForOrder(order.id)}
-      disabled={savingId === order.id}
-      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
-    >
-      {savingId === order.id ? (
-        <Loader2 className="w-4 h-4 animate-spin" />
-      ) : (
-        <Crosshair className="w-4 h-4" />
-      )}
-      Use My Current Location
-    </button>
-  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={() => useCurrentLocationForOrder(order.id)}
+                      disabled={savingId === order.id}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      {savingId === order.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Crosshair className="w-4 h-4" />
+                      )}
+                      Use My Current Location
+                    </button>
+                  </div>
 
-  <div className="flex items-end">
-    {trackingOrderId === order.id ? (
-      <button
-        type="button"
-        onClick={stopLiveTracking}
-        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition-opacity"
-      >
-        <Square className="w-4 h-4" />
-        Stop Live Tracking
-      </button>
-    ) : (
-      <button
-        type="button"
-        onClick={() => startLiveTracking(order.id)}
-        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
-      >
-        <Play className="w-4 h-4" />
-        Start Live Tracking
-      </button>
-    )}
-  </div>
+                  <div className="flex items-end">
+                    {trackingOrderId === order.id ? (
+                      <button
+                        type="button"
+                        onClick={stopLiveTracking}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+                      >
+                        <Square className="w-4 h-4" />
+                        Stop Live Tracking
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startLiveTracking(order.id)}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+                      >
+                        <Play className="w-4 h-4" />
+                        Start Live Tracking
+                      </button>
+                    )}
+                  </div>
 
-  <div className="flex items-end">
-    <button
-      type="button"
-      onClick={() => updateDriverLocation(order.id)}
-      disabled={savingId === order.id}
-      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-    >
-      {savingId === order.id ? (
-        <Loader2 className="w-4 h-4 animate-spin" />
-      ) : (
-        <Save className="w-4 h-4" />
-      )}
-      Save Driver Location
-    </button>
-  </div>
-</div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={() => updateDriverLocation(order.id)}
+                      disabled={savingId === order.id}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                      {savingId === order.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4" />
+                      )}
+                      Save Driver Location
+                    </button>
+                  </div>
+                </div>
 
                 {order.driver_last_updated && (
                   <p className="mt-3 text-xs text-muted-foreground">
