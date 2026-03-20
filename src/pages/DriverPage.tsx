@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import {
   Loader2,
@@ -7,14 +7,19 @@ import {
   Square,
   Phone,
   CheckCircle2,
-  CreditCard,
   Truck,
   PackageCheck,
+  UserRound,
+  HandCoins,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import Footer from "@/components/Footer";
+import DeliveryProgressTracker, {
+  type DeliveryStatus,
+} from "@/components/DeliveryProgressTracker";
 
 type OrderStatus =
   | "pending"
@@ -113,6 +118,29 @@ function getStatusBadge(status: OrderStatus) {
   );
 }
 
+function getFlowLabel(order: DriverOrder) {
+  if (order.status === "ready_for_delivery") return "Accepted · waiting to start";
+  if (order.status === "on_the_way") return "Trip in progress";
+  if (order.status === "arrived") {
+    if (isCashPaymentMethod(order.payment_method) && !order.cash_collected) {
+      return "Arrived · collect cash";
+    }
+    return "Arrived · ready to complete";
+  }
+  return "Waiting";
+}
+
+function getTrackerStatus(order: DriverOrder): DeliveryStatus {
+  if (order.status === "ready_for_delivery") return "ready_for_delivery";
+  if (order.status === "on_the_way") return "on_the_way";
+  if (order.status === "arrived") return "arrived";
+  if (order.status === "delivered") return "delivered";
+  if (order.status === "cancelled") return "cancelled";
+  if (order.status === "preparing") return "preparing";
+  if (order.status === "confirmed") return "confirmed";
+  return "pending";
+}
+
 export default function DriverPage() {
   const { user, loading } = useAuth();
   const [driver, setDriver] = useState<DriverRecord | null>(null);
@@ -121,6 +149,60 @@ export default function DriverPage() {
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
   const [watchId, setWatchId] = useState<number | null>(null);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
+  const [newOrderIds, setNewOrderIds] = useState<string[]>([]);
+  const audioUnlockedRef = useRef(false);
+
+  const playNotificationSound = () => {
+    try {
+      const AudioCtx =
+        window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+      if (!AudioCtx) return;
+
+      const ctx = new AudioCtx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+      oscillator.frequency.setValueAtTime(988, ctx.currentTime + 0.08);
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.28);
+
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.3);
+
+      oscillator.onended = () => {
+        ctx.close().catch(() => undefined);
+      };
+    } catch {
+      // no-op
+    }
+  };
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      audioUnlockedRef.current = true;
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+      window.removeEventListener("touchstart", unlockAudio);
+    };
+
+    window.addEventListener("click", unlockAudio);
+    window.addEventListener("keydown", unlockAudio);
+    window.addEventListener("touchstart", unlockAudio);
+
+    return () => {
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+      window.removeEventListener("touchstart", unlockAudio);
+    };
+  }, []);
 
   const availableOrders = useMemo(() => {
     return orders.filter((o) => o.status === "ready_for_delivery" && !o.driver_id);
@@ -134,6 +216,14 @@ export default function DriverPage() {
         ["ready_for_delivery", "on_the_way", "arrived"].includes(o.status)
     );
   }, [orders, driver]);
+
+  const activeJob = useMemo(() => {
+    if (myOrders.length === 0) return null;
+    const priority = ["on_the_way", "arrived", "ready_for_delivery"];
+    return [...myOrders].sort(
+      (a, b) => priority.indexOf(a.status) - priority.indexOf(b.status)
+    )[0];
+  }, [myOrders]);
 
   const loadDriverAndOrders = async () => {
     if (!user) return;
@@ -360,6 +450,7 @@ export default function DriverPage() {
       return;
     }
 
+    setNewOrderIds((prev) => prev.filter((id) => id !== orderId));
     toast.success("Order accepted");
     setActionOrderId(null);
     await loadDriverAndOrders();
@@ -496,7 +587,7 @@ export default function DriverPage() {
     if (!driver) return;
 
     const channel = supabase
-      .channel("driver-orders-live-dispatch")
+      .channel("driver-orders-live-ux-sound")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
@@ -509,6 +600,17 @@ export default function DriverPage() {
             previous?.status !== "ready_for_delivery" &&
             !next?.driver_id
           ) {
+            if (next.id) {
+              setNewOrderIds((prev) => Array.from(new Set([next.id!, ...prev])));
+              setTimeout(() => {
+                setNewOrderIds((prev) => prev.filter((id) => id !== next.id));
+              }, 12000);
+            }
+
+            if (audioUnlockedRef.current) {
+              playNotificationSound();
+            }
+
             toast.success("New delivery available");
           }
 
@@ -567,6 +669,61 @@ export default function DriverPage() {
           </p>
         </div>
 
+        {activeJob && (
+          <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-primary">
+                  Active Job Summary
+                </p>
+                <h2 className="text-2xl font-semibold text-foreground">
+                  Order #{activeJob.id.slice(0, 8).toUpperCase()}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {getFlowLabel(activeJob)} · {activeJob.customer_name} · {formatCurrency(activeJob.total)}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {getStatusBadge(activeJob.status)}
+                {isCashPaymentMethod(activeJob.payment_method) ? (
+                  <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
+                    Cash Order
+                  </span>
+                ) : (
+                  <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
+                    Card Paid
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div className="rounded-xl border border-border bg-background p-4">
+                <p className="mb-1 text-xs text-muted-foreground">Customer</p>
+                <p className="font-medium text-foreground">{activeJob.customer_name}</p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background p-4">
+                <p className="mb-1 text-xs text-muted-foreground">Phone</p>
+                <p className="font-medium text-foreground">{activeJob.customer_phone}</p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background p-4">
+                <p className="mb-1 text-xs text-muted-foreground">Distance</p>
+                <p className="font-medium text-foreground">
+                  {activeJob.driver_distance_km != null ? `${activeJob.driver_distance_km} km` : "—"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background p-4">
+                <p className="mb-1 text-xs text-muted-foreground">ETA</p>
+                <p className="font-medium text-foreground">{formatTime(activeJob.estimated_delivery_time)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <section className="rounded-xl border border-border bg-card p-5">
             <div className="mb-4 flex items-center justify-between">
@@ -583,74 +740,96 @@ export default function DriverPage() {
 
             <div className="space-y-4">
               {availableOrders.length === 0 ? (
-                <div className="rounded-lg border border-border bg-background p-6 text-center text-sm text-muted-foreground">
-                  No available orders right now.
+                <div className="rounded-lg border border-dashed border-border bg-background p-6 text-center">
+                  <p className="text-sm font-medium text-foreground">No available orders right now</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Stay on this page. New delivery requests will appear here automatically.
+                  </p>
                 </div>
               ) : (
-                availableOrders.map((order) => (
-                  <div key={order.id} className="rounded-lg border border-border bg-background p-4">
-                    <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h3 className="font-display text-xl text-foreground">
-                          Order #{order.id.slice(0, 8).toUpperCase()}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          {formatDateTime(order.created_at)}
-                        </p>
+                availableOrders.map((order) => {
+                  const isNew = newOrderIds.includes(order.id);
+
+                  return (
+                    <div
+                      key={order.id}
+                      className={`rounded-lg border bg-background p-4 transition-all ${
+                        isNew
+                          ? "border-primary shadow-[0_0_0_3px_rgba(0,0,0,0.04)]"
+                          : "border-border"
+                      }`}
+                    >
+                      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-display text-xl text-foreground">
+                              Order #{order.id.slice(0, 8).toUpperCase()}
+                            </h3>
+                            {isNew && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                                <Sparkles className="h-3.5 w-3.5" />
+                                New
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {formatDateTime(order.created_at)}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {getStatusBadge(order.status)}
+                          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 capitalize">
+                            {order.payment_method || "unknown"}
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(order.status)}
-                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 capitalize">
-                          {order.payment_method || "unknown"}
-                        </span>
+                      <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
+                        <div>
+                          <p className="mb-1 text-muted-foreground">Customer</p>
+                          <p className="font-medium text-foreground">{order.customer_name}</p>
+                          <p className="flex items-center gap-1 text-muted-foreground">
+                            <Phone className="h-4 w-4" />
+                            {order.customer_phone}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-muted-foreground">Address</p>
+                          <p className="flex items-start gap-1 font-medium text-foreground">
+                            <MapPin className="mt-0.5 h-4 w-4" />
+                            {order.delivery_address}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-muted-foreground">Order</p>
+                          <p className="text-foreground">Total: {formatCurrency(order.total)}</p>
+                          <p className="text-foreground">
+                            Payment: {isCashPaymentMethod(order.payment_method) ? "Cash on delivery" : "Card"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={() => acceptOrder(order.id)}
+                          disabled={actionOrderId === order.id}
+                          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {actionOrderId === order.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <PackageCheck className="h-4 w-4" />
+                          )}
+                          Accept Order
+                        </button>
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
-                      <div>
-                        <p className="mb-1 text-muted-foreground">Customer</p>
-                        <p className="font-medium text-foreground">{order.customer_name}</p>
-                        <p className="flex items-center gap-1 text-muted-foreground">
-                          <Phone className="h-4 w-4" />
-                          {order.customer_phone}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className="mb-1 text-muted-foreground">Address</p>
-                        <p className="flex items-start gap-1 font-medium text-foreground">
-                          <MapPin className="mt-0.5 h-4 w-4" />
-                          {order.delivery_address}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className="mb-1 text-muted-foreground">Order</p>
-                        <p className="text-foreground">Total: {formatCurrency(order.total)}</p>
-                        <p className="text-foreground">
-                          Payment: {isCashPaymentMethod(order.payment_method) ? "Cash on delivery" : "Card"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
-                      <button
-                        type="button"
-                        onClick={() => acceptOrder(order.id)}
-                        disabled={actionOrderId === order.id}
-                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                      >
-                        {actionOrderId === order.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <PackageCheck className="h-4 w-4" />
-                        )}
-                        Accept Order
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </section>
@@ -670,8 +849,11 @@ export default function DriverPage() {
 
             <div className="space-y-4">
               {myOrders.length === 0 ? (
-                <div className="rounded-lg border border-border bg-background p-6 text-center text-sm text-muted-foreground">
-                  You have no active deliveries.
+                <div className="rounded-lg border border-dashed border-border bg-background p-6 text-center">
+                  <p className="text-sm font-medium text-foreground">You have no active deliveries</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Accept a ready order from the left side to start working on a delivery.
+                  </p>
                 </div>
               ) : (
                 myOrders.map((order) => {
@@ -705,12 +887,25 @@ export default function DriverPage() {
                         </div>
                       </div>
 
+                      <div className="mb-4 rounded-xl border border-border bg-card p-4">
+                        <div className="mb-3 flex items-center justify-between">
+                          <p className="text-sm font-medium text-foreground">Delivery Flow</p>
+                          <span className="text-xs font-medium text-primary">
+                            {getFlowLabel(order)}
+                          </span>
+                        </div>
+
+                        <DeliveryProgressTracker
+                          status={getTrackerStatus(order)}
+                        />
+                      </div>
+
                       <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
                         <div>
                           <p className="mb-1 text-muted-foreground">Customer</p>
                           <p className="font-medium text-foreground">{order.customer_name}</p>
                           <p className="flex items-center gap-1 text-muted-foreground">
-                            <Phone className="h-4 w-4" />
+                            <UserRound className="h-4 w-4" />
                             {order.customer_phone}
                           </p>
                           {order.customer_email && (
@@ -728,7 +923,9 @@ export default function DriverPage() {
 
                         <div>
                           <p className="mb-1 text-muted-foreground">Live Delivery Info</p>
-                          <p className="text-foreground">ETA: {formatTime(order.estimated_delivery_time)}</p>
+                          <p className="text-foreground">
+                            ETA: {formatTime(order.estimated_delivery_time)}
+                          </p>
                           <p className="text-foreground">
                             Distance: {order.driver_distance_km != null ? `${order.driver_distance_km} km` : "—"}
                           </p>
@@ -741,11 +938,31 @@ export default function DriverPage() {
 
                       <div className="mt-4 rounded-lg border border-border bg-card p-4">
                         <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                          <p className="text-foreground">Started trip: {formatDateTime(order.started_delivery_at)}</p>
-                          <p className="text-foreground">Arrived: {formatDateTime(order.arrived_at)}</p>
-                          <p className="text-foreground">Cash collected: {order.cash_collected ? "Yes" : "No"}</p>
-                          <p className="text-foreground">Cash time: {formatDateTime(order.cash_collected_at)}</p>
+                          <p className="text-foreground">
+                            Started trip: {formatDateTime(order.started_delivery_at)}
+                          </p>
+                          <p className="text-foreground">
+                            Arrived: {formatDateTime(order.arrived_at)}
+                          </p>
+                          <p className="text-foreground">
+                            Cash collected: {order.cash_collected ? "Yes" : "No"}
+                          </p>
+                          <p className="text-foreground">
+                            Cash time: {formatDateTime(order.cash_collected_at)}
+                          </p>
                         </div>
+
+                        {order.status === "ready_for_delivery" && (
+                          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                            Start delivery when you are ready to leave with the order.
+                          </div>
+                        )}
+
+                        {order.status === "on_the_way" && (
+                          <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+                            Keep live tracking active while travelling to the customer.
+                          </div>
+                        )}
 
                         {order.status === "arrived" && isCashPaymentMethod(order.payment_method) && !order.cash_collected && (
                           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -824,7 +1041,7 @@ export default function DriverPage() {
                             {actionOrderId === order.id ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
-                              <CreditCard className="h-4 w-4" />
+                              <HandCoins className="h-4 w-4" />
                             )}
                             Collect Cash
                           </button>

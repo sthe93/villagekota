@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-//import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Package,
@@ -17,8 +17,6 @@ import {
   Bike,
   TrendingUp,
   CreditCard,
-  ChevronDown,
-  ChevronUp,
   Loader2,
   Search,
   RefreshCw,
@@ -26,6 +24,11 @@ import {
   Mail,
   Phone,
   Clock3,
+  Truck,
+  Navigation,
+  CheckCircle2,
+  UserCheck,
+  ChevronRight,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 
@@ -125,20 +128,13 @@ type AdminTab =
   | "customers"
   | "drivers";
 
-const ORDER_STATUSES = [
-  "pending",
-  "confirmed",
-  "preparing",
-  "on_the_way",
-  "delivered",
-  "cancelled",
-];
-
 const statusColors: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700 border-amber-200",
   confirmed: "bg-blue-100 text-blue-700 border-blue-200",
   preparing: "bg-purple-100 text-purple-700 border-purple-200",
+  ready_for_delivery: "bg-orange-100 text-orange-700 border-orange-200",
   on_the_way: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  arrived: "bg-cyan-100 text-cyan-700 border-cyan-200",
   delivered: "bg-green-100 text-green-700 border-green-200",
   cancelled: "bg-red-100 text-red-700 border-red-200",
 };
@@ -262,7 +258,7 @@ function AdminModal({
 
 export default function AdminPage() {
   const { user, isAdmin, loading } = useAuth();
-  
+  const navigate = useNavigate();
 
   const [tab, setTab] = useState<AdminTab>("dashboard");
 
@@ -283,7 +279,6 @@ export default function AdminPage() {
   const [showVoucherForm, setShowVoucherForm] = useState(false);
   const [showDriverForm, setShowDriverForm] = useState(false);
 
-  const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
   const [paymentFilter, setPaymentFilter] = useState<
     "all" | "paid" | "pending" | "failed" | "cancelled"
   >("all");
@@ -297,35 +292,33 @@ export default function AdminPage() {
 
   const [pageLoading, setPageLoading] = useState(false);
 
- 
+  useEffect(() => {
+    if (loading) return;
 
-useEffect(() => {
-  if (loading) return;
+    if (!isAdmin) {
+      setPageLoading(false);
+      return;
+    }
 
-  if (!isAdmin) {
-    setPageLoading(false);
-    return;
-  }
+    fetchAll();
+  }, [loading, isAdmin]);
 
-  fetchAll();
-}, [loading, isAdmin]);
+  const fetchAll = async () => {
+    try {
+      setPageLoading(true);
 
-const fetchAll = async () => {
-  try {
-    setPageLoading(true);
-
-    await Promise.all([
-      fetchProducts(),
-      fetchOrders(),
-      fetchCategories(),
-      fetchVouchers(),
-      fetchDrivers(),
-      fetchOrderItems(),
-    ]);
-  } finally {
-    setPageLoading(false);
-  }
-};
+      await Promise.all([
+        fetchProducts(),
+        fetchOrders(),
+        fetchCategories(),
+        fetchVouchers(),
+        fetchDrivers(),
+        fetchOrderItems(),
+      ]);
+    } finally {
+      setPageLoading(false);
+    }
+  };
 
   const fetchProducts = async () => {
     const { data, error } = await supabase.from("products").select("*").order("name");
@@ -411,13 +404,6 @@ const fetchAll = async () => {
     setShowProductForm(false);
     setEditingProduct(null);
     fetchProducts();
-  };
-
-  const toggleOrderExpanded = (orderId: string) => {
-    setExpandedOrders((prev) => ({
-      ...prev,
-      [orderId]: !prev[orderId],
-    }));
   };
 
   const handleDeleteProduct = async (id: string) => {
@@ -571,15 +557,6 @@ const fetchAll = async () => {
       return matchesSearch && matchesPayment;
     });
   }, [orders, orderSearch, paymentFilter]);
-
-  const handleUpdateOrderStatus = async (orderId: string, status: string) => {
-    const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
-    if (error) toast.error(error.message);
-    else {
-      toast.success("Status updated");
-      fetchOrders();
-    }
-  };
 
   const today = new Date();
   const todayKey = today.toISOString().slice(0, 10);
@@ -766,6 +743,21 @@ const fetchAll = async () => {
     [orders]
   );
 
+  const dispatchSummary = useMemo(() => {
+    const waitingForDriver = orders.filter(
+      (o) => o.status === "ready_for_delivery" && !("driver_id" in o)
+    ).length;
+
+    return {
+      waitingForDriver:
+        waitingForDriver ||
+        orders.filter((o) => o.status === "ready_for_delivery").length,
+      onTheWay: orders.filter((o) => o.status === "on_the_way").length,
+      arrived: orders.filter((o) => o.status === "arrived").length,
+      delivered: orders.filter((o) => o.status === "delivered").length,
+    };
+  }, [orders]);
+
   const maxRevenue = Math.max(...salesData.map((s) => s.revenue), 1);
 
   const tabs = [
@@ -798,8 +790,9 @@ const fetchAll = async () => {
     );
   }
 
-  if (!isAdmin) return null;if (!user) return null;
-if (!isAdmin) return null;
+  if (!user) return null;
+  if (!isAdmin) return null;
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-7xl py-6 md:py-8">
@@ -947,7 +940,7 @@ if (!isAdmin) return null;
                   onClick={() => setTab("orders")}
                   className="inline-flex items-center justify-center rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                 >
-                  View All Orders
+                  View Orders Summary
                 </button>
               </div>
 
@@ -1009,6 +1002,62 @@ if (!isAdmin) return null;
         {tab === "orders" && (
           <div className="mx-auto max-w-6xl space-y-4">
             <div className="sticky top-[84px] z-10 rounded-3xl border border-border bg-card p-4 shadow-sm backdrop-blur">
+              <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <h2 className="font-display text-2xl text-foreground">Orders Summary</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Read-only overview for finance and support. Use Dispatch Manager for kitchen and delivery actions.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => navigate("/admin/orders")}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  <Navigation className="h-4 w-4" />
+                  Open Dispatch Manager
+                </button>
+              </div>
+
+              <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-border bg-background/50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Ready / Waiting
+                  </p>
+                  <p className="mt-1 font-display text-2xl text-orange-700">
+                    {dispatchSummary.waitingForDriver}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    On The Way
+                  </p>
+                  <p className="mt-1 font-display text-2xl text-indigo-700">
+                    {dispatchSummary.onTheWay}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Arrived
+                  </p>
+                  <p className="mt-1 font-display text-2xl text-cyan-700">
+                    {dispatchSummary.arrived}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Delivered
+                  </p>
+                  <p className="mt-1 font-display text-2xl text-green-700">
+                    {dispatchSummary.delivered}
+                  </p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
                 <div className="relative lg:col-span-2">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1070,7 +1119,6 @@ if (!isAdmin) return null;
             ) : (
               filteredAdminOrders.map((o) => {
                 const itemsForOrder = orderItemsByOrderId[o.id] || [];
-                const isExpanded = !!expandedOrders[o.id];
                 const paymentStatus = (o.payment_status || "pending").toLowerCase();
 
                 return (
@@ -1156,106 +1204,111 @@ if (!isAdmin) return null;
                         </div>
 
                         <div className="rounded-2xl border border-border bg-background/50 p-4">
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Update Order Status
-                          </label>
-                          <select
-                            value={o.status}
-                            onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
-                            className={selectClassName}
-                          >
-                            {ORDER_STATUSES.map((s) => (
-                              <option key={s} value={s}>
-                                {formatStatusLabel(s)}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                Dispatch Actions
+                              </p>
+                              <p className="mt-1 text-sm text-foreground">
+                                Kitchen and delivery updates happen in the dedicated manager.
+                              </p>
+                            </div>
+                          </div>
 
                           <button
                             type="button"
-                            onClick={() => toggleOrderExpanded(o.id)}
-                            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            onClick={() => navigate("/admin/orders")}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                           >
-                            {isExpanded ? (
-                              <>
-                                <ChevronUp className="h-4 w-4" />
-                                Hide Details
-                              </>
-                            ) : (
-                              <>
-                                <ChevronDown className="h-4 w-4" />
-                                View Details ({itemsForOrder.length})
-                              </>
-                            )}
+                            <Truck className="h-4 w-4" />
+                            Open Dispatch Manager
+                            <ChevronRight className="h-4 w-4" />
                           </button>
                         </div>
                       </div>
                     </div>
 
-                    {isExpanded && (
-                      <div className="mt-5 space-y-4 border-t border-border pt-5">
-                        <div className="rounded-2xl border border-border bg-background/50 p-4">
-                          <div className="mb-3 flex items-center justify-between gap-3">
-                            <h3 className="text-sm font-semibold text-foreground">Order Items</h3>
-                            <span className="text-xs text-muted-foreground">
-                              {itemsForOrder.length} item{itemsForOrder.length === 1 ? "" : "s"}
-                            </span>
-                          </div>
+                    <div className="mt-5 grid grid-cols-1 gap-4 border-t border-border pt-5 lg:grid-cols-3">
+                      <div className="rounded-2xl border border-border bg-background/50 p-4">
+                        <div className="mb-3 flex items-center gap-2">
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                          <h3 className="text-sm font-semibold text-foreground">Order Items</h3>
+                        </div>
 
-                          {itemsForOrder.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No order items found.</p>
-                          ) : (
-                            <div className="space-y-2">
-                              {itemsForOrder.map((item) => (
-                                <div
-                                  key={item.id}
-                                  className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3"
-                                >
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium text-foreground">
-                                      {item.product_name}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      Qty: {item.quantity}
-                                    </p>
-                                  </div>
-                                  <p className="shrink-0 text-sm font-semibold text-primary">
-                                    {currency(item.total_price)}
+                        {itemsForOrder.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No order items found.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {itemsForOrder.slice(0, 4).map((item) => (
+                              <div
+                                key={item.id}
+                                className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-foreground">
+                                    {item.product_name}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Qty: {item.quantity}
                                   </p>
                                 </div>
-                              ))}
-                            </div>
-                          )}
+                                <p className="shrink-0 text-sm font-semibold text-primary">
+                                  {currency(item.total_price)}
+                                </p>
+                              </div>
+                            ))}
+
+                            {itemsForOrder.length > 4 && (
+                              <p className="text-xs text-muted-foreground">
+                                + {itemsForOrder.length - 4} more item{itemsForOrder.length - 4 === 1 ? "" : "s"}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-border bg-background/50 p-4">
+                        <div className="mb-3 flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          <h3 className="text-sm font-semibold text-foreground">Payment Summary</h3>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                          <div className="rounded-2xl border border-border bg-background/50 p-4">
-                            <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
-                              Order ID
-                            </p>
-                            <p className="break-all text-sm font-medium text-foreground">{o.id}</p>
-                          </div>
-
-                          <div className="rounded-2xl border border-border bg-background/50 p-4">
-                            <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
-                              Payment Provider
-                            </p>
-                            <p className="text-sm font-medium text-foreground">
-                              {o.payment_provider || "N/A"}
-                            </p>
-                          </div>
-
-                          <div className="rounded-2xl border border-border bg-background/50 p-4">
-                            <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
-                              Payment Status
-                            </p>
-                            <p className="text-sm font-medium capitalize text-foreground">
-                              {paymentStatus}
-                            </p>
-                          </div>
+                        <div className="space-y-2 text-sm">
+                          <p className="text-foreground">
+                            Method: <span className="capitalize text-muted-foreground">{o.payment_method}</span>
+                          </p>
+                          <p className="text-foreground">
+                            Provider: <span className="text-muted-foreground">{o.payment_provider || "N/A"}</span>
+                          </p>
+                          <p className="text-foreground">
+                            Status: <span className="capitalize text-muted-foreground">{paymentStatus}</span>
+                          </p>
+                          <p className="text-foreground">
+                            Total: <span className="font-medium text-primary">{currency(o.total)}</span>
+                          </p>
                         </div>
                       </div>
-                    )}
+
+                      <div className="rounded-2xl border border-border bg-background/50 p-4">
+                        <div className="mb-3 flex items-center gap-2">
+                          <UserCheck className="h-4 w-4 text-muted-foreground" />
+                          <h3 className="text-sm font-semibold text-foreground">Admin Shortcut</h3>
+                        </div>
+
+                        <p className="mb-4 text-sm text-muted-foreground">
+                          Open the dispatch manager to move kitchen stages, monitor driver progress, and review live delivery information.
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={() => navigate("/admin/orders")}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                        >
+                          <Navigation className="h-4 w-4" />
+                          Manage This in Dispatch
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })

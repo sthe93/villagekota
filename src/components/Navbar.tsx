@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
 import logo from "@/assets/star-village-logo.png";
 import { useAuth } from "@/context/AuthContext";
+import DriverNavbarBadge from "@/components/DriverNavbarBadge";
 import { useState } from "react";
 
 export default function Navbar() {
@@ -18,17 +19,17 @@ export default function Navbar() {
   ];
 
   return (
-    <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border shadow-sm">
-      <div className="container flex items-center justify-between h-20">
+    <nav className="sticky top-0 z-50 border-b border-border bg-background/95 shadow-sm backdrop-blur-md">
+      <div className="container flex h-20 items-center justify-between">
         <Link to="/" className="flex items-center">
           <img
             src={logo}
             alt="Village Eats"
-            className="h-14 md:h-16 w-auto object-contain mix-blend-multiply"
+            className="h-14 w-auto object-contain mix-blend-multiply md:h-16"
           />
         </Link>
 
-        <div className="hidden md:flex items-center gap-10">
+        <div className="hidden items-center gap-10 md:flex">
           {links.map((l) => (
             <Link
               key={l.to}
@@ -43,49 +44,53 @@ export default function Navbar() {
         </div>
 
         <div className="flex items-center gap-2">
+          <DriverNavbarBadge />
+
           {isAdmin && (
             <Link
               to="/admin/orders"
-              className="p-2 rounded-lg hover:bg-muted transition-colors"
+              className="rounded-lg p-2 transition-colors hover:bg-muted"
               aria-label="Admin Orders"
+              title="Admin Orders"
             >
-              <Shield className="w-5 h-5 text-primary" />
+              <Shield className="h-5 w-5 text-primary" />
             </Link>
           )}
 
           <Link
             to={user ? "/account" : "/auth"}
-            className="p-2 rounded-lg hover:bg-muted transition-colors"
+            className="rounded-lg p-2 transition-colors hover:bg-muted"
             aria-label={user ? "Account" : "Sign in"}
+            title={user ? "My Account" : "Sign In"}
           >
-            <User className="w-5 h-5 text-foreground" />
+            <User className="h-5 w-5 text-foreground" />
           </Link>
 
           <button
             onClick={toggleCart}
-            className="relative p-2 rounded-lg hover:bg-muted transition-colors"
+            className="relative rounded-lg p-2 transition-colors hover:bg-muted"
             aria-label="Open cart"
           >
-            <ShoppingBag className="w-5 h-5 text-foreground" />
+            <ShoppingBag className="h-5 w-5 text-foreground" />
             {itemCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center animate-scale-in">
+              <span className="animate-scale-in absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
                 {itemCount}
               </span>
             )}
           </button>
 
           <button
-            className="md:hidden p-2 rounded-lg hover:bg-muted transition-colors"
+            className="rounded-lg p-2 transition-colors hover:bg-muted md:hidden"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle menu"
           >
-            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
       </div>
 
       {mobileOpen && (
-        <div className="md:hidden border-t border-border bg-background animate-fade-in">
+        <div className="animate-fade-in border-t border-border bg-background md:hidden">
           {links.map((l) => (
             <Link
               key={l.to}
@@ -106,6 +111,10 @@ export default function Navbar() {
           >
             {user ? "My Account" : "Sign In"}
           </Link>
+
+          <div onClick={() => setMobileOpen(false)}>
+            <DriverNavbarBadge />
+          </div>
 
           {isAdmin && (
             <Link

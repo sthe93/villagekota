@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   CheckCircle2,
@@ -15,11 +15,16 @@ import {
   Navigation,
   AlertCircle,
   HandCoins,
+  Phone,
+  UserRound,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import Footer from "@/components/Footer";
 import maplibregl from "maplibre-gl";
+import DeliveryProgressTracker, {
+  type DeliveryStatus,
+} from "@/components/DeliveryProgressTracker";
 
 type OrderStatus =
   | "pending"
@@ -31,8 +36,15 @@ type OrderStatus =
   | "delivered"
   | "cancelled";
 
+type DriverInfo = {
+  id: string;
+  name: string;
+  phone: string | null;
+};
+
 type OrderRecord = {
   id: string;
+  user_id: string | null;
   customer_name: string;
   customer_phone: string | null;
   customer_email: string | null;
@@ -53,6 +65,7 @@ type OrderRecord = {
   driver_lat: number | null;
   driver_lng: number | null;
   driver_last_updated: string | null;
+  driver_id: string | null;
   accepted_at: string | null;
   started_delivery_at: string | null;
   arrived_at: string | null;
@@ -69,28 +82,6 @@ type OrderItemRecord = {
   unit_price: number;
   total_price: number;
 };
-
-type TimelineStep = {
-  key: OrderStatus;
-  label: string;
-  shortLabel: string;
-  icon: React.ComponentType<{ className?: string }>;
-};
-
-const TIMELINE_STEPS: TimelineStep[] = [
-  { key: "pending", label: "Order Placed", shortLabel: "Placed", icon: Clock3 },
-  { key: "confirmed", label: "Confirmed", shortLabel: "Confirmed", icon: Store },
-  { key: "preparing", label: "Preparing", shortLabel: "Preparing", icon: ChefHat },
-  {
-    key: "ready_for_delivery",
-    label: "Ready for Delivery",
-    shortLabel: "Ready",
-    icon: PackageCheck,
-  },
-  { key: "on_the_way", label: "On The Way", shortLabel: "On the Way", icon: Truck },
-  { key: "arrived", label: "Arrived", shortLabel: "Arrived", icon: MapPinned },
-  { key: "delivered", label: "Delivered", shortLabel: "Delivered", icon: CheckCircle2 },
-];
 
 const CARD_REQUIRED_PAYMENT_METHODS = ["card"];
 
@@ -121,12 +112,28 @@ function normalize(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
 }
 
+function getStatusLabel(status: OrderStatus) {
+  const labels: Record<OrderStatus, string> = {
+    pending: "Pending",
+    confirmed: "Confirmed",
+    preparing: "Preparing",
+    ready_for_delivery: "Ready for Delivery",
+    on_the_way: "On the Way",
+    arrived: "Arrived",
+    delivered: "Delivered",
+    cancelled: "Cancelled",
+  };
+
+  return labels[status];
+}
+
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
 
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [items, setItems] = useState<OrderItemRecord[]>([]);
+  const [driver, setDriver] = useState<DriverInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [retryingPayment, setRetryingPayment] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -145,19 +152,17 @@ export default function OrderTrackingPage() {
   const paymentIsPaid = paymentStatus === "paid";
   const paymentIsFailed = paymentStatus === "failed";
   const paymentIsCancelled = paymentStatus === "cancelled";
+
   const isOrderCancelled = orderStatus === "cancelled";
   const isReadyForDelivery = orderStatus === "ready_for_delivery";
   const isOnTheWay = orderStatus === "on_the_way";
   const isArrived = orderStatus === "arrived";
   const isDelivered = orderStatus === "delivered";
+
   const isCardPayment = CARD_REQUIRED_PAYMENT_METHODS.includes(paymentMethod);
   const isCashPayment = paymentMethod === "cash";
   const cashCollected = !!order?.cash_collected;
-
-  const currentTimelineIndex = useMemo(() => {
-    const idx = TIMELINE_STEPS.findIndex((step) => step.key === orderStatus);
-    return idx === -1 ? 0 : idx;
-  }, [orderStatus]);
+  const hasAssignedDriver = !!order?.driver_id && !!driver;
 
   const canRetryPayment = useMemo(() => {
     if (!order) return false;
@@ -205,7 +210,7 @@ export default function OrderTrackingPage() {
     if (isOnTheWay) {
       const distance =
         order.driver_distance_km != null
-          ? `Driver is ${order.driver_distance_km.toFixed(1)}km away`
+          ? `Driver is ${order.driver_distance_km.toFixed(1)} km away`
           : "Driver is on the way";
 
       const eta = order.estimated_delivery_time
@@ -213,6 +218,10 @@ export default function OrderTrackingPage() {
         : "ETA updating";
 
       return `Your order is on the way · ${distance} · ${eta}`;
+    }
+
+    if (isReadyForDelivery && hasAssignedDriver) {
+      return `${driver?.name || "A driver"} accepted your order and will start the trip shortly.`;
     }
 
     if (isReadyForDelivery) {
@@ -241,72 +250,118 @@ export default function OrderTrackingPage() {
     paymentNeedsAttention,
     isCashPayment,
     cashCollected,
+    hasAssignedDriver,
+    driver,
   ]);
 
-  const fetchOrder = async (showRefreshToast = false) => {
-    if (!orderId) return;
+  const summaryIcon = useMemo(() => {
+    if (isOrderCancelled) return XCircle;
+    if (isDelivered) return CheckCircle2;
+    if (isArrived) return MapPinned;
+    if (isOnTheWay) return Truck;
+    if (isReadyForDelivery) return PackageCheck;
+    if (orderStatus === "preparing") return ChefHat;
+    if (orderStatus === "confirmed") return Store;
+    return AlertCircle;
+  }, [isOrderCancelled, isDelivered, isArrived, isOnTheWay, isReadyForDelivery, orderStatus]);
 
-    try {
-      if (!loading) setRefreshing(true);
+  const summaryIconClass = useMemo(() => {
+    if (isOrderCancelled) return "text-rose-600";
+    if (isDelivered) return "text-emerald-600";
+    if (isArrived) return "text-cyan-600";
+    if (isOnTheWay) return "text-indigo-600";
+    if (isReadyForDelivery) return "text-orange-600";
+    if (orderStatus === "preparing") return "text-violet-600";
+    if (orderStatus === "confirmed") return "text-sky-600";
+    return "text-primary";
+  }, [isOrderCancelled, isDelivered, isArrived, isOnTheWay, isReadyForDelivery, orderStatus]);
 
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .select(`
-          id,
-          customer_name,
-          customer_phone,
-          customer_email,
-          delivery_address,
-          notes,
-          payment_method,
-          payment_provider,
-          payment_reference,
-          payment_status,
-          status,
-          subtotal,
-          delivery_fee,
-          discount_amount,
-          total,
-          created_at,
-          estimated_delivery_time,
-          driver_distance_km,
-          driver_lat,
-          driver_lng,
-          driver_last_updated,
-          accepted_at,
-          started_delivery_at,
-          arrived_at,
-          delivered_at,
-          cash_collected,
-          cash_collected_amount,
-          cash_collected_at
-        `)
-        .eq("id", orderId)
-        .single();
+  const fetchOrder = useCallback(
+    async (showRefreshToast = false) => {
+      if (!orderId) return;
 
-      if (orderError) throw orderError;
+      try {
+        if (!loading) setRefreshing(true);
 
-      const { data: itemData, error: itemsError } = await supabase
-        .from("order_items")
-        .select("id, product_name, quantity, unit_price, total_price")
-        .eq("order_id", orderId)
-        .order("id", { ascending: true });
+        const { data: orderData, error: orderError } = await supabase
+          .from("orders")
+          .select(`
+            id,
+            user_id,
+            customer_name,
+            customer_phone,
+            customer_email,
+            delivery_address,
+            notes,
+            payment_method,
+            payment_provider,
+            payment_reference,
+            payment_status,
+            status,
+            subtotal,
+            delivery_fee,
+            discount_amount,
+            total,
+            created_at,
+            estimated_delivery_time,
+            driver_distance_km,
+            driver_lat,
+            driver_lng,
+            driver_last_updated,
+            driver_id,
+            accepted_at,
+            started_delivery_at,
+            arrived_at,
+            delivered_at,
+            cash_collected,
+            cash_collected_amount,
+            cash_collected_at
+          `)
+          .eq("id", orderId)
+          .single();
 
-      if (itemsError) throw itemsError;
+        if (orderError) throw orderError;
 
-      setOrder(orderData as OrderRecord);
-      setItems((itemData || []) as OrderItemRecord[]);
+        const { data: itemData, error: itemsError } = await supabase
+          .from("order_items")
+          .select("id, product_name, quantity, unit_price, total_price")
+          .eq("order_id", orderId)
+          .order("id", { ascending: true });
 
-      if (showRefreshToast) {
-        toast.success("Order refreshed");
+        if (itemsError) throw itemsError;
+
+        const nextOrder = orderData as OrderRecord;
+        setOrder(nextOrder);
+        setItems((itemData || []) as OrderItemRecord[]);
+
+        if (nextOrder.driver_id) {
+          const { data: driverData, error: driverError } = await supabase
+            .from("drivers")
+            .select("id, name, phone")
+            .eq("id", nextOrder.driver_id)
+            .maybeSingle();
+
+          if (!driverError) {
+            setDriver((driverData as DriverInfo | null) || null);
+          } else {
+            setDriver(null);
+          }
+        } else {
+          setDriver(null);
+        }
+
+        if (showRefreshToast) {
+          toast.success("Order refreshed");
+        }
+      } catch (error: any) {
+        toast.error(error.message || "Failed to load order");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load order");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    },
+    [orderId, loading]
+  );
 
   useEffect(() => {
     fetchOrder();
@@ -332,7 +387,7 @@ export default function OrderTrackingPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [orderId]);
+  }, [orderId, fetchOrder]);
 
   useEffect(() => {
     if (!showMap || !mapContainerRef.current || !order) return;
@@ -430,6 +485,33 @@ export default function OrderTrackingPage() {
       );
     }
 
+    if (isCashPayment && isDelivered && cashCollected) {
+      return (
+        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
+          <HandCoins className="h-4 w-4" />
+          Cash collected
+        </div>
+      );
+    }
+
+    if (isCashPayment && isArrived && !cashCollected) {
+      return (
+        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
+          <HandCoins className="h-4 w-4" />
+          Cash due now
+        </div>
+      );
+    }
+
+    if (isCashPayment) {
+      return (
+        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700">
+          <HandCoins className="h-4 w-4" />
+          Cash on delivery
+        </div>
+      );
+    }
+
     if (paymentIsFailed || paymentIsCancelled) {
       return (
         <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700">
@@ -439,28 +521,10 @@ export default function OrderTrackingPage() {
       );
     }
 
-    if (isCardPayment) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
-          <Clock3 className="h-4 w-4" />
-          Payment verification pending
-        </div>
-      );
-    }
-
-    if (isCashPayment && isArrived && !cashCollected) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
-          <HandCoins className="h-4 w-4" />
-          Cash due on arrival
-        </div>
-      );
-    }
-
     return (
-      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700">
+      <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
         <Clock3 className="h-4 w-4" />
-        Cash on delivery
+        Payment verification pending
       </div>
     );
   };
@@ -479,53 +543,13 @@ export default function OrderTrackingPage() {
 
     return (
       <div
-        className={`inline-flex rounded-full border px-3 py-1.5 text-sm font-medium capitalize ${
+        className={`inline-flex rounded-full border px-3 py-1.5 text-sm font-medium ${
           map[orderStatus] || "border-border bg-muted text-foreground"
         }`}
       >
-        {orderStatus.replace(/_/g, " ")}
+        {getStatusLabel(orderStatus)}
       </div>
     );
-  };
-
-  const getStepState = (index: number) => {
-    if (isOrderCancelled) {
-      return {
-        isCompleted: false,
-        isCurrent: false,
-        circleClass: "border-border bg-muted text-muted-foreground",
-        textClass: "text-muted-foreground",
-        connectorClass: "bg-border",
-      };
-    }
-
-    if (index < currentTimelineIndex) {
-      return {
-        isCompleted: true,
-        isCurrent: false,
-        circleClass: "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm",
-        textClass: "text-foreground",
-        connectorClass: "bg-emerald-500",
-      };
-    }
-
-    if (index === currentTimelineIndex) {
-      return {
-        isCompleted: false,
-        isCurrent: true,
-        circleClass: "border-primary bg-primary text-primary-foreground shadow-[0_0_0_6px_rgba(0,0,0,0.04)]",
-        textClass: "text-foreground",
-        connectorClass: "bg-border",
-      };
-    }
-
-    return {
-      isCompleted: false,
-      isCurrent: false,
-      circleClass: "border-border bg-background text-muted-foreground",
-      textClass: "text-muted-foreground",
-      connectorClass: "bg-border",
-    };
   };
 
   if (loading) {
@@ -558,6 +582,8 @@ export default function OrderTrackingPage() {
     );
   }
 
+  const SummaryIcon = summaryIcon;
+
   return (
     <div>
       <div className="container max-w-7xl py-8">
@@ -581,110 +607,129 @@ export default function OrderTrackingPage() {
           </button>
         </div>
 
-        <div className="mb-6 rounded-2xl border border-border bg-card p-5 md:p-6">
-          <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">Order Status</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Created on {formatDateTime(order.created_at)}
-              </p>
-            </div>
-            {orderBadge()}
-          </div>
+        <div className="mb-6 overflow-hidden rounded-3xl border border-border bg-card">
+          <div className="border-b border-border bg-muted/30 p-5 md:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-3xl">
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  {orderBadge()}
+                  <div className="inline-flex rounded-full border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground">
+                    Created {formatDateTime(order.created_at)}
+                  </div>
+                </div>
 
-          <div className="mb-5 rounded-2xl border border-border bg-muted/40 p-4">
-            <div className="flex items-start gap-3">
-              {isOrderCancelled ? (
-                <XCircle className="mt-0.5 h-5 w-5 text-rose-600" />
-              ) : isOnTheWay ? (
-                <Truck className="mt-0.5 h-5 w-5 text-primary" />
-              ) : isArrived ? (
-                <MapPinned className="mt-0.5 h-5 w-5 text-primary" />
-              ) : isReadyForDelivery ? (
-                <PackageCheck className="mt-0.5 h-5 w-5 text-primary" />
-              ) : (
-                <AlertCircle className="mt-0.5 h-5 w-5 text-primary" />
-              )}
-              <div>
-                <p className="font-medium text-foreground">{statusSummary}</p>
-                {paymentNeedsAttention && !isOrderCancelled && (
-                  <p className="mt-1 text-sm text-amber-700">
-                    Card orders must be paid before confirmation, preparation, dispatch, or delivery can continue.
-                  </p>
-                )}
-                {isCashPayment && isArrived && !cashCollected && (
-                  <p className="mt-1 text-sm text-amber-700">
-                    Please have your cash ready for the driver.
-                  </p>
-                )}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-background">
+                    <SummaryIcon className={`h-5 w-5 ${summaryIconClass}`} />
+                  </div>
+
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground">Order Status</h2>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{statusSummary}</p>
+
+                    {paymentNeedsAttention && !isOrderCancelled && (
+                      <p className="mt-2 text-sm text-amber-700">
+                        Card orders must be paid before confirmation, preparation, dispatch, or delivery can continue.
+                      </p>
+                    )}
+
+                    {isCashPayment && isArrived && !cashCollected && (
+                      <p className="mt-2 text-sm text-amber-700">
+                        Please have your cash ready for the driver.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          {isOrderCancelled ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-              <div className="flex items-start gap-3">
-                <XCircle className="mt-0.5 h-5 w-5 text-rose-600" />
-                <div>
-                  <p className="font-medium text-rose-700">Order Cancelled</p>
-                  <p className="mt-1 text-sm text-rose-600">
-                    This order has been cancelled and will not continue through the delivery process.
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[380px]">
+                <div className="rounded-2xl border border-border bg-background p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Status</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{getStatusLabel(orderStatus)}</p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Payment</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    {isCashPayment
+                      ? cashCollected
+                        ? "Cash collected"
+                        : "Cash on delivery"
+                      : paymentIsPaid
+                      ? "Paid online"
+                      : "Awaiting payment"}
                   </p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Driver</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    {hasAssignedDriver ? driver?.name || "Assigned" : "Waiting"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Total</p>
+                  <p className="mt-1 text-sm font-semibold text-primary">{formatCurrency(order.total)}</p>
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[980px] px-1">
-                <div className="flex items-start">
-                  {TIMELINE_STEPS.map((step, index) => {
-                    const Icon = step.icon;
-                    const isLast = index === TIMELINE_STEPS.length - 1;
-                    const state = getStepState(index);
+          </div>
 
-                    return (
-                      <div key={step.key} className="flex flex-1 items-start">
-                        <div className="flex w-full flex-col items-center text-center">
-                          <div
-                            className={[
-                              "flex items-center justify-center rounded-full border transition-all duration-300",
-                              state.isCurrent ? "h-14 w-14" : "h-11 w-11",
-                              state.circleClass,
-                            ].join(" ")}
-                          >
-                            <Icon className={state.isCurrent ? "h-6 w-6" : "h-5 w-5"} />
-                          </div>
-
-                          <div className="mt-3 min-h-[54px]">
-                            <p className={`text-sm font-semibold ${state.textClass}`}>
-                              {step.shortLabel}
-                            </p>
-                            {state.isCurrent && (
-                              <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                                Current
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {!isLast && (
-                          <div className="flex flex-1 items-center px-2 pt-5">
-                            <div className="h-1 w-full overflow-hidden rounded-full bg-border">
-                              <div className={`h-full w-full ${state.connectorClass}`} />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
+          <div className="p-5 md:p-6">
+            <DeliveryProgressTracker status={orderStatus as DeliveryStatus} />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
           <div className="space-y-6 xl:col-span-3">
+            {hasAssignedDriver && (
+              <div className="rounded-2xl border border-border bg-card p-6">
+                <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground">Your Driver</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Driver details for this delivery.
+                    </p>
+                  </div>
+
+                  {order.accepted_at && (
+                    <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                      Accepted {formatTime(order.accepted_at)}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-border p-4">
+                    <p className="mb-1 text-sm text-muted-foreground">Driver name</p>
+                    <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+                      <UserRound className="h-4 w-4 text-primary" />
+                      {driver?.name || "Assigned driver"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border p-4">
+                    <p className="mb-1 text-sm text-muted-foreground">Driver phone</p>
+                    {driver?.phone ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-base font-semibold text-foreground">{driver.phone}</p>
+                        <a
+                          href={`tel:${driver.phone}`}
+                          className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                        >
+                          <Phone className="h-4 w-4" />
+                          Call
+                        </a>
+                      </div>
+                    ) : (
+                      <p className="text-base font-semibold text-foreground">Not available</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {showMap && (
               <div className="rounded-2xl border border-border bg-card p-6">
                 <div className="mb-4 flex items-center justify-between gap-4">
@@ -824,6 +869,12 @@ export default function OrderTrackingPage() {
               {isCashPayment && isArrived && !cashCollected && (
                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                   Your driver has arrived. Please pay the cash amount of {formatCurrency(order.total)} to complete delivery.
+                </div>
+              )}
+
+              {isCashPayment && isOnTheWay && !cashCollected && (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                  This is a cash order. Payment will be collected by the driver on arrival.
                 </div>
               )}
 

@@ -12,11 +12,16 @@ import {
   Truck,
   UserCheck,
   MapPin,
+  Phone,
+  Navigation,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import Footer from "@/components/Footer";
+import DeliveryProgressTracker, {
+  type DeliveryStatus,
+} from "@/components/DeliveryProgressTracker";
 
 type OrderStatus =
   | "pending"
@@ -67,14 +72,6 @@ interface AdminOrder {
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
 }
-
-const adminStatusOptions: OrderStatus[] = [
-  "pending",
-  "confirmed",
-  "preparing",
-  "ready_for_delivery",
-  "cancelled",
-];
 
 const statusLabel: Record<OrderStatus, string> = {
   pending: "Pending",
@@ -131,15 +128,9 @@ function getPaymentLabel(paymentStatus?: string | null, paymentMethod?: string |
   const method = normalizeValue(paymentMethod);
 
   if (status === "paid") return "Paid";
-
   if (method === "cash") return "Cash on delivery";
-
-  if (method === "card" && (status === "pending" || status === "")) {
-    return "Awaiting card payment";
-  }
-
+  if (method === "card" && (status === "pending" || status === "")) return "Awaiting card payment";
   if (status === "failed" || status === "cancelled") return "Payment failed";
-
   return "Awaiting payment";
 }
 
@@ -198,6 +189,89 @@ function canRetryPayment(order: {
     ["pending", "failed", "cancelled", ""].includes(paymentStatus) &&
     ["pending", "cancelled"].includes(orderStatus)
   );
+}
+
+function getDispatchState(order: AdminOrder) {
+  if (order.status === "cancelled") {
+    return {
+      label: "Cancelled",
+      tone: "bg-rose-50 border-rose-200 text-rose-700",
+      description: "This order has been cancelled.",
+    };
+  }
+
+  if (order.status === "delivered") {
+    return {
+      label: "Delivered",
+      tone: "bg-emerald-50 border-emerald-200 text-emerald-700",
+      description: "The delivery has been completed.",
+    };
+  }
+
+  if (order.status === "arrived") {
+    return {
+      label: "Arrived",
+      tone: "bg-cyan-50 border-cyan-200 text-cyan-700",
+      description: "The driver has arrived at the customer location.",
+    };
+  }
+
+  if (order.status === "on_the_way") {
+    return {
+      label: "On The Way",
+      tone: "bg-indigo-50 border-indigo-200 text-indigo-700",
+      description: "The driver is currently delivering this order.",
+    };
+  }
+
+  if (order.status === "ready_for_delivery" && order.driver_id) {
+    return {
+      label: "Driver Assigned",
+      tone: "bg-sky-50 border-sky-200 text-sky-700",
+      description: "A driver accepted this order and is expected to start shortly.",
+    };
+  }
+
+  if (order.status === "ready_for_delivery" && !order.driver_id) {
+    return {
+      label: "Waiting for Driver",
+      tone: "bg-orange-50 border-orange-200 text-orange-700",
+      description: "The order is ready and waiting for a driver to accept it.",
+    };
+  }
+
+  if (order.status === "preparing") {
+    return {
+      label: "Kitchen Preparing",
+      tone: "bg-violet-50 border-violet-200 text-violet-700",
+      description: "The kitchen is still preparing this order.",
+    };
+  }
+
+  if (order.status === "confirmed") {
+    return {
+      label: "Confirmed",
+      tone: "bg-blue-50 border-blue-200 text-blue-700",
+      description: "The order has been confirmed and will move to the kitchen.",
+    };
+  }
+
+  return {
+    label: "Pending",
+    tone: "bg-amber-50 border-amber-200 text-amber-700",
+    description: "The order is waiting for confirmation.",
+  };
+}
+
+function getTrackerStatus(order: AdminOrder): DeliveryStatus {
+  if (order.status === "cancelled") return "cancelled";
+  if (order.status === "delivered") return "delivered";
+  if (order.status === "arrived") return "arrived";
+  if (order.status === "on_the_way") return "on_the_way";
+  if (order.status === "ready_for_delivery") return "ready_for_delivery";
+  if (order.status === "preparing") return "preparing";
+  if (order.status === "confirmed") return "confirmed";
+  return "pending";
 }
 
 export default function AdminOrdersPage() {
@@ -283,7 +357,7 @@ export default function AdminOrdersPage() {
     if (!isAdmin) return;
 
     const channel = supabase
-      .channel("admin-orders-live-dispatch")
+      .channel("admin-orders-live-dispatch-v2")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
@@ -349,7 +423,7 @@ export default function AdminOrdersPage() {
     setSavingId(null);
   };
 
-  const driverNameMap = useMemo(() => {
+  const driverMap = useMemo(() => {
     return new Map(drivers.map((driver) => [driver.id, driver]));
   }, [drivers]);
 
@@ -553,7 +627,8 @@ export default function AdminOrdersPage() {
             </div>
           ) : (
             filteredOrders.map((order) => {
-              const assignedDriver = order.driver_id ? driverNameMap.get(order.driver_id) : null;
+              const assignedDriver = order.driver_id ? driverMap.get(order.driver_id) : null;
+              const dispatch = getDispatchState(order);
 
               const paymentGuardMessage =
                 isCardPaymentMethod(order.payment_method) &&
@@ -577,6 +652,34 @@ export default function AdminOrdersPage() {
                       {getStatusBadge(order.status)}
                       {getPaymentBadge(order.payment_status, order.payment_method)}
                     </div>
+                  </div>
+
+                  <div className={`mb-4 rounded-xl border px-4 py-3 ${dispatch.tone}`}>
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">{dispatch.label}</p>
+                        <p className="text-sm opacity-90">{dispatch.description}</p>
+                      </div>
+
+                      {assignedDriver && (
+                        <div className="text-sm font-medium">
+                          Driver: {assignedDriver.name}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mb-4 rounded-xl border border-border bg-background p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-sm font-medium text-foreground">Delivery Flow</p>
+                      <span className="text-xs font-medium text-primary">
+                        {dispatch.label}
+                      </span>
+                    </div>
+
+                    <DeliveryProgressTracker
+                      status={getTrackerStatus(order)}
+                    />
                   </div>
 
                   {paymentGuardMessage && (
@@ -680,42 +783,72 @@ export default function AdminOrdersPage() {
                       </div>
 
                       {assignedDriver ? (
-                        <>
-                          <p className="text-sm text-foreground">{assignedDriver.name}</p>
-                          <p className="text-sm text-muted-foreground">{assignedDriver.phone || "No phone"}</p>
-                          <p className="mt-2 text-xs text-muted-foreground">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-foreground">{assignedDriver.name}</p>
+                          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Phone className="h-4 w-4" />
+                            {assignedDriver.phone || "No phone"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
                             Accepted: {formatDateTime(order.accepted_at)}
                           </p>
-                        </>
+                        </div>
                       ) : (
-                        <p className="text-sm text-muted-foreground">
-                          Waiting for a driver to accept this delivery.
-                        </p>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-foreground">Unassigned</p>
+                          <p className="text-sm text-muted-foreground">
+                            Waiting for a driver to accept this delivery.
+                          </p>
+                        </div>
                       )}
                     </div>
 
                     <div className="rounded-lg border border-border bg-background p-4">
                       <div className="mb-2 flex items-center gap-2">
                         <Truck className="h-4 w-4 text-muted-foreground" />
-                        <p className="text-sm font-medium text-foreground">Delivery Progress</p>
+                        <p className="text-sm font-medium text-foreground">Trip Milestones</p>
                       </div>
-                      <p className="text-sm text-foreground">Started: {formatDateTime(order.started_delivery_at)}</p>
-                      <p className="text-sm text-foreground">Arrived: {formatDateTime(order.arrived_at)}</p>
-                      <p className="text-sm text-foreground">Delivered: {formatDateTime(order.delivered_at)}</p>
+
+                      <div className="space-y-1 text-sm">
+                        <p className="text-foreground">
+                          Started: <span className="text-muted-foreground">{formatDateTime(order.started_delivery_at)}</span>
+                        </p>
+                        <p className="text-foreground">
+                          Arrived: <span className="text-muted-foreground">{formatDateTime(order.arrived_at)}</span>
+                        </p>
+                        <p className="text-foreground">
+                          Delivered: <span className="text-muted-foreground">{formatDateTime(order.delivered_at)}</span>
+                        </p>
+                      </div>
                     </div>
 
                     <div className="rounded-lg border border-border bg-background p-4">
                       <div className="mb-2 flex items-center gap-2">
-                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                        <Navigation className="h-4 w-4 text-muted-foreground" />
                         <p className="text-sm font-medium text-foreground">Live Delivery Info</p>
                       </div>
-                      <p className="text-sm text-foreground">ETA: {formatTime(order.estimated_delivery_time)}</p>
-                      <p className="text-sm text-foreground">
-                        Distance: {order.driver_distance_km != null ? `${order.driver_distance_km} km` : "—"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Last updated: {formatDateTime(order.driver_last_updated)}
-                      </p>
+
+                      <div className="space-y-1 text-sm">
+                        <p className="text-foreground">
+                          ETA: <span className="text-muted-foreground">{formatTime(order.estimated_delivery_time)}</span>
+                        </p>
+                        <p className="text-foreground">
+                          Distance:{" "}
+                          <span className="text-muted-foreground">
+                            {order.driver_distance_km != null ? `${order.driver_distance_km} km` : "—"}
+                          </span>
+                        </p>
+                        <p className="text-foreground">
+                          Last updated: <span className="text-muted-foreground">{formatDateTime(order.driver_last_updated)}</span>
+                        </p>
+                      </div>
+
+                      {order.driver_lat != null && order.driver_lng != null && (
+                        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                          <MapPin className="h-3.5 w-3.5" />
+                          Live location available
+                        </div>
+                      )}
                     </div>
 
                     <div className="rounded-lg border border-border bg-background p-4">
@@ -723,18 +856,31 @@ export default function AdminOrdersPage() {
                         <CreditCard className="h-4 w-4 text-muted-foreground" />
                         <p className="text-sm font-medium text-foreground">Cash Collection</p>
                       </div>
+
                       {isCashPaymentMethod(order.payment_method) ? (
-                        <>
-                          <p className="text-sm text-foreground">Collected: {order.cash_collected ? "Yes" : "No"}</p>
-                          <p className="text-sm text-foreground">
-                            Amount: {order.cash_collected_amount != null ? formatCurrency(order.cash_collected_amount) : "—"}
+                        <div className="space-y-1 text-sm">
+                          <p className="text-foreground">
+                            Collected:{" "}
+                            <span className={order.cash_collected ? "font-medium text-emerald-700" : "text-muted-foreground"}>
+                              {order.cash_collected ? "Yes" : "No"}
+                            </span>
                           </p>
-                          <p className="text-xs text-muted-foreground">
-                            Time: {formatDateTime(order.cash_collected_at)}
+                          <p className="text-foreground">
+                            Amount:{" "}
+                            <span className="text-muted-foreground">
+                              {order.cash_collected_amount != null
+                                ? formatCurrency(order.cash_collected_amount)
+                                : "—"}
+                            </span>
                           </p>
-                        </>
+                          <p className="text-foreground">
+                            Time: <span className="text-muted-foreground">{formatDateTime(order.cash_collected_at)}</span>
+                          </p>
+                        </div>
                       ) : (
-                        <p className="text-sm text-muted-foreground">Not applicable for card payments.</p>
+                        <p className="text-sm text-muted-foreground">
+                          Not applicable for card payments.
+                        </p>
                       )}
                     </div>
                   </div>
