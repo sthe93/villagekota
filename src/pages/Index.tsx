@@ -47,9 +47,9 @@ export default function HomePage() {
               🔥 Now Delivering in Joburg
             </span>
             <h1 className="font-display text-5xl sm:text-7xl text-primary-foreground leading-none mb-4">
-              SOUTH AFRICA'S <br />
-              <span className="text-primary">FINEST KOTA</span>
-            </h1>
+  SOUTH AFRICA'S <br />
+  <span className="text-primary">FINEST</span>
+</h1>
             <p className="text-primary-foreground/70 text-lg mb-8 font-body max-w-md">
               Premium Bunny Chow & Kota delivered to your door. Authentic street food, crafted with soul.
             </p>

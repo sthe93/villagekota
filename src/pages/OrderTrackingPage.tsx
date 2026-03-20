@@ -17,6 +17,8 @@ import {
   HandCoins,
   Phone,
   UserRound,
+  Landmark,
+  ShieldCheck,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -108,6 +110,24 @@ function formatDateTime(value: string | null | undefined) {
   });
 }
 
+function formatRelativeTime(value: string | null | undefined) {
+  if (!value) return "—";
+
+  const now = Date.now();
+  const then = new Date(value).getTime();
+  const diffMs = Math.max(0, now - then);
+
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr${hours === 1 ? "" : "s"} ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 function normalize(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
 }
@@ -126,6 +146,24 @@ function getStatusLabel(status: OrderStatus) {
 
   return labels[status];
 }
+
+function getTrackerStatus(status: OrderStatus): DeliveryStatus {
+  if (status === "cancelled") return "cancelled";
+  if (status === "delivered") return "delivered";
+  if (status === "arrived") return "arrived";
+  if (status === "on_the_way") return "on_the_way";
+  if (status === "ready_for_delivery") return "ready_for_delivery";
+  if (status === "preparing") return "preparing";
+  if (status === "confirmed") return "confirmed";
+  return "pending";
+}
+
+type PaymentBanner = {
+  tone: string;
+  icon: typeof AlertCircle;
+  title: string;
+  description: string;
+};
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
@@ -152,6 +190,7 @@ export default function OrderTrackingPage() {
   const paymentIsPaid = paymentStatus === "paid";
   const paymentIsFailed = paymentStatus === "failed";
   const paymentIsCancelled = paymentStatus === "cancelled";
+  const paymentIsPending = paymentStatus === "pending" || paymentStatus === "";
 
   const isOrderCancelled = orderStatus === "cancelled";
   const isReadyForDelivery = orderStatus === "ready_for_delivery";
@@ -161,6 +200,7 @@ export default function OrderTrackingPage() {
 
   const isCardPayment = CARD_REQUIRED_PAYMENT_METHODS.includes(paymentMethod);
   const isCashPayment = paymentMethod === "cash";
+  const isEftPayment = paymentMethod === "eft";
   const cashCollected = !!order?.cash_collected;
   const hasAssignedDriver = !!order?.driver_id && !!driver;
 
@@ -174,16 +214,8 @@ export default function OrderTrackingPage() {
     );
   }, [order, isCardPayment, paymentStatus, orderStatus]);
 
-  const paymentNeedsAttention = useMemo(() => {
-    return isCardPayment && !paymentIsPaid;
-  }, [isCardPayment, paymentIsPaid]);
-
   const showMap = useMemo(() => {
-    return (
-      (isOnTheWay || isArrived) &&
-      order?.driver_lat != null &&
-      order?.driver_lng != null
-    );
+    return (isOnTheWay || isArrived) && order?.driver_lat != null && order?.driver_lng != null;
   }, [isOnTheWay, isArrived, order?.driver_lat, order?.driver_lng]);
 
   const statusSummary = useMemo(() => {
@@ -194,16 +226,16 @@ export default function OrderTrackingPage() {
     }
 
     if (isDelivered) {
-      return isCashPayment && cashCollected
-        ? "Your order has been delivered and cash payment was collected successfully."
-        : "Your order has been delivered. Enjoy your meal.";
+      if (isCashPayment && cashCollected) {
+        return "Your order has been delivered and cash payment was collected successfully.";
+      }
+      return "Your order has been delivered. Enjoy your meal.";
     }
 
     if (isArrived) {
       if (isCashPayment && !cashCollected) {
         return "Your driver has arrived and is waiting to collect cash payment.";
       }
-
       return "Your driver has arrived with your order.";
     }
 
@@ -236,9 +268,15 @@ export default function OrderTrackingPage() {
       return "Your order has been confirmed and the kitchen will start shortly.";
     }
 
-    return paymentNeedsAttention
-      ? "Your order is placed and awaiting payment confirmation."
-      : "Your order has been placed and is waiting for confirmation.";
+    if (isCardPayment && !paymentIsPaid) {
+      return "Your order is placed and awaiting card payment confirmation.";
+    }
+
+    if (isEftPayment && !paymentIsPaid) {
+      return "Your order is placed and awaiting EFT payment confirmation.";
+    }
+
+    return "Your order has been placed and is waiting for confirmation.";
   }, [
     order,
     isOrderCancelled,
@@ -247,11 +285,13 @@ export default function OrderTrackingPage() {
     isOnTheWay,
     isReadyForDelivery,
     orderStatus,
-    paymentNeedsAttention,
     isCashPayment,
+    isCardPayment,
+    isEftPayment,
     cashCollected,
     hasAssignedDriver,
     driver,
+    paymentIsPaid,
   ]);
 
   const summaryIcon = useMemo(() => {
@@ -265,16 +305,158 @@ export default function OrderTrackingPage() {
     return AlertCircle;
   }, [isOrderCancelled, isDelivered, isArrived, isOnTheWay, isReadyForDelivery, orderStatus]);
 
-  const summaryIconClass = useMemo(() => {
-    if (isOrderCancelled) return "text-rose-600";
-    if (isDelivered) return "text-emerald-600";
-    if (isArrived) return "text-cyan-600";
-    if (isOnTheWay) return "text-indigo-600";
-    if (isReadyForDelivery) return "text-orange-600";
-    if (orderStatus === "preparing") return "text-violet-600";
-    if (orderStatus === "confirmed") return "text-sky-600";
-    return "text-primary";
+  const summaryTone = useMemo(() => {
+    if (isOrderCancelled) return "border-rose-200 bg-rose-50 text-rose-800";
+    if (isDelivered) return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    if (isArrived) return "border-cyan-200 bg-cyan-50 text-cyan-800";
+    if (isOnTheWay) return "border-indigo-200 bg-indigo-50 text-indigo-800";
+    if (isReadyForDelivery) return "border-orange-200 bg-orange-50 text-orange-800";
+    if (orderStatus === "preparing") return "border-violet-200 bg-violet-50 text-violet-800";
+    if (orderStatus === "confirmed") return "border-sky-200 bg-sky-50 text-sky-800";
+    return "border-amber-200 bg-amber-50 text-amber-800";
   }, [isOrderCancelled, isDelivered, isArrived, isOnTheWay, isReadyForDelivery, orderStatus]);
+
+  const paymentBanner = useMemo<PaymentBanner | null>(() => {
+    if (!order || isOrderCancelled) return null;
+
+    if (isCashPayment && cashCollected) {
+      return {
+        tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
+        icon: HandCoins,
+        title: "Cash payment received",
+        description: order.cash_collected_at
+          ? `Cash payment was collected successfully at ${formatDateTime(order.cash_collected_at)}.`
+          : "Cash payment was collected successfully.",
+      };
+    }
+
+    if (isCashPayment && isArrived && !cashCollected) {
+      return {
+        tone: "border-amber-200 bg-amber-50 text-amber-800",
+        icon: HandCoins,
+        title: "Cash due now",
+        description: `Your driver has arrived. Please pay the cash amount of ${formatCurrency(
+          order.total
+        )} to complete delivery.`,
+      };
+    }
+
+    if (isCashPayment && !cashCollected) {
+      return {
+        tone: "border-slate-200 bg-slate-50 text-slate-700",
+        icon: HandCoins,
+        title: "Cash on delivery",
+        description: "This is a cash order. Payment will be collected by the driver on arrival.",
+      };
+    }
+
+    if (isCardPayment && paymentIsPaid) {
+      return {
+        tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
+        icon: CheckCircle2,
+        title: "Card payment confirmed",
+        description: "Your online card payment has been received successfully.",
+      };
+    }
+
+    if (isCardPayment && (paymentIsFailed || paymentIsCancelled)) {
+      return {
+        tone: "border-rose-200 bg-rose-50 text-rose-800",
+        icon: XCircle,
+        title: "Card payment needs attention",
+        description:
+          "Your card payment was not completed. Retry payment below to continue with your order.",
+      };
+    }
+
+    if (isCardPayment && paymentIsPending) {
+      return {
+        tone: "border-amber-200 bg-amber-50 text-amber-800",
+        icon: CreditCard,
+        title: "Waiting for card payment confirmation",
+        description:
+          "Your order cannot move into confirmation, preparation, dispatch, or delivery until the card payment is marked as paid.",
+      };
+    }
+
+    if (isEftPayment && paymentIsPaid) {
+      return {
+        tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
+        icon: CheckCircle2,
+        title: "EFT payment confirmed",
+        description:
+          "Your EFT payment has been confirmed successfully and your order can continue normally.",
+      };
+    }
+
+    if (isEftPayment && (paymentIsFailed || paymentIsCancelled)) {
+      return {
+        tone: "border-rose-200 bg-rose-50 text-rose-800",
+        icon: XCircle,
+        title: "EFT payment needs attention",
+        description:
+          "Your EFT payment is not confirmed. Please contact support or send proof of payment if needed.",
+      };
+    }
+
+    if (isEftPayment && paymentIsPending) {
+      return {
+        tone: "border-amber-200 bg-amber-50 text-amber-800",
+        icon: Landmark,
+        title: "Awaiting EFT confirmation",
+        description:
+          "Your order is saved with payment pending. Preparation and dispatch should only continue after your EFT payment is confirmed manually.",
+      };
+    }
+
+    return null;
+  }, [
+    order,
+    isOrderCancelled,
+    isCashPayment,
+    isCardPayment,
+    isEftPayment,
+    cashCollected,
+    isArrived,
+    paymentIsPaid,
+    paymentIsFailed,
+    paymentIsCancelled,
+    paymentIsPending,
+  ]);
+
+  const milestones = useMemo(() => {
+    if (!order) return [];
+
+    const entries = [
+      {
+        label: "Order placed",
+        value: order.created_at,
+        icon: Clock3,
+      },
+      {
+        label: "Driver accepted",
+        value: order.accepted_at,
+        icon: UserRound,
+      },
+      {
+        label: "Trip started",
+        value: order.started_delivery_at,
+        icon: Truck,
+      },
+      {
+        label: "Driver arrived",
+        value: order.arrived_at,
+        icon: MapPinned,
+      },
+      {
+        label: "Delivered",
+        value: order.delivered_at,
+        icon: CheckCircle2,
+      },
+    ];
+
+    return entries.filter((entry) => entry.value);
+  }, [order]);
 
   const fetchOrder = useCallback(
     async (showRefreshToast = false) => {
@@ -364,7 +546,7 @@ export default function OrderTrackingPage() {
   );
 
   useEffect(() => {
-    fetchOrder();
+    void fetchOrder();
 
     if (!orderId) return;
 
@@ -379,7 +561,7 @@ export default function OrderTrackingPage() {
           filter: `id=eq.${orderId}`,
         },
         () => {
-          fetchOrder();
+          void fetchOrder();
         }
       )
       .subscribe();
@@ -480,7 +662,7 @@ export default function OrderTrackingPage() {
       return (
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
           <CheckCircle2 className="h-4 w-4" />
-          Paid
+          {isEftPayment ? "EFT confirmed" : "Paid"}
         </div>
       );
     }
@@ -508,6 +690,15 @@ export default function OrderTrackingPage() {
         <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700">
           <HandCoins className="h-4 w-4" />
           Cash on delivery
+        </div>
+      );
+    }
+
+    if (isEftPayment && paymentIsPending) {
+      return (
+        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
+          <Landmark className="h-4 w-4" />
+          EFT pending
         </div>
       );
     }
@@ -554,7 +745,7 @@ export default function OrderTrackingPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center">
+      <div className="flex min-h-[70vh] items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -566,9 +757,7 @@ export default function OrderTrackingPage() {
         <div className="container py-16">
           <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-8 text-center">
             <h1 className="mb-3 text-3xl font-bold text-foreground">Order not found</h1>
-            <p className="mb-6 text-muted-foreground">
-              We could not find that order.
-            </p>
+            <p className="mb-6 text-muted-foreground">We could not find that order.</p>
             <button
               onClick={() => navigate("/menu")}
               className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-3 font-medium text-primary-foreground transition-opacity hover:opacity-90"
@@ -583,20 +772,30 @@ export default function OrderTrackingPage() {
   }
 
   const SummaryIcon = summaryIcon;
+  const PaymentBannerIcon = paymentBanner?.icon;
 
   return (
-    <div>
-      <div className="container max-w-7xl py-8">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-h-screen bg-background">
+      <div className="container max-w-7xl py-8 md:py-10">
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="font-display text-4xl text-foreground">Track Order</h1>
-            <p className="mt-1 text-muted-foreground">Order ID: {order.id}</p>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+              Live order updates · Payment status · Delivery tracking
+            </div>
+
+            <h1 className="font-display text-4xl text-foreground sm:text-5xl">
+              Track Your Order
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+              Order ID: {order.id}
+            </p>
           </div>
 
           <button
-            onClick={() => fetchOrder(true)}
+            onClick={() => void fetchOrder(true)}
             disabled={refreshing}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
             {refreshing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -607,54 +806,50 @@ export default function OrderTrackingPage() {
           </button>
         </div>
 
-        <div className="mb-6 overflow-hidden rounded-3xl border border-border bg-card">
+        <div className={`mb-6 overflow-hidden rounded-[28px] border bg-card shadow-card`}>
           <div className="border-b border-border bg-muted/30 p-5 md:p-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl">
                 <div className="mb-3 flex flex-wrap items-center gap-3">
                   {orderBadge()}
                   <div className="inline-flex rounded-full border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground">
-                    Created {formatDateTime(order.created_at)}
+                    Placed {formatDateTime(order.created_at)}
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-background">
-                    <SummaryIcon className={`h-5 w-5 ${summaryIconClass}`} />
-                  </div>
+                <div className={`rounded-2xl border p-4 ${summaryTone}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/70">
+                      <SummaryIcon className="h-5 w-5" />
+                    </div>
 
-                  <div>
-                    <h2 className="text-xl font-semibold text-foreground">Order Status</h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{statusSummary}</p>
-
-                    {paymentNeedsAttention && !isOrderCancelled && (
-                      <p className="mt-2 text-sm text-amber-700">
-                        Card orders must be paid before confirmation, preparation, dispatch, or delivery can continue.
-                      </p>
-                    )}
-
-                    {isCashPayment && isArrived && !cashCollected && (
-                      <p className="mt-2 text-sm text-amber-700">
-                        Please have your cash ready for the driver.
-                      </p>
-                    )}
+                    <div>
+                      <h2 className="text-xl font-semibold">What’s happening now</h2>
+                      <p className="mt-1 text-sm leading-6 opacity-90">{statusSummary}</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[380px]">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[400px]">
                 <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Status</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{getStatusLabel(orderStatus)}</p>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Status</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    {getStatusLabel(orderStatus)}
+                  </p>
                 </div>
 
                 <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Payment</p>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Payment</p>
                   <p className="mt-1 text-sm font-semibold text-foreground">
                     {isCashPayment
                       ? cashCollected
                         ? "Cash collected"
                         : "Cash on delivery"
+                      : isEftPayment
+                      ? paymentIsPaid
+                        ? "EFT confirmed"
+                        : "EFT pending"
                       : paymentIsPaid
                       ? "Paid online"
                       : "Awaiting payment"}
@@ -662,29 +857,43 @@ export default function OrderTrackingPage() {
                 </div>
 
                 <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Driver</p>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Driver</p>
                   <p className="mt-1 text-sm font-semibold text-foreground">
                     {hasAssignedDriver ? driver?.name || "Assigned" : "Waiting"}
                   </p>
                 </div>
 
                 <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Total</p>
-                  <p className="mt-1 text-sm font-semibold text-primary">{formatCurrency(order.total)}</p>
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Total</p>
+                  <p className="mt-1 text-sm font-semibold text-primary">
+                    {formatCurrency(order.total)}
+                  </p>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="p-5 md:p-6">
-            <DeliveryProgressTracker status={orderStatus as DeliveryStatus} />
+            <DeliveryProgressTracker status={getTrackerStatus(orderStatus)} />
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
           <div className="space-y-6 xl:col-span-3">
+            {paymentBanner && PaymentBannerIcon && (
+              <div className={`rounded-2xl border p-5 text-sm ${paymentBanner.tone}`}>
+                <div className="flex items-start gap-3">
+                  <PaymentBannerIcon className="mt-0.5 h-5 w-5 shrink-0" />
+                  <div>
+                    <p className="font-semibold">{paymentBanner.title}</p>
+                    <p className="mt-1 leading-6">{paymentBanner.description}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {hasAssignedDriver && (
-              <div className="rounded-2xl border border-border bg-card p-6">
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
                 <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h2 className="text-xl font-semibold text-foreground">Your Driver</h2>
@@ -694,7 +903,7 @@ export default function OrderTrackingPage() {
                   </div>
 
                   {order.accepted_at && (
-                    <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                    <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-primary">
                       Accepted {formatTime(order.accepted_at)}
                     </div>
                   )}
@@ -731,7 +940,7 @@ export default function OrderTrackingPage() {
             )}
 
             {showMap && (
-              <div className="rounded-2xl border border-border bg-card p-6">
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
                 <div className="mb-4 flex items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-semibold text-foreground">
@@ -794,7 +1003,7 @@ export default function OrderTrackingPage() {
               </div>
             )}
 
-            <div className="rounded-2xl border border-border bg-card p-6">
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
               <h2 className="mb-5 text-xl font-semibold text-foreground">Customer & Delivery</h2>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -802,7 +1011,7 @@ export default function OrderTrackingPage() {
                   <p className="mb-1 text-muted-foreground">Customer</p>
                   <p className="font-medium text-foreground">{order.customer_name}</p>
                   {order.customer_phone && <p className="text-foreground">{order.customer_phone}</p>}
-                  {order.customer_email && <p className="text-foreground">{order.customer_email}</p>}
+                  {order.customer_email && <p className="break-all text-foreground">{order.customer_email}</p>}
                 </div>
 
                 <div className="rounded-2xl border border-border p-4 text-sm">
@@ -819,17 +1028,17 @@ export default function OrderTrackingPage() {
               {order.notes && (
                 <div className="mt-4 rounded-2xl border border-border p-4 text-sm">
                   <p className="mb-1 text-muted-foreground">Notes</p>
-                  <p className="text-foreground">{order.notes}</p>
+                  <p className="whitespace-pre-line leading-6 text-foreground">{order.notes}</p>
                 </div>
               )}
             </div>
 
-            <div className="rounded-2xl border border-border bg-card p-6">
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
               <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-xl font-semibold text-foreground">Payment</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Secure checkout and payment status
+                    Secure checkout and payment status.
                   </p>
                 </div>
 
@@ -860,31 +1069,6 @@ export default function OrderTrackingPage() {
                 </div>
               </div>
 
-              {paymentNeedsAttention && (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                  This order cannot move into confirmation, preparation, dispatch, or delivery until the card payment is marked as paid.
-                </div>
-              )}
-
-              {isCashPayment && isArrived && !cashCollected && (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                  Your driver has arrived. Please pay the cash amount of {formatCurrency(order.total)} to complete delivery.
-                </div>
-              )}
-
-              {isCashPayment && isOnTheWay && !cashCollected && (
-                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                  This is a cash order. Payment will be collected by the driver on arrival.
-                </div>
-              )}
-
-              {isCashPayment && cashCollected && (
-                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                  Cash payment was collected successfully
-                  {order.cash_collected_at ? ` at ${formatDateTime(order.cash_collected_at)}.` : "."}
-                </div>
-              )}
-
               {canRetryPayment && !paymentIsPaid && (
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-muted/40 p-4">
                   <div>
@@ -909,54 +1093,125 @@ export default function OrderTrackingPage() {
                 </div>
               )}
             </div>
+
+            {milestones.length > 0 && (
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+                <h2 className="mb-5 text-xl font-semibold text-foreground">Milestones</h2>
+
+                <div className="space-y-3">
+                  {milestones.map((milestone) => {
+                    const Icon = milestone.icon;
+
+                    return (
+                      <div
+                        key={milestone.label}
+                        className="flex items-start gap-3 rounded-2xl border border-border p-4"
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                          <Icon className="h-4 w-4" />
+                        </div>
+
+                        <div>
+                          <p className="font-medium text-foreground">{milestone.label}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {formatDateTime(milestone.value)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="xl:col-span-2">
-            <div className="sticky top-24 rounded-2xl border border-border bg-card p-6">
-              <h2 className="mb-5 text-xl font-semibold text-foreground">Order Summary</h2>
+            <div className="sticky top-24 space-y-4">
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+                <h2 className="mb-5 text-xl font-semibold text-foreground">Order Summary</h2>
 
-              <div className="mb-5 space-y-3">
-                {items.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No items found for this order.</p>
-                ) : (
-                  items.map((item) => (
-                    <div key={item.id} className="flex items-start justify-between gap-3 text-sm">
-                      <div>
-                        <p className="font-medium text-foreground">{item.product_name}</p>
-                        <p className="text-muted-foreground">
-                          {item.quantity} × {formatCurrency(item.unit_price)}
+                <div className="mb-5 space-y-3">
+                  {items.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No items found for this order.</p>
+                  ) : (
+                    items.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-start justify-between gap-3 rounded-2xl border border-border bg-background p-3 text-sm"
+                      >
+                        <div>
+                          <p className="font-medium text-foreground">{item.product_name}</p>
+                          <p className="text-muted-foreground">
+                            {item.quantity} × {formatCurrency(item.unit_price)}
+                          </p>
+                        </div>
+                        <p className="font-medium text-foreground">
+                          {formatCurrency(item.total_price)}
                         </p>
                       </div>
-                      <p className="font-medium text-foreground">
-                        {formatCurrency(item.total_price)}
-                      </p>
+                    ))
+                  )}
+                </div>
+
+                <div className="space-y-2 border-t border-border pt-4 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-foreground">{formatCurrency(order.subtotal)}</span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Delivery</span>
+                    <span className="text-foreground">{formatCurrency(order.delivery_fee)}</span>
+                  </div>
+
+                  {!!Number(order.discount_amount || 0) && (
+                    <div className="flex justify-between text-emerald-700">
+                      <span>Discount</span>
+                      <span>-{formatCurrency(order.discount_amount)}</span>
                     </div>
-                  ))
-                )}
+                  )}
+
+                  <div className="flex justify-between border-t border-border pt-3 text-base font-semibold">
+                    <span className="text-foreground">Total</span>
+                    <span className="text-primary">{formatCurrency(order.total)}</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-2 border-t border-border pt-4 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span className="text-foreground">{formatCurrency(order.subtotal)}</span>
-                </div>
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+                <h2 className="mb-4 text-xl font-semibold text-foreground">Quick Info</h2>
 
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Delivery</span>
-                  <span className="text-foreground">{formatCurrency(order.delivery_fee)}</span>
-                </div>
-
-                {!!Number(order.discount_amount || 0) && (
-                  <div className="flex justify-between text-emerald-700">
-                    <span>Discount</span>
-                    <span>-{formatCurrency(order.discount_amount)}</span>
+                <div className="space-y-3 text-sm">
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <p className="text-muted-foreground">Placed</p>
+                    <p className="mt-1 font-medium text-foreground">
+                      {formatDateTime(order.created_at)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatRelativeTime(order.created_at)}
+                    </p>
                   </div>
-                )}
 
-                <div className="flex justify-between border-t border-border pt-3 text-base font-semibold">
-                  <span className="text-foreground">Total</span>
-                  <span className="text-primary">{formatCurrency(order.total)}</span>
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <p className="text-muted-foreground">Estimated arrival</p>
+                    <p className="mt-1 font-medium text-foreground">
+                      {formatTime(order.estimated_delivery_time)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <p className="text-muted-foreground">Payment state</p>
+                    <div className="mt-2">{paymentBadge()}</div>
+                  </div>
                 </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+                <h2 className="mb-3 text-xl font-semibold text-foreground">Need help?</h2>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Refresh this page for the latest status, or contact your driver once assigned.
+                  If your payment is still pending, complete it before the order can continue.
+                </p>
               </div>
             </div>
           </div>
