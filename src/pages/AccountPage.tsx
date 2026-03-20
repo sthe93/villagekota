@@ -3,7 +3,16 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { User, Package, Heart, LogOut, Shield } from "lucide-react";
+import {
+  User,
+  Package,
+  Heart,
+  LogOut,
+  Shield,
+  Truck,
+  Navigation,
+  Phone,
+} from "lucide-react";
 import Footer from "@/components/Footer";
 
 interface Order {
@@ -20,17 +29,39 @@ interface Favorite {
   products: { name: string; price: number; image_url: string } | null;
 }
 
+interface DriverProfile {
+  id: string;
+  name: string;
+  phone: string | null;
+  is_active: boolean;
+}
+
+type AccountTab = "profile" | "orders" | "favorites" | "driver";
+
 export default function AccountPage() {
   const { user, profile, signOut, refreshProfile, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"profile" | "orders" | "favorites">("profile");
+
+  const [tab, setTab] = useState<AccountTab>("profile");
   const [orders, setOrders] = useState<Order[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
-  const [editForm, setEditForm] = useState({ display_name: "", phone: "", default_address: "" });
+  const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
+  const [checkingDriver, setCheckingDriver] = useState(true);
+
+  const [editForm, setEditForm] = useState({
+    display_name: "",
+    phone: "",
+    default_address: "",
+  });
+
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!user) { navigate("/auth"); return; }
+    if (!user) {
+      navigate("/auth");
+      return;
+    }
+
     if (profile) {
       setEditForm({
         display_name: profile.display_name || "",
@@ -38,17 +69,58 @@ export default function AccountPage() {
         default_address: profile.default_address || "",
       });
     }
-  }, [user, profile]);
+  }, [user, profile, navigate]);
+
+  useEffect(() => {
+  const loadDriverProfile = async () => {
+    if (!user) {
+      setDriverProfile(null);
+      setCheckingDriver(false);
+      return;
+    }
+
+    setCheckingDriver(true);
+
+    const { data, error } = await supabase
+      .from("drivers")
+      .select("id, name, phone, is_active")
+      .eq("auth_user_id", user.id)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    console.log("Logged-in user:", user.id);
+    console.log("Driver profile result:", data);
+    console.log("Driver profile error:", error);
+
+    if (error) {
+      toast.error(error.message || "Failed to load driver profile");
+      setDriverProfile(null);
+    } else {
+      setDriverProfile((data as DriverProfile | null) || null);
+    }
+
+    setCheckingDriver(false);
+  };
+
+  loadDriverProfile();
+}, [user]);
 
   useEffect(() => {
     if (!user) return;
+
     if (tab === "orders") {
-      supabase.from("orders").select("id, status, total, created_at, customer_name")
-        .eq("user_id", user.id).order("created_at", { ascending: false })
+      supabase
+        .from("orders")
+        .select("id, status, total, created_at, customer_name")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
         .then(({ data }) => setOrders(data || []));
     }
+
     if (tab === "favorites") {
-      supabase.from("favorites").select("id, product_id, products:product_id(name, price, image_url)")
+      supabase
+        .from("favorites")
+        .select("id, product_id, products:product_id(name, price, image_url)")
         .eq("user_id", user.id)
         .then(({ data }) => setFavorites((data as any) || []));
     }
@@ -56,10 +128,21 @@ export default function AccountPage() {
 
   const handleSaveProfile = async () => {
     if (!user) return;
+
     setSaving(true);
-    const { error } = await supabase.from("profiles").update(editForm).eq("user_id", user.id);
-    if (error) toast.error("Failed to save");
-    else { toast.success("Profile updated"); await refreshProfile(); }
+
+    const { error } = await supabase
+      .from("profiles")
+      .update(editForm)
+      .eq("user_id", user.id);
+
+    if (error) {
+      toast.error("Failed to save");
+    } else {
+      toast.success("Profile updated");
+      await refreshProfile();
+    }
+
     setSaving(false);
   };
 
@@ -73,124 +156,311 @@ export default function AccountPage() {
     pending: "bg-accent/20 text-accent-foreground",
     confirmed: "bg-primary/10 text-primary",
     preparing: "bg-primary/20 text-primary",
+    ready_for_delivery: "bg-orange-100 text-orange-700",
     out_for_delivery: "bg-success/20 text-success",
+    on_the_way: "bg-success/20 text-success",
+    arrived: "bg-cyan-100 text-cyan-700",
     delivered: "bg-success/10 text-success",
     cancelled: "bg-destructive/10 text-destructive",
   };
 
   if (!user) return null;
 
+  const isDriver = !!driverProfile;
+
+  const tabs: Array<{ key: AccountTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    { key: "profile", label: "Profile", icon: User },
+    { key: "orders", label: "Orders", icon: Package },
+    { key: "favorites", label: "Favorites", icon: Heart },
+    ...(isDriver ? [{ key: "driver" as AccountTab, label: "Driver", icon: Truck }] : []),
+  ];
+
   return (
     <div>
-      <div className="container py-8 max-w-3xl">
-        <h1 className="font-display text-5xl text-foreground text-center mb-8">MY ACCOUNT</h1>
+      <div className="container max-w-3xl py-8">
+        <h1 className="mb-8 text-center font-display text-5xl text-foreground">
+          MY ACCOUNT
+        </h1>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-8 justify-center">
-          {([
-            { key: "profile", label: "Profile", icon: User },
-            { key: "orders", label: "Orders", icon: Package },
-            { key: "favorites", label: "Favorites", icon: Heart },
-          ] as const).map(({ key, label, icon: Icon }) => (
+        <div className="mb-8 flex flex-wrap justify-center gap-2">
+          {tabs.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                tab === key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-border"
-              }`}
+              disabled={checkingDriver && key === "driver"}
+              className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors ${
+                tab === key
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-border"
+              } disabled:opacity-50`}
             >
-              <Icon className="w-4 h-4" /> {label}
+              <Icon className="h-4 w-4" />
+              {label}
             </button>
           ))}
+
+          {isAdmin && (
+            <button
+              onClick={() => navigate("/admin")}
+              className="flex items-center gap-2 rounded-lg border border-primary px-5 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+            >
+              <Shield className="h-4 w-4" />
+              Admin
+            </button>
+          )}
         </div>
 
         {tab === "profile" && (
-          <div className="bg-card rounded-lg border border-border p-6 space-y-4">
+          <div className="space-y-4 rounded-lg border border-border bg-card p-6">
             <div>
-              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Display Name</label>
-              <input type="text" value={editForm.display_name} onChange={(e) => setEditForm(f => ({ ...f, display_name: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-body" />
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Display Name
+              </label>
+              <input
+                type="text"
+                value={editForm.display_name}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, display_name: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
+              />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Phone</label>
-              <input type="tel" value={editForm.phone} onChange={(e) => setEditForm(f => ({ ...f, phone: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-body" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Default Delivery Address</label>
-              <textarea value={editForm.default_address} onChange={(e) => setEditForm(f => ({ ...f, default_address: e.target.value }))}
-                rows={2} className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-body resize-none" />
-            </div>
-           <div className="flex gap-3 flex-wrap">
-  <button
-    onClick={handleSaveProfile}
-    disabled={saving}
-    className="bg-primary text-primary-foreground px-6 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-  >
-    {saving ? "Saving..." : "Save Profile"}
-  </button>
 
-  {isAdmin && (
-    <button
-      onClick={() => navigate("/admin/orders")}
-      className="flex items-center gap-2 px-6 py-2.5 rounded-lg border border-primary text-primary text-sm font-medium hover:bg-primary/10 transition-colors"
-    >
-      <Shield className="w-4 h-4" />
-      Admin Orders
-    </button>
-  )}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Phone
+              </label>
+              <input
+                type="tel"
+                value={editForm.phone}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, phone: e.target.value }))
+                }
+                className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
+              />
+            </div>
 
-  <button
-    onClick={handleSignOut}
-    className="flex items-center gap-2 px-6 py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
-  >
-    <LogOut className="w-4 h-4" /> Sign Out
-  </button>
-</div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Default Delivery Address
+              </label>
+              <textarea
+                value={editForm.default_address}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, default_address: e.target.value }))
+                }
+                rows={2}
+                className="w-full resize-none rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
+              />
+            </div>
+
+            {isDriver && driverProfile && (
+              <div className="rounded-lg border border-border bg-background p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <Truck className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-medium text-foreground">Driver Profile</p>
+                </div>
+
+                <div className="grid gap-2 text-sm sm:grid-cols-2">
+                  <div>
+                    <p className="text-muted-foreground">Driver name</p>
+                    <p className="font-medium text-foreground">{driverProfile.name}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-muted-foreground">Phone</p>
+                    <p className="font-medium text-foreground">{driverProfile.phone || "—"}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <button
+                    onClick={() => navigate("/driver")}
+                    className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                  >
+                    <Navigation className="h-4 w-4" />
+                    Open Driver Dashboard
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleSaveProfile}
+                disabled={saving}
+                className="rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save Profile"}
+              </button>
+
+              {isAdmin && (
+                <>
+                  <button
+                    onClick={() => navigate("/admin")}
+                    className="flex items-center gap-2 rounded-lg border border-primary px-6 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                  >
+                    <Shield className="h-4 w-4" />
+                    Admin Dashboard
+                  </button>
+
+                  <button
+                    onClick={() => navigate("/admin/orders")}
+                    className="flex items-center gap-2 rounded-lg border border-primary px-6 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                  >
+                    <Shield className="h-4 w-4" />
+                    Admin Orders
+                  </button>
+                </>
+              )}
+
+              {isDriver && (
+                <button
+                  onClick={() => navigate("/driver")}
+                  className="flex items-center gap-2 rounded-lg border border-primary px-6 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                >
+                  <Truck className="h-4 w-4" />
+                  Driver Dashboard
+                </button>
+              )}
+
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-2 rounded-lg border border-border px-6 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+            </div>
           </div>
         )}
 
         {tab === "orders" && (
           <div className="space-y-3">
             {orders.length === 0 ? (
-              <div className="text-center py-16">
-                <Package className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-muted-foreground font-medium">No orders yet</p>
+              <div className="py-16 text-center">
+                <Package className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
+                <p className="font-medium text-muted-foreground">No orders yet</p>
               </div>
-            ) : orders.map((o) => (
-              <div key={o.id} onClick={() => navigate(`/order-tracking/${o.id}`)}
-                className="bg-card rounded-lg border border-border p-4 flex items-center justify-between cursor-pointer hover:border-primary/30 transition-colors">
-                <div>
-                  <p className="font-medium text-foreground text-sm">{o.customer_name}</p>
-                  <p className="text-xs text-muted-foreground">{new Date(o.created_at).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })}</p>
+            ) : (
+              orders.map((o) => (
+                <div
+                  key={o.id}
+                  onClick={() => navigate(`/order-tracking/${o.id}`)}
+                  className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/30"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {o.customer_name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(o.created_at).toLocaleDateString("en-ZA", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize ${
+                        statusColors[o.status] || "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {o.status.replace(/_/g, " ")}
+                    </span>
+                    <span className="font-display text-lg text-primary">
+                      R{o.total}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className={`px-2.5 py-1 rounded-md text-xs font-medium capitalize ${statusColors[o.status] || "bg-muted text-muted-foreground"}`}>
-                    {o.status.replace("_", " ")}
-                  </span>
-                  <span className="font-display text-lg text-primary">R{o.total}</span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
 
         {tab === "favorites" && (
           <div className="space-y-3">
             {favorites.length === 0 ? (
-              <div className="text-center py-16">
-                <Heart className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-muted-foreground font-medium">No favorites yet</p>
+              <div className="py-16 text-center">
+                <Heart className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
+                <p className="font-medium text-muted-foreground">No favorites yet</p>
               </div>
-            ) : favorites.map((f) => (
-              <div key={f.id} className="bg-card rounded-lg border border-border p-4 flex items-center justify-between">
-                <p className="font-medium text-foreground text-sm">{f.products?.name || "Unknown"}</p>
-                <span className="font-display text-lg text-primary">R{f.products?.price || 0}</span>
+            ) : (
+              favorites.map((f) => (
+                <div
+                  key={f.id}
+                  className="flex items-center justify-between rounded-lg border border-border bg-card p-4"
+                >
+                  <p className="text-sm font-medium text-foreground">
+                    {f.products?.name || "Unknown"}
+                  </p>
+                  <span className="font-display text-lg text-primary">
+                    R{f.products?.price || 0}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {tab === "driver" && isDriver && driverProfile && (
+          <div className="space-y-4 rounded-lg border border-border bg-card p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-foreground">Driver Access</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Your account is linked to an active driver profile.
+                </p>
               </div>
-            ))}
+
+              <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                Active Driver
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-lg border border-border p-4">
+                <p className="mb-1 text-sm text-muted-foreground">Driver name</p>
+                <p className="font-medium text-foreground">{driverProfile.name}</p>
+              </div>
+
+              <div className="rounded-lg border border-border p-4">
+                <p className="mb-1 text-sm text-muted-foreground">Driver phone</p>
+                <p className="flex items-center gap-2 font-medium text-foreground">
+                  <Phone className="h-4 w-4 text-primary" />
+                  {driverProfile.phone || "No phone number"}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
+              Use the driver dashboard to accept deliveries, start trips, update live location,
+              mark arrival, collect cash where needed, and complete orders.
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => navigate("/driver")}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                <Truck className="h-4 w-4" />
+                Open Driver Dashboard
+              </button>
+
+              <button
+                onClick={() => setTab("profile")}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <User className="h-4 w-4" />
+                Back to Profile
+              </button>
+            </div>
           </div>
         )}
       </div>
+
       <Footer />
     </div>
   );

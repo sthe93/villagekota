@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Loader2, MapPin, Play, Square, Phone, Clock } from "lucide-react";
+import {
+  Loader2,
+  MapPin,
+  Play,
+  Square,
+  Phone,
+  CheckCircle2,
+  CreditCard,
+  Truck,
+  PackageCheck,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
@@ -10,7 +20,9 @@ type OrderStatus =
   | "pending"
   | "confirmed"
   | "preparing"
-  | "out_for_delivery"
+  | "ready_for_delivery"
+  | "on_the_way"
+  | "arrived"
   | "delivered"
   | "cancelled";
 
@@ -25,15 +37,80 @@ interface DriverOrder {
   id: string;
   customer_name: string;
   customer_phone: string;
+  customer_email: string | null;
   delivery_address: string;
-  status: OrderStatus;
+  payment_method: string | null;
+  payment_status: string | null;
   total: number;
+  status: OrderStatus;
   created_at: string;
+  driver_id: string | null;
   estimated_delivery_time: string | null;
   driver_distance_km: number | null;
   driver_lat: number | null;
   driver_lng: number | null;
   driver_last_updated: string | null;
+  accepted_at: string | null;
+  started_delivery_at: string | null;
+  arrived_at: string | null;
+  delivered_at: string | null;
+  cash_collected: boolean | null;
+  cash_collected_amount: number | null;
+  cash_collected_at: string | null;
+}
+
+function normalizeValue(value?: string | null) {
+  return (value || "").trim().toLowerCase();
+}
+
+function isCashPaymentMethod(value?: string | null) {
+  return normalizeValue(value) === "cash";
+}
+
+function isCardPaymentMethod(value?: string | null) {
+  return normalizeValue(value) === "card";
+}
+
+function formatCurrency(value: number | null | undefined) {
+  return `R${Number(value || 0).toFixed(2)}`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("en-ZA", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleTimeString("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getStatusBadge(status: OrderStatus) {
+  const map: Record<OrderStatus, string> = {
+    pending: "bg-amber-100 text-amber-700",
+    confirmed: "bg-blue-100 text-blue-700",
+    preparing: "bg-purple-100 text-purple-700",
+    ready_for_delivery: "bg-orange-100 text-orange-700",
+    on_the_way: "bg-indigo-100 text-indigo-700",
+    arrived: "bg-cyan-100 text-cyan-700",
+    delivered: "bg-green-100 text-green-700",
+    cancelled: "bg-red-100 text-red-700",
+  };
+
+  return (
+    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium capitalize ${map[status]}`}>
+      {status.replaceAll("_", " ")}
+    </span>
+  );
 }
 
 export default function DriverPage() {
@@ -43,14 +120,20 @@ export default function DriverPage() {
   const [pageLoading, setPageLoading] = useState(true);
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
   const [watchId, setWatchId] = useState<number | null>(null);
+  const [actionOrderId, setActionOrderId] = useState<string | null>(null);
 
-  const activeOrders = useMemo(
-    () =>
-      orders.filter(
-        (o) => o.status !== "delivered" && o.status !== "cancelled"
-      ),
-    [orders]
-  );
+  const availableOrders = useMemo(() => {
+    return orders.filter((o) => o.status === "ready_for_delivery" && !o.driver_id);
+  }, [orders]);
+
+  const myOrders = useMemo(() => {
+    if (!driver) return [];
+    return orders.filter(
+      (o) =>
+        o.driver_id === driver.id &&
+        ["ready_for_delivery", "on_the_way", "arrived"].includes(o.status)
+    );
+  }, [orders, driver]);
 
   const loadDriverAndOrders = async () => {
     if (!user) return;
@@ -83,21 +166,32 @@ export default function DriverPage() {
         id,
         customer_name,
         customer_phone,
+        customer_email,
         delivery_address,
-        status,
+        payment_method,
+        payment_status,
         total,
+        status,
         created_at,
+        driver_id,
         estimated_delivery_time,
         driver_distance_km,
         driver_lat,
         driver_lng,
-        driver_last_updated
+        driver_last_updated,
+        accepted_at,
+        started_delivery_at,
+        arrived_at,
+        delivered_at,
+        cash_collected,
+        cash_collected_amount,
+        cash_collected_at
       `)
-      .eq("driver_id", driverData.id)
+      .in("status", ["ready_for_delivery", "on_the_way", "arrived"])
       .order("created_at", { ascending: false });
 
     if (ordersError) {
-      toast.error(ordersError.message || "Failed to load assigned orders");
+      toast.error(ordersError.message || "Failed to load delivery orders");
     } else {
       setOrders((orderData || []) as DriverOrder[]);
     }
@@ -107,8 +201,9 @@ export default function DriverPage() {
 
   const geocodeAddress = async (address: string) => {
     const key = import.meta.env.VITE_MAPTILER_KEY;
-    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(address)}.json?limit=1&country=za&key=${key}`;
+    if (!key) return null;
 
+    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(address)}.json?limit=1&country=za&key=${key}`;
     const res = await fetch(url);
     const json = await res.json();
     const first = json?.features?.[0];
@@ -128,7 +223,6 @@ export default function DriverPage() {
     destLng: number
   ) => {
     const url = `https://router.project-osrm.org/route/v1/driving/${driverLng},${driverLat};${destLng},${destLat}?overview=false`;
-
     const res = await fetch(url);
     const json = await res.json();
     const route = json?.routes?.[0];
@@ -154,9 +248,7 @@ export default function DriverPage() {
         const route = await fetchRouteMeta(lat, lng, dest.lat, dest.lng);
         if (route) {
           driver_distance_km = route.distanceKm;
-          estimated_delivery_time = new Date(
-            Date.now() + route.durationMinutes * 60000
-          ).toISOString();
+          estimated_delivery_time = new Date(Date.now() + route.durationMinutes * 60000).toISOString();
         }
       }
     }
@@ -164,14 +256,15 @@ export default function DriverPage() {
     const { error } = await supabase
       .from("orders")
       .update({
-        status: "out_for_delivery",
         driver_lat: lat,
         driver_lng: lng,
         driver_last_updated: timestamp,
         driver_distance_km,
         estimated_delivery_time,
+        updated_at: timestamp,
       })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("driver_id", driver?.id || "");
 
     if (!error) {
       setOrders((prev) =>
@@ -179,7 +272,6 @@ export default function DriverPage() {
           o.id === orderId
             ? {
                 ...o,
-                status: "out_for_delivery",
                 driver_lat: lat,
                 driver_lng: lng,
                 driver_last_updated: timestamp,
@@ -207,11 +299,7 @@ export default function DriverPage() {
 
     const id = navigator.geolocation.watchPosition(
       async (position) => {
-        await pushLiveLocationUpdate(
-          orderId,
-          position.coords.latitude,
-          position.coords.longitude
-        );
+        await pushLiveLocationUpdate(orderId, position.coords.latitude, position.coords.longitude);
       },
       (error) => {
         switch (error.code) {
@@ -249,14 +337,83 @@ export default function DriverPage() {
     toast.success("Live tracking stopped");
   };
 
-  const markDelivered = async (orderId: string) => {
-    const { error } = await supabase
-      .from("orders")
-      .update({ status: "delivered" })
-      .eq("id", orderId);
+  const acceptOrder = async (orderId: string) => {
+    if (!driver) return;
+
+    setActionOrderId(orderId);
+
+    const { data, error } = await supabase.rpc("accept_delivery_order", {
+      p_order_id: orderId,
+      p_driver_id: driver.id,
+    });
 
     if (error) {
-      toast.error(error.message || "Failed to mark delivered");
+      toast.error(error.message || "Failed to accept order");
+      setActionOrderId(null);
+      return;
+    }
+
+    if (!data) {
+      toast.error("This order was already accepted by another driver.");
+      setActionOrderId(null);
+      await loadDriverAndOrders();
+      return;
+    }
+
+    toast.success("Order accepted");
+    setActionOrderId(null);
+    await loadDriverAndOrders();
+  };
+
+  const startDelivery = async (orderId: string) => {
+    if (!driver) return;
+
+    setActionOrderId(orderId);
+
+    const { data, error } = await supabase.rpc("start_delivery_order", {
+      p_order_id: orderId,
+      p_driver_id: driver.id,
+    });
+
+    if (error) {
+      toast.error(error.message || "Failed to start delivery");
+      setActionOrderId(null);
+      return;
+    }
+
+    if (!data) {
+      toast.error("This delivery could not be started.");
+      setActionOrderId(null);
+      await loadDriverAndOrders();
+      return;
+    }
+
+    toast.success("Delivery started");
+    setActionOrderId(null);
+    await loadDriverAndOrders();
+    startLiveTracking(orderId);
+  };
+
+  const markArrived = async (orderId: string) => {
+    if (!driver) return;
+
+    setActionOrderId(orderId);
+
+    const { data, error } = await supabase.rpc("arrive_delivery_order", {
+      p_order_id: orderId,
+      p_driver_id: driver.id,
+    });
+
+    if (error) {
+      toast.error(error.message || "Failed to mark arrived");
+      setActionOrderId(null);
+      return;
+    }
+
+    if (!data) {
+      toast.error("This delivery could not be marked as arrived.");
+      setActionOrderId(null);
+      await loadDriverAndOrders();
       return;
     }
 
@@ -264,11 +421,69 @@ export default function DriverPage() {
       stopLiveTracking();
     }
 
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status: "delivered" } : o))
-    );
+    toast.success("Marked as arrived");
+    setActionOrderId(null);
+    await loadDriverAndOrders();
+  };
 
-    toast.success("Order marked as delivered");
+  const collectCash = async (orderId: string) => {
+    if (!driver) return;
+
+    setActionOrderId(orderId);
+
+    const { data, error } = await supabase.rpc("collect_cash_for_order", {
+      p_order_id: orderId,
+      p_driver_id: driver.id,
+    });
+
+    if (error) {
+      toast.error(error.message || "Failed to collect cash");
+      setActionOrderId(null);
+      return;
+    }
+
+    if (!data) {
+      toast.error("Cash could not be collected for this order.");
+      setActionOrderId(null);
+      await loadDriverAndOrders();
+      return;
+    }
+
+    toast.success("Cash marked as collected");
+    setActionOrderId(null);
+    await loadDriverAndOrders();
+  };
+
+  const completeDelivery = async (orderId: string) => {
+    if (!driver) return;
+
+    setActionOrderId(orderId);
+
+    const { data, error } = await supabase.rpc("complete_delivery_order", {
+      p_order_id: orderId,
+      p_driver_id: driver.id,
+    });
+
+    if (error) {
+      toast.error(error.message || "Failed to complete delivery");
+      setActionOrderId(null);
+      return;
+    }
+
+    if (!data) {
+      toast.error("This delivery cannot be completed yet.");
+      setActionOrderId(null);
+      await loadDriverAndOrders();
+      return;
+    }
+
+    if (trackingOrderId === orderId) {
+      stopLiveTracking();
+    }
+
+    toast.success("Delivery completed");
+    setActionOrderId(null);
+    await loadDriverAndOrders();
   };
 
   useEffect(() => {
@@ -281,11 +496,24 @@ export default function DriverPage() {
     if (!driver) return;
 
     const channel = supabase
-      .channel("driver-orders-live")
+      .channel("driver-orders-live-dispatch")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        () => loadDriverAndOrders()
+        async (payload) => {
+          const next = payload.new as Partial<DriverOrder> | null;
+          const previous = payload.old as Partial<DriverOrder> | null;
+
+          if (
+            next?.status === "ready_for_delivery" &&
+            previous?.status !== "ready_for_delivery" &&
+            !next?.driver_id
+          ) {
+            toast.success("New delivery available");
+          }
+
+          await loadDriverAndOrders();
+        }
       )
       .subscribe();
 
@@ -319,7 +547,7 @@ export default function DriverPage() {
     return (
       <div>
         <div className="container py-16 text-center">
-          <h1 className="font-display text-4xl text-foreground mb-4">DRIVER PAGE</h1>
+          <h1 className="mb-4 font-display text-4xl text-foreground">DRIVER PAGE</h1>
           <p className="text-muted-foreground">
             Your account is not linked to a driver profile yet.
           </p>
@@ -333,103 +561,297 @@ export default function DriverPage() {
     <div>
       <div className="container py-8">
         <div className="mb-8">
-          <h1 className="font-display text-5xl text-foreground mb-2">DRIVER DASHBOARD</h1>
+          <h1 className="mb-2 font-display text-5xl text-foreground">DRIVER DASHBOARD</h1>
           <p className="text-muted-foreground">
-            Welcome, {driver.name}. Manage only your assigned deliveries.
+            Welcome, {driver.name}. Accept new deliveries and manage your active trips.
           </p>
         </div>
 
-        <div className="space-y-4">
-          {activeOrders.length === 0 ? (
-            <div className="bg-card border border-border rounded-lg p-10 text-center text-muted-foreground">
-              No active deliveries assigned to you.
-            </div>
-          ) : (
-            activeOrders.map((order) => (
-              <div key={order.id} className="bg-card border border-border rounded-lg p-5">
-                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
-                  <div>
-                    <h2 className="font-display text-2xl text-foreground">
-                      Order #{order.id.slice(0, 8).toUpperCase()}
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(order.created_at).toLocaleString()}
-                    </p>
-                  </div>
-
-                  <span className="px-3 py-1 rounded-lg bg-primary/10 text-primary text-sm font-medium capitalize">
-                    {order.status.replaceAll("_", " ")}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mb-4">
-                  <div>
-                    <p className="text-muted-foreground mb-1">Customer</p>
-                    <p className="font-medium text-foreground">{order.customer_name}</p>
-                    <p className="text-muted-foreground flex items-center gap-1">
-                      <Phone className="w-4 h-4" />
-                      {order.customer_phone}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-muted-foreground mb-1">Address</p>
-                    <p className="font-medium text-foreground flex items-start gap-1">
-                      <MapPin className="w-4 h-4 mt-0.5" />
-                      {order.delivery_address}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-muted-foreground mb-1">Live Delivery Info</p>
-                    <p className="text-foreground">
-                      ETA: {order.estimated_delivery_time
-                        ? new Date(order.estimated_delivery_time).toLocaleTimeString("en-ZA", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : "—"}
-                    </p>
-                    <p className="text-foreground">
-                      Distance: {order.driver_distance_km != null ? `${order.driver_distance_km} km` : "—"}
-                    </p>
-                    <p className="text-foreground">Total: R{order.total}</p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  {trackingOrderId === order.id ? (
-                    <button
-                      type="button"
-                      onClick={stopLiveTracking}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition-opacity"
-                    >
-                      <Square className="w-4 h-4" />
-                      Stop Tracking
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => startLiveTracking(order.id)}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
-                    >
-                      <Play className="w-4 h-4" />
-                      Start Tracking
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => markDelivered(order.id)}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                  >
-                    <Clock className="w-4 h-4" />
-                    Mark Delivered
-                  </button>
-                </div>
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <section className="rounded-xl border border-border bg-card p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-display text-2xl text-foreground">AVAILABLE ORDERS</h2>
+                <p className="text-sm text-muted-foreground">
+                  Orders ready for pickup that no driver has accepted yet.
+                </p>
               </div>
-            ))
-          )}
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                {availableOrders.length} available
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {availableOrders.length === 0 ? (
+                <div className="rounded-lg border border-border bg-background p-6 text-center text-sm text-muted-foreground">
+                  No available orders right now.
+                </div>
+              ) : (
+                availableOrders.map((order) => (
+                  <div key={order.id} className="rounded-lg border border-border bg-background p-4">
+                    <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="font-display text-xl text-foreground">
+                          Order #{order.id.slice(0, 8).toUpperCase()}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {formatDateTime(order.created_at)}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(order.status)}
+                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 capitalize">
+                          {order.payment_method || "unknown"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
+                      <div>
+                        <p className="mb-1 text-muted-foreground">Customer</p>
+                        <p className="font-medium text-foreground">{order.customer_name}</p>
+                        <p className="flex items-center gap-1 text-muted-foreground">
+                          <Phone className="h-4 w-4" />
+                          {order.customer_phone}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="mb-1 text-muted-foreground">Address</p>
+                        <p className="flex items-start gap-1 font-medium text-foreground">
+                          <MapPin className="mt-0.5 h-4 w-4" />
+                          {order.delivery_address}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="mb-1 text-muted-foreground">Order</p>
+                        <p className="text-foreground">Total: {formatCurrency(order.total)}</p>
+                        <p className="text-foreground">
+                          Payment: {isCashPaymentMethod(order.payment_method) ? "Cash on delivery" : "Card"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        onClick={() => acceptOrder(order.id)}
+                        disabled={actionOrderId === order.id}
+                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                      >
+                        {actionOrderId === order.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <PackageCheck className="h-4 w-4" />
+                        )}
+                        Accept Order
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-border bg-card p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-display text-2xl text-foreground">MY ACTIVE DELIVERIES</h2>
+                <p className="text-sm text-muted-foreground">
+                  Orders you accepted and are currently handling.
+                </p>
+              </div>
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                {myOrders.length} active
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {myOrders.length === 0 ? (
+                <div className="rounded-lg border border-border bg-background p-6 text-center text-sm text-muted-foreground">
+                  You have no active deliveries.
+                </div>
+              ) : (
+                myOrders.map((order) => {
+                  const canStart = order.status === "ready_for_delivery";
+                  const canArrive = order.status === "on_the_way";
+                  const canCollectCash =
+                    order.status === "arrived" &&
+                    isCashPaymentMethod(order.payment_method) &&
+                    !order.cash_collected;
+                  const canComplete =
+                    order.status === "arrived" &&
+                    (isCardPaymentMethod(order.payment_method) || order.cash_collected);
+
+                  return (
+                    <div key={order.id} className="rounded-lg border border-border bg-background p-4">
+                      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <h3 className="font-display text-xl text-foreground">
+                            Order #{order.id.slice(0, 8).toUpperCase()}
+                          </h3>
+                          <p className="text-sm text-muted-foreground">
+                            Accepted: {formatDateTime(order.accepted_at)}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          {getStatusBadge(order.status)}
+                          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 capitalize">
+                            {order.payment_method || "unknown"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
+                        <div>
+                          <p className="mb-1 text-muted-foreground">Customer</p>
+                          <p className="font-medium text-foreground">{order.customer_name}</p>
+                          <p className="flex items-center gap-1 text-muted-foreground">
+                            <Phone className="h-4 w-4" />
+                            {order.customer_phone}
+                          </p>
+                          {order.customer_email && (
+                            <p className="text-muted-foreground">{order.customer_email}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-muted-foreground">Address</p>
+                          <p className="flex items-start gap-1 font-medium text-foreground">
+                            <MapPin className="mt-0.5 h-4 w-4" />
+                            {order.delivery_address}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="mb-1 text-muted-foreground">Live Delivery Info</p>
+                          <p className="text-foreground">ETA: {formatTime(order.estimated_delivery_time)}</p>
+                          <p className="text-foreground">
+                            Distance: {order.driver_distance_km != null ? `${order.driver_distance_km} km` : "—"}
+                          </p>
+                          <p className="text-foreground">Total: {formatCurrency(order.total)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Last updated: {formatDateTime(order.driver_last_updated)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-lg border border-border bg-card p-4">
+                        <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                          <p className="text-foreground">Started trip: {formatDateTime(order.started_delivery_at)}</p>
+                          <p className="text-foreground">Arrived: {formatDateTime(order.arrived_at)}</p>
+                          <p className="text-foreground">Cash collected: {order.cash_collected ? "Yes" : "No"}</p>
+                          <p className="text-foreground">Cash time: {formatDateTime(order.cash_collected_at)}</p>
+                        </div>
+
+                        {order.status === "arrived" && isCashPaymentMethod(order.payment_method) && !order.cash_collected && (
+                          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            This is a cash order. Collect payment before completing delivery.
+                          </div>
+                        )}
+
+                        {isCardPaymentMethod(order.payment_method) && (
+                          <div className="mt-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                            Card payment already handled online. No cash collection needed.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        {canStart && (
+                          <button
+                            type="button"
+                            onClick={() => startDelivery(order.id)}
+                            disabled={actionOrderId === order.id}
+                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {actionOrderId === order.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                            Start Delivery
+                          </button>
+                        )}
+
+                        {order.status === "on_the_way" &&
+                          (trackingOrderId === order.id ? (
+                            <button
+                              type="button"
+                              onClick={stopLiveTracking}
+                              className="inline-flex items-center gap-2 rounded-lg bg-destructive px-5 py-2.5 text-sm font-medium text-destructive-foreground transition-opacity hover:opacity-90"
+                            >
+                              <Square className="h-4 w-4" />
+                              Stop Tracking
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startLiveTracking(order.id)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            >
+                              <Truck className="h-4 w-4" />
+                              Resume Tracking
+                            </button>
+                          ))}
+
+                        {canArrive && (
+                          <button
+                            type="button"
+                            onClick={() => markArrived(order.id)}
+                            disabled={actionOrderId === order.id}
+                            className="inline-flex items-center gap-2 rounded-lg bg-secondary px-5 py-2.5 text-sm font-medium text-secondary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {actionOrderId === order.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <MapPin className="h-4 w-4" />
+                            )}
+                            Mark Arrived
+                          </button>
+                        )}
+
+                        {canCollectCash && (
+                          <button
+                            type="button"
+                            onClick={() => collectCash(order.id)}
+                            disabled={actionOrderId === order.id}
+                            className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {actionOrderId === order.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <CreditCard className="h-4 w-4" />
+                            )}
+                            Collect Cash
+                          </button>
+                        )}
+
+                        {canComplete && (
+                          <button
+                            type="button"
+                            onClick={() => completeDelivery(order.id)}
+                            disabled={actionOrderId === order.id}
+                            className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {actionOrderId === order.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4" />
+                            )}
+                            Complete Delivery
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
         </div>
       </div>
 

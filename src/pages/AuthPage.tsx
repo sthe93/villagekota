@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
 import Footer from "@/components/Footer";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function AuthPage() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -17,11 +18,14 @@ export default function AuthPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!email || !password) {
       toast.error("Please fill in all fields");
       return;
     }
+
     setSubmitting(true);
+
     try {
       if (isSignUp) {
         const { error } = await signUp(email, password, displayName);
@@ -30,8 +34,43 @@ export default function AuthPage() {
       } else {
         const { error } = await signIn(email, password);
         if (error) throw error;
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          toast.success("Welcome back!");
+          navigate("/");
+          return;
+        }
+
+        const { data: adminRole } = await supabase
+          .from("user_roles")
+          .select("id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (adminRole) {
+          toast.success("Welcome back!");
+          navigate("/admin");
+          return;
+        }
+
+        const { data: driverProfile } = await supabase
+          .from("drivers")
+          .select("id")
+          .eq("auth_user_id", user.id)
+          .eq("is_active", true)
+          .maybeSingle();
+
         toast.success("Welcome back!");
-        navigate("/");
+
+        if (driverProfile) {
+          navigate("/driver");
+        } else {
+          navigate("/");
+        }
       }
     } catch (err: any) {
       toast.error(err.message || "Something went wrong");
@@ -68,6 +107,7 @@ export default function AuthPage() {
                 />
               </div>
             )}
+
             <div>
               <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
                 Email *
@@ -81,6 +121,7 @@ export default function AuthPage() {
                 placeholder="you@example.com"
               />
             </div>
+
             <div>
               <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
                 Password *
@@ -104,6 +145,7 @@ export default function AuthPage() {
                 </button>
               </div>
             </div>
+
             <button
               type="submit"
               disabled={submitting}

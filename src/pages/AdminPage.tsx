@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate } from "react-router-dom";
+//import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Package,
@@ -262,7 +262,7 @@ function AdminModal({
 
 export default function AdminPage() {
   const { user, isAdmin, loading } = useAuth();
-  const navigate = useNavigate();
+  
 
   const [tab, setTab] = useState<AdminTab>("dashboard");
 
@@ -295,22 +295,25 @@ export default function AdminPage() {
   const [voucherSearch, setVoucherSearch] = useState("");
   const [driverSearch, setDriverSearch] = useState("");
 
-  const [pageLoading, setPageLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
 
-  useEffect(() => {
-    if (!loading && (!user || !isAdmin)) {
-      navigate("/");
-      toast.error("Admin access required");
-    }
-  }, [user, isAdmin, loading, navigate]);
+ 
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    fetchAll();
-  }, [isAdmin]);
+useEffect(() => {
+  if (loading) return;
 
-  const fetchAll = async () => {
+  if (!isAdmin) {
+    setPageLoading(false);
+    return;
+  }
+
+  fetchAll();
+}, [loading, isAdmin]);
+
+const fetchAll = async () => {
+  try {
     setPageLoading(true);
+
     await Promise.all([
       fetchProducts(),
       fetchOrders(),
@@ -319,8 +322,10 @@ export default function AdminPage() {
       fetchDrivers(),
       fetchOrderItems(),
     ]);
+  } finally {
     setPageLoading(false);
-  };
+  }
+};
 
   const fetchProducts = async () => {
     const { data, error } = await supabase.from("products").select("*").order("name");
@@ -793,8 +798,8 @@ export default function AdminPage() {
     );
   }
 
-  if (!isAdmin) return null;
-
+  if (!isAdmin) return null;if (!user) return null;
+if (!isAdmin) return null;
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-7xl py-6 md:py-8">

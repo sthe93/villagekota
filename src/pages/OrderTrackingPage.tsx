@@ -13,11 +13,23 @@ import {
   Truck,
   XCircle,
   Navigation,
+  AlertCircle,
+  HandCoins,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import Footer from "@/components/Footer";
 import maplibregl from "maplibre-gl";
+
+type OrderStatus =
+  | "pending"
+  | "confirmed"
+  | "preparing"
+  | "ready_for_delivery"
+  | "on_the_way"
+  | "arrived"
+  | "delivered"
+  | "cancelled";
 
 type OrderRecord = {
   id: string;
@@ -30,7 +42,7 @@ type OrderRecord = {
   payment_provider: string | null;
   payment_reference: string | null;
   payment_status: string | null;
-  status: string | null;
+  status: OrderStatus | null;
   subtotal: number | null;
   delivery_fee: number | null;
   discount_amount: number | null;
@@ -41,6 +53,13 @@ type OrderRecord = {
   driver_lat: number | null;
   driver_lng: number | null;
   driver_last_updated: string | null;
+  accepted_at: string | null;
+  started_delivery_at: string | null;
+  arrived_at: string | null;
+  delivered_at: string | null;
+  cash_collected: boolean | null;
+  cash_collected_amount: number | null;
+  cash_collected_at: string | null;
 };
 
 type OrderItemRecord = {
@@ -52,7 +71,7 @@ type OrderItemRecord = {
 };
 
 type TimelineStep = {
-  key: string;
+  key: OrderStatus;
   label: string;
   shortLabel: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -62,9 +81,45 @@ const TIMELINE_STEPS: TimelineStep[] = [
   { key: "pending", label: "Order Placed", shortLabel: "Placed", icon: Clock3 },
   { key: "confirmed", label: "Confirmed", shortLabel: "Confirmed", icon: Store },
   { key: "preparing", label: "Preparing", shortLabel: "Preparing", icon: ChefHat },
+  {
+    key: "ready_for_delivery",
+    label: "Ready for Delivery",
+    shortLabel: "Ready",
+    icon: PackageCheck,
+  },
   { key: "on_the_way", label: "On The Way", shortLabel: "On the Way", icon: Truck },
-  { key: "delivered", label: "Delivered", shortLabel: "Delivered", icon: PackageCheck },
+  { key: "arrived", label: "Arrived", shortLabel: "Arrived", icon: MapPinned },
+  { key: "delivered", label: "Delivered", shortLabel: "Delivered", icon: CheckCircle2 },
 ];
+
+const CARD_REQUIRED_PAYMENT_METHODS = ["card"];
+
+function formatCurrency(value: number | null | undefined) {
+  return `R${Number(value || 0).toFixed(2)}`;
+}
+
+function formatTime(value: string | null | undefined) {
+  if (!value) return "Calculating...";
+  return new Date(value).toLocaleTimeString("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("en-ZA", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function normalize(value: string | null | undefined) {
+  return (value || "").trim().toLowerCase();
+}
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
@@ -80,54 +135,113 @@ export default function OrderTrackingPage() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
 
-  const paymentIsPaid = useMemo(
-    () => (order?.payment_status || "").toLowerCase() === "paid",
-    [order?.payment_status]
-  );
-
-  const paymentIsCancelled = useMemo(
-    () => (order?.payment_status || "").toLowerCase() === "cancelled",
-    [order?.payment_status]
-  );
-
-  const paymentIsFailed = useMemo(
-    () => (order?.payment_status || "").toLowerCase() === "failed",
-    [order?.payment_status]
-  );
-
-  const orderStatus = useMemo(
-    () => (order?.status || "pending").toLowerCase(),
+  const paymentStatus = useMemo(() => normalize(order?.payment_status), [order?.payment_status]);
+  const orderStatus = useMemo<OrderStatus>(
+    () => ((normalize(order?.status) || "pending") as OrderStatus),
     [order?.status]
   );
+  const paymentMethod = useMemo(() => normalize(order?.payment_method), [order?.payment_method]);
 
-  const isOrderCancelled = useMemo(
-    () => orderStatus === "cancelled",
-    [orderStatus]
-  );
-
-  const isOnTheWay = useMemo(
-    () => orderStatus === "on_the_way",
-    [orderStatus]
-  );
-
- const canRetryPayment = useMemo(() => {
-  if (!order) return false;
-
-  const method = (order.payment_method || "").toLowerCase();
-  const paymentStatus = (order.payment_status || "").toLowerCase();
-  const deliveryStatus = (order.status || "").toLowerCase();
-
-  return (
-    method === "card" &&
-    ["pending", "failed", "cancelled", ""].includes(paymentStatus) &&
-    ["pending", "cancelled"].includes(deliveryStatus)
-  );
-}, [order]);
+  const paymentIsPaid = paymentStatus === "paid";
+  const paymentIsFailed = paymentStatus === "failed";
+  const paymentIsCancelled = paymentStatus === "cancelled";
+  const isOrderCancelled = orderStatus === "cancelled";
+  const isReadyForDelivery = orderStatus === "ready_for_delivery";
+  const isOnTheWay = orderStatus === "on_the_way";
+  const isArrived = orderStatus === "arrived";
+  const isDelivered = orderStatus === "delivered";
+  const isCardPayment = CARD_REQUIRED_PAYMENT_METHODS.includes(paymentMethod);
+  const isCashPayment = paymentMethod === "cash";
+  const cashCollected = !!order?.cash_collected;
 
   const currentTimelineIndex = useMemo(() => {
     const idx = TIMELINE_STEPS.findIndex((step) => step.key === orderStatus);
     return idx === -1 ? 0 : idx;
   }, [orderStatus]);
+
+  const canRetryPayment = useMemo(() => {
+    if (!order) return false;
+
+    return (
+      isCardPayment &&
+      ["pending", "failed", "cancelled", ""].includes(paymentStatus) &&
+      ["pending", "cancelled"].includes(orderStatus)
+    );
+  }, [order, isCardPayment, paymentStatus, orderStatus]);
+
+  const paymentNeedsAttention = useMemo(() => {
+    return isCardPayment && !paymentIsPaid;
+  }, [isCardPayment, paymentIsPaid]);
+
+  const showMap = useMemo(() => {
+    return (
+      (isOnTheWay || isArrived) &&
+      order?.driver_lat != null &&
+      order?.driver_lng != null
+    );
+  }, [isOnTheWay, isArrived, order?.driver_lat, order?.driver_lng]);
+
+  const statusSummary = useMemo(() => {
+    if (!order) return "Loading order status...";
+
+    if (isOrderCancelled) {
+      return "This order has been cancelled.";
+    }
+
+    if (isDelivered) {
+      return isCashPayment && cashCollected
+        ? "Your order has been delivered and cash payment was collected successfully."
+        : "Your order has been delivered. Enjoy your meal.";
+    }
+
+    if (isArrived) {
+      if (isCashPayment && !cashCollected) {
+        return "Your driver has arrived and is waiting to collect cash payment.";
+      }
+
+      return "Your driver has arrived with your order.";
+    }
+
+    if (isOnTheWay) {
+      const distance =
+        order.driver_distance_km != null
+          ? `Driver is ${order.driver_distance_km.toFixed(1)}km away`
+          : "Driver is on the way";
+
+      const eta = order.estimated_delivery_time
+        ? `ETA ${formatTime(order.estimated_delivery_time)}`
+        : "ETA updating";
+
+      return `Your order is on the way · ${distance} · ${eta}`;
+    }
+
+    if (isReadyForDelivery) {
+      return "Your order is ready and waiting for a driver to accept delivery.";
+    }
+
+    if (orderStatus === "preparing") {
+      return "Your order is being freshly prepared.";
+    }
+
+    if (orderStatus === "confirmed") {
+      return "Your order has been confirmed and the kitchen will start shortly.";
+    }
+
+    return paymentNeedsAttention
+      ? "Your order is placed and awaiting payment confirmation."
+      : "Your order has been placed and is waiting for confirmation.";
+  }, [
+    order,
+    isOrderCancelled,
+    isDelivered,
+    isArrived,
+    isOnTheWay,
+    isReadyForDelivery,
+    orderStatus,
+    paymentNeedsAttention,
+    isCashPayment,
+    cashCollected,
+  ]);
 
   const fetchOrder = async (showRefreshToast = false) => {
     if (!orderId) return;
@@ -137,31 +251,36 @@ export default function OrderTrackingPage() {
 
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
-        .select(
-          `
-            id,
-            customer_name,
-            customer_phone,
-            customer_email,
-            delivery_address,
-            notes,
-            payment_method,
-            payment_provider,
-            payment_reference,
-            payment_status,
-            status,
-            subtotal,
-            delivery_fee,
-            discount_amount,
-            total,
-            created_at,
-            estimated_delivery_time,
-            driver_distance_km,
-            driver_lat,
-            driver_lng,
-            driver_last_updated
-          `
-        )
+        .select(`
+          id,
+          customer_name,
+          customer_phone,
+          customer_email,
+          delivery_address,
+          notes,
+          payment_method,
+          payment_provider,
+          payment_reference,
+          payment_status,
+          status,
+          subtotal,
+          delivery_fee,
+          discount_amount,
+          total,
+          created_at,
+          estimated_delivery_time,
+          driver_distance_km,
+          driver_lat,
+          driver_lng,
+          driver_last_updated,
+          accepted_at,
+          started_delivery_at,
+          arrived_at,
+          delivered_at,
+          cash_collected,
+          cash_collected_amount,
+          cash_collected_at
+        `)
         .eq("id", orderId)
         .single();
 
@@ -179,7 +298,7 @@ export default function OrderTrackingPage() {
       setItems((itemData || []) as OrderItemRecord[]);
 
       if (showRefreshToast) {
-        toast.success("Order status refreshed");
+        toast.success("Order refreshed");
       }
     } catch (error: any) {
       toast.error(error.message || "Failed to load order");
@@ -216,28 +335,42 @@ export default function OrderTrackingPage() {
   }, [orderId]);
 
   useEffect(() => {
-    if (!isOnTheWay || !order?.driver_lat || !order?.driver_lng || !mapContainerRef.current) {
-      return;
-    }
+    if (!showMap || !mapContainerRef.current || !order) return;
+
+    const lngLat: [number, number] = [order.driver_lng as number, order.driver_lat as number];
+    const key = import.meta.env.VITE_MAPTILER_KEY;
+
+    if (!key) return;
 
     if (!mapRef.current) {
       mapRef.current = new maplibregl.Map({
         container: mapContainerRef.current,
-        style: `https://api.maptiler.com/maps/streets/style.json?key=${import.meta.env.VITE_MAPTILER_KEY}`,
-        center: [order.driver_lng, order.driver_lat],
-        zoom: 14,
+        style: `https://api.maptiler.com/maps/streets/style.json?key=${key}`,
+        center: lngLat,
+        zoom: isArrived ? 16 : 14,
       });
 
-      markerRef.current = new maplibregl.Marker()
-        .setLngLat([order.driver_lng, order.driver_lat])
+      markerRef.current = new maplibregl.Marker({ color: "#111827" })
+        .setLngLat(lngLat)
         .addTo(mapRef.current);
     } else {
-      mapRef.current.setCenter([order.driver_lng, order.driver_lat]);
-      markerRef.current?.setLngLat([order.driver_lng, order.driver_lat]);
+      mapRef.current.easeTo({
+        center: lngLat,
+        zoom: isArrived ? 16 : 14,
+        duration: 800,
+      });
+      markerRef.current?.setLngLat(lngLat);
     }
+  }, [showMap, isArrived, order?.driver_lat, order?.driver_lng, order]);
 
-    return () => {};
-  }, [isOnTheWay, order?.driver_lat, order?.driver_lng]);
+  useEffect(() => {
+    if (showMap) return;
+
+    markerRef.current?.remove();
+    mapRef.current?.remove();
+    markerRef.current = null;
+    mapRef.current = null;
+  }, [showMap]);
 
   useEffect(() => {
     return () => {
@@ -249,7 +382,7 @@ export default function OrderTrackingPage() {
   }, []);
 
   const handleRetryPayment = async () => {
-    if (!order) return;
+    if (!order || !canRetryPayment) return;
 
     setRetryingPayment(true);
 
@@ -290,94 +423,115 @@ export default function OrderTrackingPage() {
   const paymentBadge = () => {
     if (paymentIsPaid) {
       return (
-        <div className="inline-flex items-center gap-2 rounded-full bg-green-100 text-green-700 px-3 py-1 text-sm font-medium">
-          <CheckCircle2 className="w-4 h-4" />
+        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
+          <CheckCircle2 className="h-4 w-4" />
           Paid
         </div>
       );
     }
 
-    if (paymentIsFailed) {
+    if (paymentIsFailed || paymentIsCancelled) {
       return (
-        <div className="inline-flex items-center gap-2 rounded-full bg-red-100 text-red-700 px-3 py-1 text-sm font-medium">
-          <XCircle className="w-4 h-4" />
-          Failed
+        <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700">
+          <XCircle className="h-4 w-4" />
+          Awaiting payment
         </div>
       );
     }
 
-    if (paymentIsCancelled) {
+    if (isCardPayment) {
       return (
-        <div className="inline-flex items-center gap-2 rounded-full bg-orange-100 text-orange-700 px-3 py-1 text-sm font-medium">
-          <XCircle className="w-4 h-4" />
-          Cancelled
+        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
+          <Clock3 className="h-4 w-4" />
+          Payment verification pending
+        </div>
+      );
+    }
+
+    if (isCashPayment && isArrived && !cashCollected) {
+      return (
+        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
+          <HandCoins className="h-4 w-4" />
+          Cash due on arrival
         </div>
       );
     }
 
     return (
-      <div className="inline-flex items-center gap-2 rounded-full bg-amber-100 text-amber-700 px-3 py-1 text-sm font-medium">
-        <Clock3 className="w-4 h-4" />
-        Pending
+      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700">
+        <Clock3 className="h-4 w-4" />
+        Cash on delivery
       </div>
     );
   };
 
   const orderBadge = () => {
-    const status = (order?.status || "pending").toLowerCase();
-
     const map: Record<string, string> = {
-      pending: "bg-amber-100 text-amber-700",
-      confirmed: "bg-blue-100 text-blue-700",
-      preparing: "bg-purple-100 text-purple-700",
-      on_the_way: "bg-indigo-100 text-indigo-700",
-      delivered: "bg-green-100 text-green-700",
-      cancelled: "bg-red-100 text-red-700",
+      pending: "border-amber-200 bg-amber-50 text-amber-700",
+      confirmed: "border-sky-200 bg-sky-50 text-sky-700",
+      preparing: "border-violet-200 bg-violet-50 text-violet-700",
+      ready_for_delivery: "border-orange-200 bg-orange-50 text-orange-700",
+      on_the_way: "border-indigo-200 bg-indigo-50 text-indigo-700",
+      arrived: "border-cyan-200 bg-cyan-50 text-cyan-700",
+      delivered: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      cancelled: "border-rose-200 bg-rose-50 text-rose-700",
     };
 
     return (
-      <div className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${map[status] || "bg-muted text-foreground"}`}>
-        {status.replace(/_/g, " ")}
+      <div
+        className={`inline-flex rounded-full border px-3 py-1.5 text-sm font-medium capitalize ${
+          map[orderStatus] || "border-border bg-muted text-foreground"
+        }`}
+      >
+        {orderStatus.replace(/_/g, " ")}
       </div>
     );
   };
 
-  const getStepClasses = (index: number) => {
+  const getStepState = (index: number) => {
     if (isOrderCancelled) {
       return {
-        circle: "bg-muted text-muted-foreground border-border",
-        line: "bg-border",
-        text: "text-muted-foreground",
+        isCompleted: false,
+        isCurrent: false,
+        circleClass: "border-border bg-muted text-muted-foreground",
+        textClass: "text-muted-foreground",
+        connectorClass: "bg-border",
       };
     }
 
     if (index < currentTimelineIndex) {
       return {
-        circle: "bg-green-100 text-green-700 border-green-200",
-        line: "bg-green-500",
-        text: "text-foreground",
+        isCompleted: true,
+        isCurrent: false,
+        circleClass: "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm",
+        textClass: "text-foreground",
+        connectorClass: "bg-emerald-500",
       };
     }
 
     if (index === currentTimelineIndex) {
       return {
-        circle: "bg-primary/15 text-primary border-primary/30",
-        line: "bg-border",
-        text: "text-foreground",
+        isCompleted: false,
+        isCurrent: true,
+        circleClass: "border-primary bg-primary text-primary-foreground shadow-[0_0_0_6px_rgba(0,0,0,0.04)]",
+        textClass: "text-foreground",
+        connectorClass: "bg-border",
       };
     }
 
     return {
-      circle: "bg-muted text-muted-foreground border-border",
-      line: "bg-border",
-      text: "text-muted-foreground",
+      isCompleted: false,
+      isCurrent: false,
+      circleClass: "border-border bg-background text-muted-foreground",
+      textClass: "text-muted-foreground",
+      connectorClass: "bg-border",
     };
   };
 
   if (loading) {
     return (
-      <div className="min-h-[70vh] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="flex min-h-[70vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -386,14 +540,14 @@ export default function OrderTrackingPage() {
     return (
       <div>
         <div className="container py-16">
-          <div className="max-w-xl mx-auto text-center bg-card border border-border rounded-2xl p-8">
-            <h1 className="text-3xl font-bold text-foreground mb-3">Order not found</h1>
-            <p className="text-muted-foreground mb-6">
+          <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-8 text-center">
+            <h1 className="mb-3 text-3xl font-bold text-foreground">Order not found</h1>
+            <p className="mb-6 text-muted-foreground">
               We could not find that order.
             </p>
             <button
               onClick={() => navigate("/menu")}
-              className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-3 text-primary-foreground font-medium hover:opacity-90 transition-opacity"
+              className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-3 font-medium text-primary-foreground transition-opacity hover:opacity-90"
             >
               Back to Menu
             </button>
@@ -406,41 +560,74 @@ export default function OrderTrackingPage() {
 
   return (
     <div>
-      <div className="container py-8 max-w-6xl">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div className="container max-w-7xl py-8">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-4xl text-foreground">Track Order</h1>
-            <p className="text-muted-foreground mt-1">Order ID: {order.id}</p>
+            <p className="mt-1 text-muted-foreground">Order ID: {order.id}</p>
           </div>
 
           <button
             onClick={() => fetchOrder(true)}
             disabled={refreshing}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
-            {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {refreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
             Refresh
           </button>
         </div>
 
-        <div className="bg-card border border-border rounded-2xl p-5 mb-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
+        <div className="mb-6 rounded-2xl border border-border bg-card p-5 md:p-6">
+          <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-foreground">Order Status</h2>
-              <p className="text-sm text-muted-foreground">
-                Created on {new Date(order.created_at).toLocaleString()}
+              <p className="mt-1 text-sm text-muted-foreground">
+                Created on {formatDateTime(order.created_at)}
               </p>
             </div>
             {orderBadge()}
           </div>
 
+          <div className="mb-5 rounded-2xl border border-border bg-muted/40 p-4">
+            <div className="flex items-start gap-3">
+              {isOrderCancelled ? (
+                <XCircle className="mt-0.5 h-5 w-5 text-rose-600" />
+              ) : isOnTheWay ? (
+                <Truck className="mt-0.5 h-5 w-5 text-primary" />
+              ) : isArrived ? (
+                <MapPinned className="mt-0.5 h-5 w-5 text-primary" />
+              ) : isReadyForDelivery ? (
+                <PackageCheck className="mt-0.5 h-5 w-5 text-primary" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-5 w-5 text-primary" />
+              )}
+              <div>
+                <p className="font-medium text-foreground">{statusSummary}</p>
+                {paymentNeedsAttention && !isOrderCancelled && (
+                  <p className="mt-1 text-sm text-amber-700">
+                    Card orders must be paid before confirmation, preparation, dispatch, or delivery can continue.
+                  </p>
+                )}
+                {isCashPayment && isArrived && !cashCollected && (
+                  <p className="mt-1 text-sm text-amber-700">
+                    Please have your cash ready for the driver.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
           {isOrderCancelled ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
               <div className="flex items-start gap-3">
-                <XCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                <XCircle className="mt-0.5 h-5 w-5 text-rose-600" />
                 <div>
-                  <p className="font-medium text-red-700">Order Cancelled</p>
-                  <p className="text-sm text-red-600 mt-1">
+                  <p className="font-medium text-rose-700">Order Cancelled</p>
+                  <p className="mt-1 text-sm text-rose-600">
                     This order has been cancelled and will not continue through the delivery process.
                   </p>
                 </div>
@@ -448,95 +635,136 @@ export default function OrderTrackingPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <div className="min-w-[760px] flex items-start">
-                {TIMELINE_STEPS.map((step, index) => {
-                  const Icon = step.icon;
-                  const styles = getStepClasses(index);
-                  const isLast = index === TIMELINE_STEPS.length - 1;
+              <div className="min-w-[980px] px-1">
+                <div className="flex items-start">
+                  {TIMELINE_STEPS.map((step, index) => {
+                    const Icon = step.icon;
+                    const isLast = index === TIMELINE_STEPS.length - 1;
+                    const state = getStepState(index);
 
-                  return (
-                    <div key={step.key} className="flex items-center flex-1 min-w-[140px]">
-                      <div className="flex flex-col items-center text-center w-full">
-                        <div className={`w-11 h-11 rounded-full border flex items-center justify-center ${styles.circle}`}>
-                          <Icon className="w-5 h-5" />
+                    return (
+                      <div key={step.key} className="flex flex-1 items-start">
+                        <div className="flex w-full flex-col items-center text-center">
+                          <div
+                            className={[
+                              "flex items-center justify-center rounded-full border transition-all duration-300",
+                              state.isCurrent ? "h-14 w-14" : "h-11 w-11",
+                              state.circleClass,
+                            ].join(" ")}
+                          >
+                            <Icon className={state.isCurrent ? "h-6 w-6" : "h-5 w-5"} />
+                          </div>
+
+                          <div className="mt-3 min-h-[54px]">
+                            <p className={`text-sm font-semibold ${state.textClass}`}>
+                              {step.shortLabel}
+                            </p>
+                            {state.isCurrent && (
+                              <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                                Current
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <p className={`mt-2 text-sm font-medium ${styles.text}`}>{step.shortLabel}</p>
+
+                        {!isLast && (
+                          <div className="flex flex-1 items-center px-2 pt-5">
+                            <div className="h-1 w-full overflow-hidden rounded-full bg-border">
+                              <div className={`h-full w-full ${state.connectorClass}`} />
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      {!isLast && <div className={`h-0.5 flex-1 mx-2 mt-[-26px] ${styles.line}`} />}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-          <div className="xl:col-span-3 space-y-6">
-            {isOnTheWay && order.driver_lat != null && order.driver_lng != null && (
-              <div className="bg-card border border-border rounded-2xl p-6">
-                <h2 className="text-xl font-semibold text-foreground mb-4">Live Driver Location</h2>
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+          <div className="space-y-6 xl:col-span-3">
+            {showMap && (
+              <div className="rounded-2xl border border-border bg-card p-6">
+                <div className="mb-4 flex items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground">
+                      {isArrived ? "Driver Has Arrived" : "Live Driver Location"}
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {isArrived
+                        ? "Your driver is at your delivery location."
+                        : "Real-time driver tracking for your active delivery."}
+                    </p>
+                  </div>
+
+                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
+                    <Navigation className="h-4 w-4" />
+                    Live
+                  </div>
+                </div>
 
                 <div
                   ref={mapContainerRef}
-                  className="w-full h-[320px] rounded-xl border border-border overflow-hidden"
+                  className="h-[320px] w-full overflow-hidden rounded-2xl border border-border"
                 />
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4 text-sm">
-                  <div className="rounded-xl border border-border p-4">
-                    <p className="text-muted-foreground mb-1">Driver Status</p>
-                    <p className="font-medium text-foreground inline-flex items-center gap-2">
-                      <Navigation className="w-4 h-4 text-primary" />
-                      On the way
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl border border-border p-4">
-                    <p className="text-muted-foreground mb-1">Distance Away</p>
-                    <p className="font-medium text-foreground">
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-border p-4">
+                    <p className="mb-1 text-sm text-muted-foreground">Driver distance</p>
+                    <p className="text-base font-semibold text-foreground">
                       {order.driver_distance_km != null
                         ? `${order.driver_distance_km.toFixed(1)} km`
+                        : isArrived
+                        ? "At your location"
                         : "Calculating..."}
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-border p-4">
-                    <p className="text-muted-foreground mb-1">Estimated Arrival</p>
-                    <p className="font-medium text-foreground">
-                      {order.estimated_delivery_time
-                        ? new Date(order.estimated_delivery_time).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : "Calculating..."}
+                  <div className="rounded-2xl border border-border p-4">
+                    <p className="mb-1 text-sm text-muted-foreground">
+                      {isArrived ? "Arrival time" : "Estimated arrival"}
+                    </p>
+                    <p className="text-base font-semibold text-foreground">
+                      {isArrived
+                        ? formatTime(order.arrived_at || order.estimated_delivery_time)
+                        : formatTime(order.estimated_delivery_time)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border p-4">
+                    <p className="mb-1 text-sm text-muted-foreground">Last updated</p>
+                    <p className="text-base font-semibold text-foreground">
+                      {order.driver_last_updated ? formatTime(order.driver_last_updated) : "Waiting..."}
                     </p>
                   </div>
                 </div>
 
                 {order.driver_last_updated && (
-                  <p className="text-xs text-muted-foreground mt-3">
-                    Last updated: {new Date(order.driver_last_updated).toLocaleString()}
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Last full update: {formatDateTime(order.driver_last_updated)}
                   </p>
                 )}
               </div>
             )}
 
-            <div className="bg-card border border-border rounded-2xl p-6">
-              <h2 className="text-xl font-semibold text-foreground mb-5">Customer & Delivery</h2>
+            <div className="rounded-2xl border border-border bg-card p-6">
+              <h2 className="mb-5 text-xl font-semibold text-foreground">Customer & Delivery</h2>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div className="rounded-xl border border-border p-4">
-                  <p className="text-muted-foreground mb-1">Customer</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border p-4 text-sm">
+                  <p className="mb-1 text-muted-foreground">Customer</p>
                   <p className="font-medium text-foreground">{order.customer_name}</p>
                   {order.customer_phone && <p className="text-foreground">{order.customer_phone}</p>}
                   {order.customer_email && <p className="text-foreground">{order.customer_email}</p>}
                 </div>
 
-                <div className="rounded-xl border border-border p-4">
-                  <p className="text-muted-foreground mb-1">Delivery Address</p>
+                <div className="rounded-2xl border border-border p-4 text-sm">
+                  <p className="mb-1 text-muted-foreground">Delivery address</p>
                   <div className="flex items-start gap-2">
-                    <MapPinned className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                    <p className="font-medium text-foreground whitespace-pre-line">
+                    <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <p className="whitespace-pre-line font-medium text-foreground">
                       {order.delivery_address || "No address provided"}
                     </p>
                   </div>
@@ -544,72 +772,99 @@ export default function OrderTrackingPage() {
               </div>
 
               {order.notes && (
-                <div className="mt-4 rounded-xl border border-border p-4 text-sm">
-                  <p className="text-muted-foreground mb-1">Notes</p>
+                <div className="mt-4 rounded-2xl border border-border p-4 text-sm">
+                  <p className="mb-1 text-muted-foreground">Notes</p>
                   <p className="text-foreground">{order.notes}</p>
                 </div>
               )}
             </div>
 
-            <div className="bg-card border border-border rounded-2xl p-6">
-              <h2 className="text-xl font-semibold text-foreground mb-5">Payment</h2>
-
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-5">
-                {paymentBadge()}
-
-                {canRetryPayment && !paymentIsPaid && (
-                  <button
-                    onClick={handleRetryPayment}
-                    disabled={retryingPayment}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-                  >
-                    {retryingPayment ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <CreditCard className="w-4 h-4" />
-                    )}
-                    {retryingPayment ? "Starting payment..." : "Retry Payment"}
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div className="rounded-xl border border-border p-4">
-                  <p className="text-muted-foreground mb-1">Payment Method</p>
-                  <p className="font-medium text-foreground">{order.payment_method || "N/A"}</p>
+            <div className="rounded-2xl border border-border bg-card p-6">
+              <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-foreground">Payment</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Secure checkout and payment status
+                  </p>
                 </div>
 
-                <div className="rounded-xl border border-border p-4">
-                  <p className="text-muted-foreground mb-1">Payment Provider</p>
+                {paymentBadge()}
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+                <div className="rounded-2xl border border-border p-4">
+                  <p className="mb-1 text-muted-foreground">Payment method</p>
+                  <p className="font-medium capitalize text-foreground">{order.payment_method || "N/A"}</p>
+                </div>
+
+                <div className="rounded-2xl border border-border p-4">
+                  <p className="mb-1 text-muted-foreground">Payment provider</p>
                   <p className="font-medium text-foreground">{order.payment_provider || "N/A"}</p>
                 </div>
 
-                <div className="rounded-xl border border-border p-4">
-                  <p className="text-muted-foreground mb-1">Payment Reference</p>
-                  <p className="font-medium text-foreground break-all">
+                <div className="rounded-2xl border border-border p-4">
+                  <p className="mb-1 text-muted-foreground">Payment reference</p>
+                  <p className="break-all font-medium text-foreground">
                     {order.payment_reference || "Not available yet"}
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border p-4">
-                  <p className="text-muted-foreground mb-1">Amount</p>
-                  <p className="font-medium text-foreground">R{Number(order.total || 0).toFixed(2)}</p>
+                <div className="rounded-2xl border border-border p-4">
+                  <p className="mb-1 text-muted-foreground">Amount</p>
+                  <p className="font-medium text-foreground">{formatCurrency(order.total)}</p>
                 </div>
               </div>
 
-              {!paymentIsPaid && canRetryPayment && (
-                <div className="mt-4 rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
-                  This order is not fully paid yet. You can restart the PayFast payment using the button above.
+              {paymentNeedsAttention && (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  This order cannot move into confirmation, preparation, dispatch, or delivery until the card payment is marked as paid.
+                </div>
+              )}
+
+              {isCashPayment && isArrived && !cashCollected && (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  Your driver has arrived. Please pay the cash amount of {formatCurrency(order.total)} to complete delivery.
+                </div>
+              )}
+
+              {isCashPayment && cashCollected && (
+                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                  Cash payment was collected successfully
+                  {order.cash_collected_at ? ` at ${formatDateTime(order.cash_collected_at)}.` : "."}
+                </div>
+              )}
+
+              {canRetryPayment && !paymentIsPaid && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-muted/40 p-4">
+                  <div>
+                    <p className="font-medium text-foreground">Complete your payment</p>
+                    <p className="text-sm text-muted-foreground">
+                      Retry payment is available only while the order is still pending or cancelled.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleRetryPayment}
+                    disabled={retryingPayment}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {retryingPayment ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="h-4 w-4" />
+                    )}
+                    {retryingPayment ? "Starting payment..." : "Retry Payment"}
+                  </button>
                 </div>
               )}
             </div>
           </div>
 
           <div className="xl:col-span-2">
-            <div className="bg-card border border-border rounded-2xl p-6 sticky top-24">
-              <h2 className="text-xl font-semibold text-foreground mb-5">Order Summary</h2>
+            <div className="sticky top-24 rounded-2xl border border-border bg-card p-6">
+              <h2 className="mb-5 text-xl font-semibold text-foreground">Order Summary</h2>
 
-              <div className="space-y-3 mb-5">
+              <div className="mb-5 space-y-3">
                 {items.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No items found for this order.</p>
                 ) : (
@@ -618,38 +873,38 @@ export default function OrderTrackingPage() {
                       <div>
                         <p className="font-medium text-foreground">{item.product_name}</p>
                         <p className="text-muted-foreground">
-                          {item.quantity} × R{Number(item.unit_price).toFixed(2)}
+                          {item.quantity} × {formatCurrency(item.unit_price)}
                         </p>
                       </div>
                       <p className="font-medium text-foreground">
-                        R{Number(item.total_price).toFixed(2)}
+                        {formatCurrency(item.total_price)}
                       </p>
                     </div>
                   ))
                 )}
               </div>
 
-              <div className="border-t border-border pt-4 space-y-2 text-sm">
+              <div className="space-y-2 border-t border-border pt-4 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span className="text-foreground">R{Number(order.subtotal || 0).toFixed(2)}</span>
+                  <span className="text-foreground">{formatCurrency(order.subtotal)}</span>
                 </div>
 
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Delivery</span>
-                  <span className="text-foreground">R{Number(order.delivery_fee || 0).toFixed(2)}</span>
+                  <span className="text-foreground">{formatCurrency(order.delivery_fee)}</span>
                 </div>
 
                 {!!Number(order.discount_amount || 0) && (
-                  <div className="flex justify-between text-green-700">
+                  <div className="flex justify-between text-emerald-700">
                     <span>Discount</span>
-                    <span>-R{Number(order.discount_amount || 0).toFixed(2)}</span>
+                    <span>-{formatCurrency(order.discount_amount)}</span>
                   </div>
                 )}
 
                 <div className="flex justify-between border-t border-border pt-3 text-base font-semibold">
                   <span className="text-foreground">Total</span>
-                  <span className="text-primary">R{Number(order.total || 0).toFixed(2)}</span>
+                  <span className="text-primary">{formatCurrency(order.total)}</span>
                 </div>
               </div>
             </div>
