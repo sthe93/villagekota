@@ -77,12 +77,24 @@ type OrderRecord = {
   cash_collected_at: string | null;
 };
 
+type OrderItemOptionRecord = {
+  id: string;
+  order_item_id: string;
+  option_group_name: string;
+  option_item_name: string;
+  price_delta: number;
+};
+
 type OrderItemRecord = {
   id: string;
   product_name: string;
   quantity: number;
   unit_price: number;
+  final_unit_price: number;
+  options_total: number;
   total_price: number;
+  item_note: string | null;
+  selectedOptions: OrderItemOptionRecord[];
 };
 
 const CARD_REQUIRED_PAYMENT_METHODS = ["card"];
@@ -504,17 +516,76 @@ export default function OrderTrackingPage() {
 
         if (orderError) throw orderError;
 
-        const { data: itemData, error: itemsError } = await supabase
+        const { data: itemData, error: itemsError } = await (supabase as any)
           .from("order_items")
-          .select("id, product_name, quantity, unit_price, total_price")
+          .select(`
+            id,
+            product_name,
+            quantity,
+            unit_price,
+            final_unit_price,
+            options_total,
+            total_price,
+            item_note
+          `)
           .eq("order_id", orderId)
           .order("id", { ascending: true });
 
         if (itemsError) throw itemsError;
 
+        const normalizedItems: OrderItemRecord[] = ((itemData || []) as any[]).map((item) => ({
+          id: String(item.id),
+          product_name: item.product_name,
+          quantity: Number(item.quantity ?? 1),
+          unit_price: Number(item.unit_price ?? 0),
+          final_unit_price: Number(item.final_unit_price ?? item.unit_price ?? 0),
+          options_total: Number(item.options_total ?? 0),
+          total_price: Number(item.total_price ?? 0),
+          item_note: item.item_note || null,
+          selectedOptions: [],
+        }));
+
+        if (normalizedItems.length > 0) {
+          const orderItemIds = normalizedItems.map((item) => item.id);
+
+          const { data: optionData, error: optionsError } = await (supabase as any)
+            .from("order_item_options")
+            .select(`
+              id,
+              order_item_id,
+              option_group_name,
+              option_item_name,
+              price_delta
+            `)
+            .in("order_item_id", orderItemIds)
+            .order("created_at", { ascending: true });
+
+          if (optionsError) throw optionsError;
+
+          const optionsByItemId = new Map<string, OrderItemOptionRecord[]>();
+
+          ((optionData || []) as any[]).forEach((option) => {
+            const row: OrderItemOptionRecord = {
+              id: String(option.id),
+              order_item_id: String(option.order_item_id),
+              option_group_name: option.option_group_name,
+              option_item_name: option.option_item_name,
+              price_delta: Number(option.price_delta ?? 0),
+            };
+
+            const existing = optionsByItemId.get(row.order_item_id) || [];
+            existing.push(row);
+            optionsByItemId.set(row.order_item_id, existing);
+          });
+
+          normalizedItems.forEach((item) => {
+            item.selectedOptions = optionsByItemId.get(item.id) || [];
+          });
+        }
+
         const nextOrder = orderData as OrderRecord;
         setOrder(nextOrder);
-        setItems((itemData || []) as OrderItemRecord[]);
+        setItems(normalizedItems);
 
         if (nextOrder.driver_id) {
           const { data: driverData, error: driverError } = await supabase
@@ -806,7 +877,7 @@ export default function OrderTrackingPage() {
           </button>
         </div>
 
-        <div className={`mb-6 overflow-hidden rounded-[28px] border bg-card shadow-card`}>
+        <div className="mb-6 overflow-hidden rounded-[28px] border bg-card shadow-card">
           <div className="border-b border-border bg-muted/30 p-5 md:p-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl">
@@ -1137,17 +1208,42 @@ export default function OrderTrackingPage() {
                     items.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-start justify-between gap-3 rounded-2xl border border-border bg-background p-3 text-sm"
+                        className="rounded-2xl border border-border bg-background p-3 text-sm"
                       >
-                        <div>
-                          <p className="font-medium text-foreground">{item.product_name}</p>
-                          <p className="text-muted-foreground">
-                            {item.quantity} × {formatCurrency(item.unit_price)}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground">{item.product_name}</p>
+                            <p className="text-muted-foreground">
+                              {item.quantity} × {formatCurrency(item.final_unit_price || item.unit_price)}
+                            </p>
+                          </div>
+
+                          <p className="font-medium text-foreground">
+                            {formatCurrency(item.total_price)}
                           </p>
                         </div>
-                        <p className="font-medium text-foreground">
-                          {formatCurrency(item.total_price)}
-                        </p>
+
+                        {item.selectedOptions.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {item.selectedOptions.map((option) => (
+                              <span
+                                key={option.id}
+                                className="rounded-full bg-card px-2 py-1 text-[10px] font-medium text-muted-foreground"
+                              >
+                                {option.option_group_name}: {option.option_item_name}
+                                {option.price_delta > 0
+                                  ? ` (+${formatCurrency(option.price_delta)})`
+                                  : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {item.item_note && (
+                          <p className="mt-2 rounded-lg bg-card px-2.5 py-2 text-xs text-muted-foreground">
+                            Note: {item.item_note}
+                          </p>
+                        )}
                       </div>
                     ))
                   )}

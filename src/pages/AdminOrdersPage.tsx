@@ -77,6 +77,27 @@ interface AdminOrder {
   cash_collected_at: string | null;
 }
 
+interface AdminOrderItemOption {
+  id: string;
+  order_item_id: string;
+  option_group_name: string;
+  option_item_name: string;
+  price_delta: number;
+}
+
+interface AdminOrderItem {
+  id: string;
+  order_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  final_unit_price: number;
+  options_total: number;
+  total_price: number;
+  item_note: string | null;
+  selectedOptions: AdminOrderItemOption[];
+}
+
 const statusLabel: Record<OrderStatus, string> = {
   pending: "Pending",
   confirmed: "Confirmed",
@@ -305,6 +326,7 @@ export default function AdminOrdersPage() {
   const { user, isAdmin, loading } = useAuth();
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [orderItemsByOrderId, setOrderItemsByOrderId] = useState<Record<string, AdminOrderItem[]>>({});
   const [pageLoading, setPageLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<OrderStatus | "all">("all");
@@ -352,11 +374,104 @@ export default function AdminOrdersPage() {
 
     if (error) {
       toast.error(error.message || "Failed to load orders");
-    } else {
-      setOrders((data || []) as AdminOrder[]);
+      setPageLoading(false);
+      return;
     }
 
-    setPageLoading(false);
+    const nextOrders = (data || []) as AdminOrder[];
+    setOrders(nextOrders);
+
+    if (nextOrders.length === 0) {
+      setOrderItemsByOrderId({});
+      setPageLoading(false);
+      return;
+    }
+
+    try {
+      const orderIds = nextOrders.map((order) => order.id);
+
+      const { data: orderItemsData, error: orderItemsError } = await (supabase as any)
+        .from("order_items")
+        .select(`
+          id,
+          order_id,
+          product_name,
+          quantity,
+          unit_price,
+          final_unit_price,
+          options_total,
+          total_price,
+          item_note
+        `)
+        .in("order_id", orderIds)
+        .order("created_at", { ascending: true });
+
+      if (orderItemsError) throw orderItemsError;
+
+      const normalizedOrderItems: AdminOrderItem[] = ((orderItemsData || []) as any[]).map((item) => ({
+        id: String(item.id),
+        order_id: String(item.order_id),
+        product_name: item.product_name,
+        quantity: Number(item.quantity ?? 1),
+        unit_price: Number(item.unit_price ?? 0),
+        final_unit_price: Number(item.final_unit_price ?? item.unit_price ?? 0),
+        options_total: Number(item.options_total ?? 0),
+        total_price: Number(item.total_price ?? 0),
+        item_note: item.item_note || null,
+        selectedOptions: [],
+      }));
+
+      if (normalizedOrderItems.length > 0) {
+        const orderItemIds = normalizedOrderItems.map((item) => item.id);
+
+        const { data: orderItemOptionsData, error: orderItemOptionsError } = await (supabase as any)
+          .from("order_item_options")
+          .select(`
+            id,
+            order_item_id,
+            option_group_name,
+            option_item_name,
+            price_delta
+          `)
+          .in("order_item_id", orderItemIds)
+          .order("created_at", { ascending: true });
+
+        if (orderItemOptionsError) throw orderItemOptionsError;
+
+        const optionsByOrderItemId = new Map<string, AdminOrderItemOption[]>();
+
+        ((orderItemOptionsData || []) as any[]).forEach((option) => {
+          const normalizedOption: AdminOrderItemOption = {
+            id: String(option.id),
+            order_item_id: String(option.order_item_id),
+            option_group_name: option.option_group_name,
+            option_item_name: option.option_item_name,
+            price_delta: Number(option.price_delta ?? 0),
+          };
+
+          const existing = optionsByOrderItemId.get(normalizedOption.order_item_id) || [];
+          existing.push(normalizedOption);
+          optionsByOrderItemId.set(normalizedOption.order_item_id, existing);
+        });
+
+        normalizedOrderItems.forEach((item) => {
+          item.selectedOptions = optionsByOrderItemId.get(item.id) || [];
+        });
+      }
+
+      const grouped = normalizedOrderItems.reduce<Record<string, AdminOrderItem[]>>((acc, item) => {
+        if (!acc[item.order_id]) acc[item.order_id] = [];
+        acc[item.order_id].push(item);
+        return acc;
+      }, {});
+
+      setOrderItemsByOrderId(grouped);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load order items");
+      setOrderItemsByOrderId({});
+    } finally {
+      setPageLoading(false);
+    }
   }, []);
 
   const loadDrivers = useCallback(async () => {
@@ -384,7 +499,7 @@ export default function AdminOrdersPage() {
     if (!isAdmin) return;
 
     const channel = supabase
-      .channel("admin-orders-live-dispatch-v3")
+      .channel("admin-orders-live-dispatch-v4")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
@@ -735,6 +850,7 @@ export default function AdminOrdersPage() {
             filteredOrders.map((order) => {
               const assignedDriver = order.driver_id ? driverMap.get(order.driver_id) : null;
               const dispatch = getDispatchState(order);
+              const orderItems = orderItemsByOrderId[order.id] || [];
 
               const paymentGuardMessage =
                 isCardPaymentMethod(order.payment_method) &&
@@ -859,6 +975,65 @@ export default function AdminOrdersPage() {
                   <div className="mb-5">
                     <p className="mb-3 text-sm font-semibold text-foreground">Kitchen Actions</p>
                     <QuickKitchenButtons order={order} />
+                  </div>
+
+                  <div className="mb-5 rounded-2xl border border-border bg-background p-4">
+                    <div className="mb-4 flex items-center justify-between">
+                      <p className="text-sm font-semibold text-foreground">Items for Kitchen</p>
+                      <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        {orderItems.length} line item{orderItems.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+
+                    {orderItems.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No order items found.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {orderItems.map((item) => (
+                          <div
+                            key={item.id}
+                            className="rounded-2xl border border-border bg-card p-4 text-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-foreground">
+                                  {item.quantity} × {item.product_name}
+                                </p>
+                                <p className="mt-1 text-muted-foreground">
+                                  {formatCurrency(item.final_unit_price || item.unit_price)} each
+                                </p>
+                              </div>
+
+                              <p className="shrink-0 font-semibold text-foreground">
+                                {formatCurrency(item.total_price)}
+                              </p>
+                            </div>
+
+                            {item.selectedOptions.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {item.selectedOptions.map((option) => (
+                                  <span
+                                    key={option.id}
+                                    className="rounded-full bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground"
+                                  >
+                                    {option.option_group_name}: {option.option_item_name}
+                                    {option.price_delta > 0
+                                      ? ` (+${formatCurrency(option.price_delta)})`
+                                      : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {item.item_note && (
+                              <p className="mt-2 rounded-lg bg-background px-2.5 py-2 text-xs text-muted-foreground">
+                                Note: {item.item_note}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">

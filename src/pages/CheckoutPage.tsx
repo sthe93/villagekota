@@ -323,7 +323,10 @@ export default function CheckoutPage() {
         product_name: item.product.name,
         quantity: item.quantity,
         unit_price: item.product.price,
-        total_price: item.product.price * item.quantity,
+        options_total: item.optionsTotal || 0,
+        final_unit_price: item.finalUnitPrice || item.product.price,
+        total_price: (item.finalUnitPrice || item.product.price) * item.quantity,
+        item_note: item.note?.trim() || null,
       }));
 
       const hasMissingProducts = orderItems.some((item) => item.product_id === null);
@@ -382,13 +385,37 @@ export default function CheckoutPage() {
 
       if (orderError) throw orderError;
 
-      const orderItemsPayload = orderItems.map((item) => ({
-        order_id: order.id,
-        ...item,
-      }));
+      const { data: insertedOrderItems, error: itemsError } = await (supabase as any)
+        .from("order_items")
+        .insert(
+          orderItems.map((item) => ({
+            order_id: order.id,
+            ...item,
+          }))
+        )
+        .select("id");
 
-      const { error: itemsError } = await supabase.from("order_items").insert(orderItemsPayload);
       if (itemsError) throw itemsError;
+
+      for (let index = 0; index < items.length; index++) {
+        const insertedOrderItemId = insertedOrderItems?.[index]?.id;
+        const cartItem = items[index];
+
+        if (!insertedOrderItemId || !cartItem.selectedOptions?.length) continue;
+
+        const optionRows = cartItem.selectedOptions.map((option) => ({
+          order_item_id: insertedOrderItemId,
+          option_group_name: option.groupName,
+          option_item_name: option.itemName,
+          price_delta: option.priceDelta,
+        }));
+
+        const { error: optionInsertError } = await (supabase as any)
+          .from("order_item_options")
+          .insert(optionRows);
+
+        if (optionInsertError) throw optionInsertError;
+      }
 
       if (voucherInfo) {
         const { error: redemptionError } = await supabase.from("voucher_redemptions").insert({
@@ -837,12 +864,25 @@ export default function CheckoutPage() {
                                     {item.product.name}
                                   </p>
                                   <p className="mt-1 text-xs text-muted-foreground">
-                                    {item.quantity} × {priceFormatter.format(item.product.price)}
+                                    {item.quantity} × {priceFormatter.format(item.finalUnitPrice)}
                                   </p>
+
+                                  {item.selectedOptions?.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      {item.selectedOptions.map((option) => (
+                                        <span
+                                          key={`${item.id}-${option.groupId}-${option.itemId}`}
+                                          className="rounded-full bg-card px-2 py-1 text-[10px] font-medium text-muted-foreground"
+                                        >
+                                          {option.groupName}: {option.itemName}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
 
                                 <p className="text-sm font-semibold text-foreground">
-                                  {priceFormatter.format(item.product.price * item.quantity)}
+                                  {priceFormatter.format(item.finalUnitPrice * item.quantity)}
                                 </p>
                               </div>
 

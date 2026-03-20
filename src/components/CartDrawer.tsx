@@ -93,7 +93,7 @@ export default function CartDrawer() {
       }
     };
 
-    loadRecommendations();
+    void loadRecommendations();
 
     return () => {
       isMounted = false;
@@ -259,8 +259,9 @@ export default function CartDrawer() {
                               <h4 className="truncate font-display text-xl leading-tight text-foreground">
                                 {item.product.name}
                               </h4>
+
                               <p className="mt-1 text-sm font-semibold text-foreground">
-                                {priceFormatter.format(item.product.price)}
+                                {priceFormatter.format(item.finalUnitPrice)}
                                 <span className="ml-1 font-normal text-muted-foreground">
                                   each
                                 </span>
@@ -274,6 +275,22 @@ export default function CartDrawer() {
                               <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
+
+                          {item.selectedOptions?.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {item.selectedOptions.map((option) => (
+                                <span
+                                  key={`${item.id}-${option.groupId}-${option.itemId}`}
+                                  className="rounded-full bg-card px-2.5 py-1 text-[10px] font-medium text-muted-foreground"
+                                >
+                                  {option.groupName}: {option.itemName}
+                                  {option.priceDelta > 0
+                                    ? ` (+${priceFormatter.format(option.priceDelta)})`
+                                    : ""}
+                                </span>
+                              ))}
+                            </div>
+                          )}
 
                           {item.note && (
                             <p className="mt-2 rounded-lg bg-card px-2.5 py-2 text-xs text-muted-foreground">
@@ -308,7 +325,7 @@ export default function CartDrawer() {
                               </p>
                               <p className="text-sm font-semibold text-foreground">
                                 {priceFormatter.format(
-                                  item.product.price * item.quantity
+                                  item.finalUnitPrice * item.quantity
                                 )}
                               </p>
                             </div>

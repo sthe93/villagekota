@@ -1,11 +1,15 @@
 import React, { createContext, useContext, useEffect, useReducer } from "react";
 import type { Product } from "@/data/products";
+import type { SelectedOption } from "@/data/productOptions";
 
 export interface CartItem {
   id: string;
   product: Product;
   quantity: number;
   note?: string;
+  selectedOptions: SelectedOption[];
+  optionsTotal: number;
+  finalUnitPrice: number;
 }
 
 interface CartState {
@@ -16,10 +20,21 @@ interface CartState {
 interface AddItemOptions {
   quantity?: number;
   note?: string;
+  selectedOptions?: SelectedOption[];
+  optionsTotal?: number;
+  finalUnitPrice?: number;
 }
 
 type CartAction =
-  | { type: "ADD_ITEM"; product: Product; quantity: number; note?: string }
+  | {
+      type: "ADD_ITEM";
+      product: Product;
+      quantity: number;
+      note?: string;
+      selectedOptions: SelectedOption[];
+      optionsTotal: number;
+      finalUnitPrice: number;
+    }
   | { type: "REMOVE_ITEM"; cartItemId: string }
   | { type: "UPDATE_QUANTITY"; cartItemId: string; quantity: number }
   | { type: "CLEAR_CART" }
@@ -39,6 +54,21 @@ function createCartItemId(productId: string) {
   return `${productId}-${uuid}`;
 }
 
+function buildCartConfigKey(
+  productId: string,
+  note: string | undefined,
+  selectedOptions: SelectedOption[]
+) {
+  const optionsKey = [...selectedOptions]
+    .sort((a, b) =>
+      `${a.groupId}:${a.itemId}`.localeCompare(`${b.groupId}:${b.itemId}`)
+    )
+    .map((option) => `${option.groupId}:${option.itemId}`)
+    .join("|");
+
+  return `${productId}__${(note || "").trim()}__${optionsKey}`;
+}
+
 function normalizeStoredItems(raw: unknown): CartItem[] {
   if (!Array.isArray(raw)) return [];
 
@@ -55,6 +85,11 @@ function normalizeStoredItems(raw: unknown): CartItem[] {
         typeof item.note === "string" && item.note.trim()
           ? item.note.trim()
           : undefined,
+      selectedOptions: Array.isArray(item.selectedOptions)
+        ? item.selectedOptions
+        : [],
+      optionsTotal: Number(item.optionsTotal ?? 0),
+      finalUnitPrice: Number(item.finalUnitPrice ?? item.product?.price ?? 0),
     }));
 }
 
@@ -63,11 +98,20 @@ function cartReducer(state: CartState, action: CartAction): CartState {
     case "ADD_ITEM": {
       const quantityToAdd = Math.max(1, action.quantity || 1);
       const normalizedNote = action.note?.trim() || "";
+      const normalizedOptions = action.selectedOptions || [];
+      const configKey = buildCartConfigKey(
+        action.product.id,
+        normalizedNote,
+        normalizedOptions
+      );
 
       const existing = state.items.find(
         (item) =>
-          item.product.id === action.product.id &&
-          (item.note?.trim() || "") === normalizedNote
+          buildCartConfigKey(
+            item.product.id,
+            item.note,
+            item.selectedOptions || []
+          ) === configKey
       );
 
       if (existing) {
@@ -90,6 +134,9 @@ function cartReducer(state: CartState, action: CartAction): CartState {
             product: action.product,
             quantity: quantityToAdd,
             note: normalizedNote || undefined,
+            selectedOptions: normalizedOptions,
+            optionsTotal: action.optionsTotal,
+            finalUnitPrice: action.finalUnitPrice,
           },
         ],
       };
@@ -176,7 +223,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [state.items]);
 
   const subtotal = state.items.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
+    (sum, item) => sum + item.finalUnitPrice * item.quantity,
     0
   );
 
@@ -195,13 +242,23 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       value={{
         items: state.items,
         isOpen: state.isOpen,
-        addItem: (product, options) =>
+        addItem: (product, options) => {
+          const selectedOptions = options?.selectedOptions || [];
+          const optionsTotal = Number(options?.optionsTotal ?? 0);
+          const finalUnitPrice = Number(
+            options?.finalUnitPrice ?? product.price + optionsTotal
+          );
+
           dispatch({
             type: "ADD_ITEM",
             product,
             quantity: options?.quantity ?? 1,
             note: options?.note,
-          }),
+            selectedOptions,
+            optionsTotal,
+            finalUnitPrice,
+          });
+        },
         removeItem: (cartItemId) =>
           dispatch({ type: "REMOVE_ITEM", cartItemId }),
         updateQuantity: (cartItemId, quantity) =>
