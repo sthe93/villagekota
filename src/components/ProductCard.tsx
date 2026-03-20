@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Flame, Plus, ShoppingBag, Sparkles, Star, ImageOff } from "lucide-react";
+import {
+  Flame,
+  Plus,
+  ShoppingBag,
+  Sparkles,
+  Star,
+  ImageOff,
+  SlidersHorizontal,
+} from "lucide-react";
 import type { Product } from "@/data/products";
 import ProductQuickAddSheet from "@/components/ProductQuickAddSheet";
 
@@ -43,14 +51,17 @@ const spiceConfig: Record<
 export default function ProductCard({ product }: { product: Product }) {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
-  const spiceStyle = spiceConfig[product.spiceLevel] ?? {
-    text: "text-muted-foreground",
-    bg: "bg-muted",
-    border: "border-border",
-  };
+  const spiceStyle = product.spiceLevel
+    ? spiceConfig[product.spiceLevel] ?? {
+        text: "text-muted-foreground",
+        bg: "bg-muted",
+        border: "border-border",
+      }
+    : null;
 
   const hasReviews = product.reviewCount > 0 && product.rating > 0;
   const hasImage = Boolean(product.image?.trim());
+  const hasCustomisation = product.hasOptions;
 
   const openQuickAdd = () => {
     if (!product.inStock) return;
@@ -97,10 +108,17 @@ export default function ProductCard({ product }: { product: Product }) {
 
           <div className="absolute inset-0 bg-gradient-to-t from-secondary/45 via-secondary/10 to-transparent" />
 
-          <div className="absolute left-3 top-3 flex max-w-[62%] flex-wrap gap-2">
+          <div className="absolute left-3 top-3 flex max-w-[72%] flex-wrap gap-2">
             <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-foreground shadow-md">
               {product.category}
             </span>
+
+            {hasCustomisation && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-background/95 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground shadow-md">
+                <SlidersHorizontal className="h-3 w-3" />
+                Customisable
+              </span>
+            )}
 
             {product.isPopular && (
               <span className="inline-flex items-center gap-1 rounded-full bg-accent px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent-foreground shadow-md">
@@ -119,7 +137,7 @@ export default function ProductCard({ product }: { product: Product }) {
           <div className="absolute right-3 top-3">
             <div className="rounded-2xl bg-primary px-4 py-2 shadow-md">
               <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-primary-foreground/80">
-                From
+                {hasCustomisation ? "From" : "Price"}
               </p>
               <p className="text-xl font-bold leading-none text-primary-foreground">
                 {priceFormatter.format(product.price)}
@@ -144,6 +162,13 @@ export default function ProductCard({ product }: { product: Product }) {
             {product.name}
           </h3>
 
+          {hasCustomisation && (
+            <div className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-primary">
+              <SlidersHorizontal className="h-4 w-4" />
+              Choose options, extras, or meal preferences
+            </div>
+          )}
+
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm font-semibold text-foreground">
               <Star className="h-3.5 w-3.5 fill-accent text-accent" />
@@ -155,12 +180,14 @@ export default function ProductCard({ product }: { product: Product }) {
               )}
             </div>
 
-            <span
-              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${spiceStyle.bg} ${spiceStyle.border} ${spiceStyle.text}`}
-            >
-              <Flame className="h-3 w-3" />
-              {product.spiceLevel}
-            </span>
+            {product.spiceLevel && spiceStyle && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${spiceStyle.bg} ${spiceStyle.border} ${spiceStyle.text}`}
+              >
+                <Flame className="h-3 w-3" />
+                {product.spiceLevel}
+              </span>
+            )}
 
             {hasReviews && product.reviewCount >= 20 && !product.isPopular && (
               <span className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -184,8 +211,12 @@ export default function ProductCard({ product }: { product: Product }) {
             >
               {product.inStock ? (
                 <>
-                  <ShoppingBag className="h-4 w-4" />
-                  Add to cart
+                  {hasCustomisation ? (
+                    <SlidersHorizontal className="h-4 w-4" />
+                  ) : (
+                    <ShoppingBag className="h-4 w-4" />
+                  )}
+                  {hasCustomisation ? "Customize & add" : "Add to cart"}
                 </>
               ) : (
                 <>

@@ -9,11 +9,13 @@ import {
   Sparkles,
   Star,
   Loader2,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { Link } from "react-router-dom";
 import { getProducts, type Category, type Product } from "@/data/products";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
+import ProductQuickAddSheet from "@/components/ProductQuickAddSheet";
 
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
@@ -22,30 +24,105 @@ const priceFormatter = new Intl.NumberFormat("en-ZA", {
   maximumFractionDigits: 2,
 });
 
-function getDrawerRecommendationCategories(categoriesInCart: Category[]): Category[] {
-  const hasMain = categoriesInCart.some((category) =>
-    ["Kota", "Bunny Chow", "Combos"].includes(category)
-  );
-  const hasSides = categoriesInCart.includes("Sides");
-  const hasDrinks = categoriesInCart.includes("Drinks");
+type CategoryRole = "meal" | "drink" | "side" | "combo" | "other";
 
-  if (hasMain && !hasDrinks) return ["Drinks", "Sides"];
-  if (hasMain && hasDrinks) return ["Sides"];
-  if (hasSides && !hasDrinks) return ["Drinks"];
-  if (hasDrinks && !hasMain) return ["Kota", "Bunny Chow", "Combos"];
-  return ["Kota", "Bunny Chow", "Sides", "Drinks", "Combos"];
+function normalizeCategory(category: string) {
+  return category.trim().toLowerCase();
+}
+
+function getCategoryRole(category: Category): CategoryRole {
+  const value = normalizeCategory(category);
+
+  if (
+    value.includes("drink") ||
+    value.includes("beverage") ||
+    value.includes("juice") ||
+    value.includes("smoothie") ||
+    value.includes("shake")
+  ) {
+    return "drink";
+  }
+
+  if (
+    value.includes("side") ||
+    value.includes("snack") ||
+    value.includes("starter")
+  ) {
+    return "side";
+  }
+
+  if (value.includes("combo")) {
+    return "combo";
+  }
+
+  if (
+    value.includes("kota") ||
+    value.includes("bunny") ||
+    value.includes("pap") ||
+    value.includes("rice") ||
+    value.includes("plate") ||
+    value.includes("meal") ||
+    value.includes("traditional") ||
+    value.includes("grill") ||
+    value.includes("breakfast")
+  ) {
+    return "meal";
+  }
+
+  return "other";
+}
+
+function getDrawerRecommendationRoleOrder(categoriesInCart: Category[]): CategoryRole[] {
+  const roles = new Set(categoriesInCart.map(getCategoryRole));
+  const hasMeal = roles.has("meal") || roles.has("combo");
+  const hasDrink = roles.has("drink");
+  const hasSide = roles.has("side");
+
+  if (hasMeal && !hasDrink) return ["drink", "side", "meal", "combo", "other"];
+  if (hasMeal && hasDrink) return ["side", "drink", "meal", "combo", "other"];
+  if (hasSide && !hasDrink) return ["drink", "meal", "combo", "side", "other"];
+  if (hasDrink && !hasMeal) return ["meal", "combo", "side", "other", "drink"];
+
+  return ["meal", "combo", "side", "drink", "other"];
 }
 
 function getDrawerRecommendationTitle(categoriesInCart: Category[]) {
-  const hasMain = categoriesInCart.some((category) =>
-    ["Kota", "Bunny Chow", "Combos"].includes(category)
-  );
-  const hasDrinks = categoriesInCart.includes("Drinks");
+  const roles = new Set(categoriesInCart.map(getCategoryRole));
+  const hasMeal = roles.has("meal") || roles.has("combo");
+  const hasDrink = roles.has("drink");
+  const hasSide = roles.has("side");
 
-  if (hasMain && !hasDrinks) return "Add a drink or side";
-  if (hasMain && hasDrinks) return "Complete your meal";
-  if (hasDrinks) return "Pair it with something filling";
+  if (hasMeal && !hasDrink) return "Add a drink or side";
+  if (hasMeal && hasDrink) return hasSide ? "Round out your order" : "Complete your meal";
+  if (hasDrink && !hasMeal) return "Pair it with something filling";
+  if (hasSide && !hasMeal) return "Add something more filling";
   return "You may also like";
+}
+
+function groupSelectedOptions(
+  options: Array<{
+    groupName: string;
+    itemName: string;
+    priceDelta: number;
+  }>
+) {
+  const grouped = new Map<string, string[]>();
+
+  options.forEach((option) => {
+    const label =
+      option.priceDelta > 0
+        ? `${option.itemName} (+${priceFormatter.format(option.priceDelta)})`
+        : option.itemName;
+
+    const existing = grouped.get(option.groupName) || [];
+    existing.push(label);
+    grouped.set(option.groupName, existing);
+  });
+
+  return Array.from(grouped.entries()).map(([groupName, values]) => ({
+    groupName,
+    values: values.join(", "),
+  }));
 }
 
 export default function CartDrawer() {
@@ -68,6 +145,13 @@ export default function CartDrawer() {
 
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+  const [selectedRecommendedProduct, setSelectedRecommendedProduct] =
+    useState<Product | null>(null);
+
+  const closeDrawer = () => {
+    setOpen(false);
+    setSelectedRecommendedProduct(null);
+  };
 
   useEffect(() => {
     if (!isOpen || items.length === 0) return;
@@ -111,30 +195,30 @@ export default function CartDrawer() {
   );
 
   const cartCategories = useMemo(
-    () =>
-      Array.from(new Set(items.map((item) => item.product.category))) as Category[],
+    () => Array.from(new Set(items.map((item) => item.product.category))) as Category[],
     [items]
   );
 
   const recommendations = useMemo(() => {
-    const preferredCategories = getDrawerRecommendationCategories(cartCategories);
+    const preferredRoles = getDrawerRecommendationRoleOrder(cartCategories);
 
     return allProducts
       .filter((product) => product.inStock)
       .filter((product) => !cartProductIds.has(product.id))
       .sort((a, b) => {
-        const aPreferred = preferredCategories.includes(a.category);
-        const bPreferred = preferredCategories.includes(b.category);
+        const aRole = getCategoryRole(a.category);
+        const bRole = getCategoryRole(b.category);
 
-        if (aPreferred !== bPreferred) return aPreferred ? -1 : 1;
+        const aRoleRank =
+          preferredRoles.indexOf(aRole) === -1 ? 999 : preferredRoles.indexOf(aRole);
+        const bRoleRank =
+          preferredRoles.indexOf(bRole) === -1 ? 999 : preferredRoles.indexOf(bRole);
 
-        const aCategoryRank = preferredCategories.indexOf(a.category);
-        const bCategoryRank = preferredCategories.indexOf(b.category);
-
-        if (aCategoryRank !== bCategoryRank) {
-          return (aCategoryRank === -1 ? 999 : aCategoryRank) - (bCategoryRank === -1 ? 999 : bCategoryRank);
+        if (aRoleRank !== bRoleRank) {
+          return aRoleRank - bRoleRank;
         }
 
+        if (a.hasOptions !== b.hasOptions) return a.hasOptions ? -1 : 1;
         if (a.isPopular !== b.isPopular) return a.isPopular ? -1 : 1;
         if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
         if (a.reviewCount !== b.reviewCount) return b.reviewCount - a.reviewCount;
@@ -147,6 +231,11 @@ export default function CartDrawer() {
   const recommendationTitle = getDrawerRecommendationTitle(cartCategories);
 
   const handleQuickAddSuggestion = (product: Product) => {
+    if (product.hasOptions) {
+      setSelectedRecommendedProduct(product);
+      return;
+    }
+
     addItem(product);
     toast.success(`${product.name} added to cart`);
   };
@@ -157,7 +246,7 @@ export default function CartDrawer() {
     <>
       <div
         className="fixed inset-0 z-50 bg-secondary/45 backdrop-blur-sm"
-        onClick={() => setOpen(false)}
+        onClick={closeDrawer}
       />
 
       <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl animate-slide-in-right">
@@ -174,7 +263,7 @@ export default function CartDrawer() {
           </div>
 
           <button
-            onClick={() => setOpen(false)}
+            onClick={closeDrawer}
             className="rounded-xl p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-5 w-5" />
@@ -196,7 +285,7 @@ export default function CartDrawer() {
 
             <Link
               to="/menu"
-              onClick={() => setOpen(false)}
+              onClick={closeDrawer}
               className="inline-flex items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
             >
               Browse Menu
@@ -234,6 +323,7 @@ export default function CartDrawer() {
               <div className="mt-4 space-y-3">
                 {items.map((item) => {
                   const hasImage = Boolean(item.product.image?.trim());
+                  const groupedOptions = groupSelectedOptions(item.selectedOptions || []);
 
                   return (
                     <div
@@ -276,18 +366,20 @@ export default function CartDrawer() {
                             </button>
                           </div>
 
-                          {item.selectedOptions?.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {item.selectedOptions.map((option) => (
-                                <span
-                                  key={`${item.id}-${option.groupId}-${option.itemId}`}
-                                  className="rounded-full bg-card px-2.5 py-1 text-[10px] font-medium text-muted-foreground"
+                          {groupedOptions.length > 0 && (
+                            <div className="mt-2 space-y-1.5">
+                              {groupedOptions.map((group) => (
+                                <div
+                                  key={`${item.id}-${group.groupName}`}
+                                  className="rounded-lg bg-card px-2.5 py-2 text-[11px]"
                                 >
-                                  {option.groupName}: {option.itemName}
-                                  {option.priceDelta > 0
-                                    ? ` (+${priceFormatter.format(option.priceDelta)})`
-                                    : ""}
-                                </span>
+                                  <span className="font-semibold text-foreground/85">
+                                    {group.groupName}:
+                                  </span>{" "}
+                                  <span className="text-muted-foreground">
+                                    {group.values}
+                                  </span>
+                                </div>
                               ))}
                             </div>
                           )}
@@ -324,9 +416,7 @@ export default function CartDrawer() {
                                 Total
                               </p>
                               <p className="text-sm font-semibold text-foreground">
-                                {priceFormatter.format(
-                                  item.finalUnitPrice * item.quantity
-                                )}
+                                {priceFormatter.format(item.finalUnitPrice * item.quantity)}
                               </p>
                             </div>
                           </div>
@@ -366,8 +456,7 @@ export default function CartDrawer() {
                   <div className="space-y-3">
                     {recommendations.map((product) => {
                       const hasImage = Boolean(product.image?.trim());
-                      const hasReviews =
-                        product.reviewCount > 0 && product.rating > 0;
+                      const hasReviews = product.reviewCount > 0 && product.rating > 0;
 
                       return (
                         <div
@@ -402,7 +491,7 @@ export default function CartDrawer() {
                                   onClick={() => handleQuickAddSuggestion(product)}
                                   className="inline-flex shrink-0 items-center justify-center rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                                 >
-                                  Add
+                                  {product.hasOptions ? "Customize" : "Add"}
                                 </button>
                               </div>
 
@@ -410,6 +499,13 @@ export default function CartDrawer() {
                                 <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                                   {product.category}
                                 </span>
+
+                                {product.hasOptions && (
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground">
+                                    <SlidersHorizontal className="h-3 w-3" />
+                                    Customisable
+                                  </span>
+                                )}
 
                                 {hasReviews ? (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
@@ -465,7 +561,7 @@ export default function CartDrawer() {
               <div className="mt-4 space-y-2">
                 <Link
                   to="/checkout"
-                  onClick={() => setOpen(false)}
+                  onClick={closeDrawer}
                   className="block w-full rounded-xl bg-primary py-3 text-center text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                 >
                   Checkout
@@ -482,6 +578,18 @@ export default function CartDrawer() {
           </>
         )}
       </aside>
+
+      {selectedRecommendedProduct && (
+        <ProductQuickAddSheet
+          product={selectedRecommendedProduct}
+          open={Boolean(selectedRecommendedProduct)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedRecommendedProduct(null);
+            }
+          }}
+        />
+      )}
     </>
   );
 }

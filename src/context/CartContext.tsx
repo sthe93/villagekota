@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useReducer } from "react";
-import type { Product } from "@/data/products";
+import type { Product, SpiceLevel } from "@/data/products";
 import type { SelectedOption } from "@/data/productOptions";
 
 export interface CartItem {
@@ -44,6 +44,8 @@ type CartAction =
 
 const DELIVERY_FEE = 25;
 const FREE_DELIVERY_THRESHOLD = 150;
+const STORAGE_KEY = "village-eats-cart";
+const LEGACY_STORAGE_KEY = "kota-cart";
 
 function createCartItemId(productId: string) {
   const uuid =
@@ -69,28 +71,87 @@ function buildCartConfigKey(
   return `${productId}__${(note || "").trim()}__${optionsKey}`;
 }
 
+function normalizeSpiceLevel(value: unknown): SpiceLevel {
+  return value === "Mild" ||
+    value === "Medium" ||
+    value === "Hot" ||
+    value === "Extra Hot"
+    ? value
+    : null;
+}
+
+function normalizeStoredProduct(raw: any): Product {
+  const category =
+    typeof raw?.category === "string" && raw.category.trim()
+      ? raw.category.trim()
+      : "Other";
+
+  const price = Number(raw?.price ?? 0);
+  const optionGroupCount = Math.max(
+    0,
+    Number(raw?.optionGroupCount ?? (raw?.hasOptions ? 1 : 0)) || 0
+  );
+
+  return {
+    id: String(raw?.id),
+    name:
+      typeof raw?.name === "string" && raw.name.trim()
+        ? raw.name.trim()
+        : "Untitled Item",
+    description:
+      typeof raw?.description === "string" && raw.description.trim()
+        ? raw.description.trim()
+        : "Freshly prepared and packed with flavour.",
+    price,
+    category,
+    image:
+      typeof raw?.image === "string" && raw.image.trim() ? raw.image.trim() : "",
+    spiceLevel: normalizeSpiceLevel(raw?.spiceLevel),
+    isPopular: Boolean(raw?.isPopular),
+    isFeatured: Boolean(raw?.isFeatured),
+    inStock: raw?.inStock !== false,
+    rating: Number(raw?.rating ?? 0),
+    reviewCount: Number(raw?.reviewCount ?? 0),
+    hasOptions: Boolean(raw?.hasOptions ?? optionGroupCount > 0),
+    optionGroupCount,
+  };
+}
+
 function normalizeStoredItems(raw: unknown): CartItem[] {
   if (!Array.isArray(raw)) return [];
 
   return raw
     .filter((item: any) => item?.product?.id)
-    .map((item: any) => ({
-      id:
-        typeof item.id === "string" && item.id.trim()
-          ? item.id
-          : createCartItemId(String(item.product.id)),
-      product: item.product,
-      quantity: Math.max(1, Number(item.quantity) || 1),
-      note:
-        typeof item.note === "string" && item.note.trim()
-          ? item.note.trim()
-          : undefined,
-      selectedOptions: Array.isArray(item.selectedOptions)
+    .map((item: any) => {
+      const product = normalizeStoredProduct(item.product);
+      const selectedOptions = Array.isArray(item.selectedOptions)
         ? item.selectedOptions
-        : [],
-      optionsTotal: Number(item.optionsTotal ?? 0),
-      finalUnitPrice: Number(item.finalUnitPrice ?? item.product?.price ?? 0),
-    }));
+        : [];
+
+      const optionsTotal = Number(item.optionsTotal ?? 0);
+      const fallbackFinalUnitPrice = product.price + optionsTotal;
+      const finalUnitPrice = Number(
+        item.finalUnitPrice ?? fallbackFinalUnitPrice
+      );
+
+      return {
+        id:
+          typeof item.id === "string" && item.id.trim()
+            ? item.id
+            : createCartItemId(String(product.id)),
+        product,
+        quantity: Math.max(1, Number(item.quantity) || 1),
+        note:
+          typeof item.note === "string" && item.note.trim()
+            ? item.note.trim()
+            : undefined,
+        selectedOptions,
+        optionsTotal,
+        finalUnitPrice: Number.isFinite(finalUnitPrice)
+          ? finalUnitPrice
+          : fallbackFinalUnitPrice,
+      };
+    });
 }
 
 function cartReducer(state: CartState, action: CartAction): CartState {
@@ -208,18 +269,28 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("kota-cart");
-      if (saved) {
-        dispatch({
-          type: "LOAD_CART",
-          items: normalizeStoredItems(JSON.parse(saved)),
-        });
+      const saved =
+        localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
+
+      if (!saved) return;
+
+      const items = normalizeStoredItems(JSON.parse(saved));
+
+      dispatch({
+        type: "LOAD_CART",
+        items,
+      });
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+
+      if (localStorage.getItem(LEGACY_STORAGE_KEY)) {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
       }
     } catch {}
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("kota-cart", JSON.stringify(state.items));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.items));
   }, [state.items]);
 
   const subtotal = state.items.reduce(
@@ -228,7 +299,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   );
 
   const itemCount = state.items.reduce((sum, item) => sum + item.quantity, 0);
-  const qualifiesForFreeDelivery = itemCount > 0 && subtotal >= FREE_DELIVERY_THRESHOLD;
+  const qualifiesForFreeDelivery =
+    itemCount > 0 && subtotal >= FREE_DELIVERY_THRESHOLD;
   const deliveryFee =
     itemCount === 0 ? 0 : qualifiesForFreeDelivery ? 0 : DELIVERY_FEE;
   const total = subtotal + deliveryFee;

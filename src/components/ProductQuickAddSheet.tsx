@@ -10,19 +10,16 @@ import {
   Sparkles,
   Loader2,
   CheckCircle2,
+  SlidersHorizontal,
 } from "lucide-react";
-import {
-  getProducts,
-  type Product,
-  type Category,
-} from "@/data/products";
+import { getProducts, type Product, type Category } from "@/data/products";
 import {
   getProductOptionGroups,
   type ProductOptionGroup,
   type SelectedOption,
 } from "@/data/productOptions";
 import { useCart } from "@/context/CartContext";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
@@ -31,35 +28,107 @@ const priceFormatter = new Intl.NumberFormat("en-ZA", {
   maximumFractionDigits: 2,
 });
 
-function getRecommendedCategories(category: Category): Category[] {
-  switch (category) {
-    case "Kota":
-    case "Bunny Chow":
-      return ["Drinks", "Sides"];
-    case "Sides":
-      return ["Drinks"];
-    case "Drinks":
-      return ["Kota", "Bunny Chow", "Combos"];
-    case "Combos":
-      return ["Drinks", "Sides"];
+type CategoryRole = "meal" | "drink" | "side" | "combo" | "other";
+
+function normalizeCategory(category: string) {
+  return category.trim().toLowerCase();
+}
+
+function getCategoryRole(category: Category): CategoryRole {
+  const value = normalizeCategory(category);
+
+  if (
+    value.includes("drink") ||
+    value.includes("beverage") ||
+    value.includes("juice") ||
+    value.includes("smoothie") ||
+    value.includes("shake")
+  ) {
+    return "drink";
+  }
+
+  if (
+    value.includes("side") ||
+    value.includes("snack") ||
+    value.includes("starter")
+  ) {
+    return "side";
+  }
+
+  if (value.includes("combo")) {
+    return "combo";
+  }
+
+  if (
+    value.includes("kota") ||
+    value.includes("bunny") ||
+    value.includes("pap") ||
+    value.includes("rice") ||
+    value.includes("plate") ||
+    value.includes("meal") ||
+    value.includes("traditional") ||
+    value.includes("grill") ||
+    value.includes("breakfast")
+  ) {
+    return "meal";
+  }
+
+  return "other";
+}
+
+function getRecommendedRoleOrder(category: Category): CategoryRole[] {
+  const role = getCategoryRole(category);
+
+  switch (role) {
+    case "meal":
+      return ["drink", "side", "combo", "meal", "other"];
+    case "combo":
+      return ["drink", "side", "meal", "combo", "other"];
+    case "side":
+      return ["drink", "meal", "combo", "side", "other"];
+    case "drink":
+      return ["meal", "combo", "side", "drink", "other"];
     default:
-      return ["Drinks", "Sides"];
+      return ["meal", "drink", "side", "combo", "other"];
   }
 }
 
 function getRecommendationTitle(category: Category) {
-  switch (category) {
-    case "Kota":
-    case "Bunny Chow":
+  const role = getCategoryRole(category);
+
+  switch (role) {
+    case "meal":
       return "Complete your meal";
-    case "Sides":
-      return "Add a drink";
-    case "Drinks":
-      return "Pair it with something filling";
-    case "Combos":
+    case "combo":
       return "Add a little extra";
+    case "side":
+      return "Add a drink or main";
+    case "drink":
+      return "Pair it with something filling";
     default:
       return "You may also like";
+  }
+}
+
+function getProductHelperText(product: Product) {
+  const role = getCategoryRole(product.category);
+
+  if (!product.hasOptions) {
+    if (role === "drink") return "Choose quantity and add any special instructions";
+    return "Choose quantity and add any special instructions";
+  }
+
+  switch (role) {
+    case "meal":
+      return "Choose options, extras, quantity, and special instructions";
+    case "combo":
+      return "Choose meal options, extras, quantity, and special instructions";
+    case "drink":
+      return "Choose size, add-ons, quantity, and special instructions";
+    case "side":
+      return "Choose extras, quantity, and special instructions";
+    default:
+      return "Choose options, quantity, and special instructions";
   }
 }
 
@@ -83,7 +152,9 @@ function buildInitialSelections(groups: ProductOptionGroup[]) {
       return;
     }
 
-    let selected = availableItems.filter((item) => item.isDefault).map((item) => item.id);
+    let selected = availableItems
+      .filter((item) => item.isDefault)
+      .map((item) => item.id);
 
     const minRequired = Math.max(group.minSelect, group.isRequired ? 1 : 0);
 
@@ -144,12 +215,15 @@ export default function ProductQuickAddSheet({
   const [optionGroups, setOptionGroups] = useState<ProductOptionGroup[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [selectedByGroup, setSelectedByGroup] = useState<Record<string, string[]>>({});
+  const [selectedRecommendedProduct, setSelectedRecommendedProduct] =
+    useState<Product | null>(null);
 
   useEffect(() => {
     if (!open) return;
 
     setQuantity(1);
     setNote("");
+    setSelectedRecommendedProduct(null);
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onOpenChange(false);
@@ -227,20 +301,31 @@ export default function ProductQuickAddSheet({
   const total = useMemo(() => finalUnitPrice * quantity, [finalUnitPrice, quantity]);
   const hasReviews = product.reviewCount > 0 && product.rating > 0;
   const hasImage = Boolean(product.image?.trim());
+  const hasCustomisation = product.hasOptions || optionGroups.length > 0;
+  const preferredRoles = useMemo(
+    () => getRecommendedRoleOrder(product.category),
+    [product.category]
+  );
 
   const recommendations = useMemo(() => {
-    const preferredCategories = getRecommendedCategories(product.category);
-
     return allProducts
       .filter((item) => item.id !== product.id)
       .filter((item) => item.inStock)
-      .filter((item) => preferredCategories.includes(item.category))
       .sort((a, b) => {
-        const aCategoryRank = preferredCategories.indexOf(a.category);
-        const bCategoryRank = preferredCategories.indexOf(b.category);
+        const aRole = getCategoryRole(a.category);
+        const bRole = getCategoryRole(b.category);
 
-        if (aCategoryRank !== bCategoryRank) {
-          return aCategoryRank - bCategoryRank;
+        const aRoleRank =
+          preferredRoles.indexOf(aRole) === -1 ? 999 : preferredRoles.indexOf(aRole);
+        const bRoleRank =
+          preferredRoles.indexOf(bRole) === -1 ? 999 : preferredRoles.indexOf(bRole);
+
+        if (aRoleRank !== bRoleRank) {
+          return aRoleRank - bRoleRank;
+        }
+
+        if (a.hasOptions !== b.hasOptions) {
+          return a.hasOptions ? -1 : 1;
         }
 
         if (a.isPopular !== b.isPopular) {
@@ -258,7 +343,7 @@ export default function ProductQuickAddSheet({
         return a.price - b.price;
       })
       .slice(0, 4);
-  }, [allProducts, product.category, product.id]);
+  }, [allProducts, preferredRoles, product.id]);
 
   const handleSingleSelect = (groupId: string, itemId: string) => {
     setSelectedByGroup((prev) => ({
@@ -330,8 +415,18 @@ export default function ProductQuickAddSheet({
   };
 
   const handleQuickAddSuggestion = (suggestedProduct: Product) => {
+    if (suggestedProduct.hasOptions) {
+      setSelectedRecommendedProduct(suggestedProduct);
+      return;
+    }
+
     addItem(suggestedProduct);
     toast.success(`${suggestedProduct.name} added to cart`);
+  };
+
+  const closeSheet = () => {
+    setSelectedRecommendedProduct(null);
+    onOpenChange(false);
   };
 
   if (!open) return null;
@@ -340,7 +435,7 @@ export default function ProductQuickAddSheet({
     <>
       <div
         className="fixed inset-0 z-[70] bg-secondary/50 backdrop-blur-sm"
-        onClick={() => onOpenChange(false)}
+        onClick={closeSheet}
       />
 
       <div className="fixed inset-x-0 bottom-0 z-[71] mx-auto w-full max-w-3xl overflow-hidden rounded-t-[28px] border border-border bg-card shadow-2xl md:inset-0 md:m-auto md:max-h-[90vh] md:rounded-[28px]">
@@ -352,12 +447,12 @@ export default function ProductQuickAddSheet({
             <div>
               <h2 className="font-display text-2xl text-foreground">Customize Item</h2>
               <p className="text-sm text-muted-foreground">
-                Choose options, quantity, and special instructions
+                {getProductHelperText(product)}
               </p>
             </div>
 
             <button
-              onClick={() => onOpenChange(false)}
+              onClick={closeSheet}
               className="rounded-xl p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <X className="h-5 w-5" />
@@ -390,10 +485,19 @@ export default function ProductQuickAddSheet({
                       {product.category}
                     </span>
 
-                    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground">
-                      <Flame className="h-3 w-3 text-primary" />
-                      {product.spiceLevel}
-                    </span>
+                    {hasCustomisation && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground">
+                        <SlidersHorizontal className="h-3 w-3" />
+                        Customisable
+                      </span>
+                    )}
+
+                    {product.spiceLevel && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground">
+                        <Flame className="h-3 w-3 text-primary" />
+                        {product.spiceLevel}
+                      </span>
+                    )}
 
                     {product.isPopular && (
                       <span className="rounded-full bg-accent px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent-foreground">
@@ -505,8 +609,8 @@ export default function ProductQuickAddSheet({
                                         {item.priceDelta > 0
                                           ? `+${priceFormatter.format(item.priceDelta)}`
                                           : item.priceDelta < 0
-                                          ? `-${priceFormatter.format(Math.abs(item.priceDelta))}`
-                                          : "Included"}
+                                            ? `-${priceFormatter.format(Math.abs(item.priceDelta))}`
+                                            : "Included"}
                                       </div>
                                     </div>
                                   </button>
@@ -516,7 +620,12 @@ export default function ProductQuickAddSheet({
                         </div>
                       );
                     })
-                  ) : null}
+                  ) : (
+                    <div className="rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
+                      No extra options are set for this item yet. You can still adjust quantity
+                      and add special instructions below.
+                    </div>
+                  )}
 
                   <div className="rounded-2xl border border-border bg-background p-4">
                     <label className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
@@ -558,7 +667,7 @@ export default function ProductQuickAddSheet({
                       onChange={(e) => setNote(e.target.value)}
                       rows={4}
                       maxLength={180}
-                      placeholder="Example: no onions, extra sauce, cut in half"
+                      placeholder="Example: no onions, sauce on side, pack separately"
                       className="mt-3 w-full resize-none rounded-xl border border-border bg-card px-3 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                     />
 
@@ -634,6 +743,13 @@ export default function ProductQuickAddSheet({
                                   </div>
 
                                   <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    {item.hasOptions && (
+                                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground">
+                                        <SlidersHorizontal className="h-3 w-3" />
+                                        Customisable
+                                      </span>
+                                    )}
+
                                     {suggestionHasReviews ? (
                                       <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
                                         <Star className="h-3 w-3 fill-accent text-accent" />
@@ -656,8 +772,17 @@ export default function ProductQuickAddSheet({
                                     onClick={() => handleQuickAddSuggestion(item)}
                                     className="mt-3 inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                                   >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    Add
+                                    {item.hasOptions ? (
+                                      <>
+                                        <SlidersHorizontal className="h-3.5 w-3.5" />
+                                        Customize
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Plus className="h-3.5 w-3.5" />
+                                        Add
+                                      </>
+                                    )}
                                   </button>
                                 </div>
                               </div>
@@ -684,7 +809,9 @@ export default function ProductQuickAddSheet({
               </div>
 
               <div className="text-right text-sm text-muted-foreground">
-                <div>{quantity} × {priceFormatter.format(finalUnitPrice)}</div>
+                <div>
+                  {quantity} × {priceFormatter.format(finalUnitPrice)}
+                </div>
                 {optionsTotal > 0 && (
                   <div className="mt-1 text-primary">
                     Includes {priceFormatter.format(optionsTotal)} in options
@@ -695,7 +822,7 @@ export default function ProductQuickAddSheet({
 
             <div className="grid gap-2 sm:grid-cols-[0.9fr_1.1fr]">
               <button
-                onClick={() => onOpenChange(false)}
+                onClick={closeSheet}
                 className="rounded-xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
               >
                 Cancel
@@ -712,6 +839,18 @@ export default function ProductQuickAddSheet({
           </div>
         </div>
       </div>
+
+      {selectedRecommendedProduct && (
+        <ProductQuickAddSheet
+          product={selectedRecommendedProduct}
+          open={Boolean(selectedRecommendedProduct)}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) {
+              setSelectedRecommendedProduct(null);
+            }
+          }}
+        />
+      )}
     </>
   );
 }

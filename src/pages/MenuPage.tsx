@@ -10,18 +10,10 @@ import {
   ChefHat,
   Tag,
 } from "lucide-react";
-import {
-  getProducts,
-  categories,
-  type Category,
-  type SpiceLevel,
-  type Product,
-} from "@/data/products";
+import { getProducts, type Category, type SpiceLevel, type Product } from "@/data/products";
 import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
-import { toast } from "sonner";
-
-const spiceLevels: SpiceLevel[] = ["Mild", "Medium", "Hot", "Extra Hot"];
+import { toast } from "@/components/ui/sonner";
 
 const sortOptions = [
   { value: "default", label: "Recommended" },
@@ -31,13 +23,29 @@ const sortOptions = [
 ] as const;
 
 type SortOption = (typeof sortOptions)[number]["value"];
+type FilterSpiceLevel = NonNullable<SpiceLevel>;
+
+const preferredCategoryOrder = ["Kota", "Bunny Chow", "Sides", "Drinks", "Combos"];
+
+function sortCategories(categories: string[]) {
+  return [...categories].sort((a, b) => {
+    const aRank = preferredCategoryOrder.indexOf(a);
+    const bRank = preferredCategoryOrder.indexOf(b);
+
+    if (aRank !== -1 || bRank !== -1) {
+      return (aRank === -1 ? 999 : aRank) - (bRank === -1 ? 999 : bRank);
+    }
+
+    return a.localeCompare(b);
+  });
+}
 
 export default function MenuPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<Category | "All">("All");
-  const [activeSpice, setActiveSpice] = useState<SpiceLevel | "All">("All");
+  const [activeSpice, setActiveSpice] = useState<FilterSpiceLevel | "All">("All");
   const [sortBy, setSortBy] = useState<SortOption>("default");
   const [showFilters, setShowFilters] = useState(false);
 
@@ -53,7 +61,7 @@ export default function MenuPage() {
       }
     };
 
-    loadProducts();
+    void loadProducts();
   }, []);
 
   const featuredCount = useMemo(
@@ -71,27 +79,67 @@ export default function MenuPage() {
     [products]
   );
 
-  const categoryCounts = useMemo(() => {
-    return categories.reduce((acc, category) => {
-      acc[category] = products.filter((p) => p.category === category).length;
-      return acc;
-    }, {} as Record<Category, number>);
+  const categoryOptions = useMemo(() => {
+    const uniqueCategories = Array.from(
+      new Set(
+        products
+          .map((product) => product.category?.trim())
+          .filter((category): category is string => Boolean(category))
+      )
+    );
+
+    return sortCategories(uniqueCategories);
   }, [products]);
+
+  const spiceOptions = useMemo(() => {
+    const uniqueSpiceLevels = Array.from(
+      new Set(
+        products
+          .map((product) => product.spiceLevel)
+          .filter((level): level is FilterSpiceLevel => Boolean(level))
+      )
+    );
+
+    const preferredSpiceOrder: FilterSpiceLevel[] = ["Mild", "Medium", "Hot", "Extra Hot"];
+
+    return preferredSpiceOrder.filter((level) => uniqueSpiceLevels.includes(level));
+  }, [products]);
+
+  const categoryCounts = useMemo(() => {
+    return products.reduce((acc, product) => {
+      const key = product.category || "Other";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+  }, [products]);
+
+  useEffect(() => {
+    if (activeCategory !== "All" && !categoryOptions.includes(activeCategory)) {
+      setActiveCategory("All");
+    }
+  }, [activeCategory, categoryOptions]);
+
+  useEffect(() => {
+    if (activeSpice !== "All" && !spiceOptions.includes(activeSpice)) {
+      setActiveSpice("All");
+    }
+  }, [activeSpice, spiceOptions]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
 
-    const result = products.filter((p) => {
+    const result = products.filter((product) => {
       const matchesSearch =
         !term ||
-        p.name.toLowerCase().includes(term) ||
-        p.description.toLowerCase().includes(term);
+        product.name.toLowerCase().includes(term) ||
+        product.description.toLowerCase().includes(term) ||
+        product.category.toLowerCase().includes(term);
 
       const matchesCategory =
-        activeCategory === "All" || p.category === activeCategory;
+        activeCategory === "All" || product.category === activeCategory;
 
       const matchesSpice =
-        activeSpice === "All" || p.spiceLevel === activeSpice;
+        activeSpice === "All" || product.spiceLevel === activeSpice;
 
       return matchesSearch && matchesCategory && matchesSpice;
     });
@@ -107,12 +155,15 @@ export default function MenuPage() {
         case "price-desc":
           return b.price - a.price;
         case "popular":
+          if (a.isPopular !== b.isPopular) return a.isPopular ? -1 : 1;
+          if (a.rating !== b.rating) return b.rating - a.rating;
           return b.reviewCount - a.reviewCount;
         default:
           if (a.isFeatured && !b.isFeatured) return -1;
           if (!a.isFeatured && b.isFeatured) return 1;
           if (a.isPopular && !b.isPopular) return -1;
           if (!a.isPopular && b.isPopular) return 1;
+          if (a.rating !== b.rating) return b.rating - a.rating;
           return b.reviewCount - a.reviewCount;
       }
     });
@@ -154,8 +205,9 @@ export default function MenuPage() {
               </h1>
 
               <p className="mt-3 max-w-2xl font-body text-sm text-muted-foreground sm:text-base">
-                Browse premium Kota, Bunny Chow, snacks, and flavour-packed favourites.
-                Search quickly, filter with ease, and get to checkout faster.
+                Browse premium Kota, Bunny Chow, traditional meals, sides, drinks, and
+                flavour-packed favourites. Search quickly, filter with ease, and get to
+                checkout faster.
               </p>
             </div>
 
@@ -198,7 +250,7 @@ export default function MenuPage() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search by item name or description"
+                placeholder="Search by item name, category, or description"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full rounded-2xl border border-border bg-background py-3 pl-10 pr-11 text-sm text-foreground transition-colors placeholder:text-muted-foreground focus:border-primary focus:outline-none"
@@ -255,10 +307,10 @@ export default function MenuPage() {
               </label>
 
               <div className="flex flex-wrap gap-2">
-                {(["All", ...spiceLevels] as const).map((level) => (
+                {(["All", ...spiceOptions] as const).map((level) => (
                   <button
                     key={level}
-                    onClick={() => setActiveSpice(level as SpiceLevel | "All")}
+                    onClick={() => setActiveSpice(level as FilterSpiceLevel | "All")}
                     className={`rounded-full px-4 py-2 text-xs font-medium transition-colors ${
                       activeSpice === level
                         ? "bg-primary text-primary-foreground"
@@ -269,6 +321,12 @@ export default function MenuPage() {
                   </button>
                 ))}
               </div>
+
+              {spiceOptions.length === 0 && !loading && (
+                <p className="text-sm text-muted-foreground">
+                  No spice filters are available for the current menu.
+                </p>
+              )}
             </div>
 
             <div className="rounded-2xl border border-border bg-background/70 p-4">
@@ -297,10 +355,10 @@ export default function MenuPage() {
               </label>
 
               <div className="flex flex-wrap gap-2">
-                {(["All", ...spiceLevels] as const).map((level) => (
+                {(["All", ...spiceOptions] as const).map((level) => (
                   <button
                     key={level}
-                    onClick={() => setActiveSpice(level as SpiceLevel | "All")}
+                    onClick={() => setActiveSpice(level as FilterSpiceLevel | "All")}
                     className={`rounded-full px-4 py-2 text-xs font-medium transition-colors ${
                       activeSpice === level
                         ? "bg-primary text-primary-foreground"
@@ -311,6 +369,12 @@ export default function MenuPage() {
                   </button>
                 ))}
               </div>
+
+              {spiceOptions.length === 0 && !loading && (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  No spice filters are available for the current menu.
+                </p>
+              )}
 
               <button
                 onClick={() => setShowFilters(false)}
@@ -407,7 +471,7 @@ export default function MenuPage() {
               All items ({products.length})
             </button>
 
-            {categories.map((category) => (
+            {categoryOptions.map((category) => (
               <button
                 key={category}
                 onClick={() => setActiveCategory(category)}

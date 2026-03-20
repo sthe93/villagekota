@@ -43,7 +43,20 @@ type DeliveryProgressTrackerProps = {
 };
 
 function normalizeStatus(status: string | null | undefined): OrderStatus {
-  return (normalizeValue(status) || "pending") as OrderStatus;
+  const normalized = normalizeValue(status);
+
+  switch (normalized) {
+    case "confirmed":
+    case "preparing":
+    case "ready_for_delivery":
+    case "on_the_way":
+    case "arrived":
+    case "delivered":
+    case "cancelled":
+      return normalized;
+    default:
+      return "pending";
+  }
 }
 
 export function getDeliveryTimelineIndex(
@@ -82,9 +95,12 @@ export function getDeliveryStepState(
     return {
       isCompleted: false,
       isCurrent: false,
+      isUpcoming: true,
       circleClass: "border-border bg-muted text-muted-foreground",
       textClass: "text-muted-foreground",
-      connectorFillClass: "bg-border",
+      connectorTrackClass: "bg-border/90",
+      connectorFillClass: "bg-transparent",
+      connectorFillWidth: "0%",
     };
   }
 
@@ -94,9 +110,13 @@ export function getDeliveryStepState(
     return {
       isCompleted: true,
       isCurrent: false,
-      circleClass: "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm",
+      isUpcoming: false,
+      circleClass:
+        "border-emerald-500 bg-emerald-500 text-white shadow-[0_12px_30px_rgba(16,185,129,0.20)]",
       textClass: "text-foreground",
+      connectorTrackClass: "bg-emerald-100",
       connectorFillClass: "bg-emerald-500",
+      connectorFillWidth: "100%",
     };
   }
 
@@ -104,19 +124,25 @@ export function getDeliveryStepState(
     return {
       isCompleted: false,
       isCurrent: true,
+      isUpcoming: false,
       circleClass:
-        "border-primary bg-primary text-primary-foreground shadow-[0_0_0_8px_rgba(0,0,0,0.04)]",
+        "border-primary bg-primary text-primary-foreground ring-8 ring-primary/10 shadow-[0_14px_34px_rgba(180,132,57,0.22)]",
       textClass: "text-foreground",
-      connectorFillClass: "bg-border",
+      connectorTrackClass: "bg-primary/15",
+      connectorFillClass: "bg-primary/35",
+      connectorFillWidth: "45%",
     };
   }
 
   return {
     isCompleted: false,
     isCurrent: false,
-    circleClass: "border-border bg-background text-muted-foreground",
+    isUpcoming: true,
+    circleClass: "border-border bg-background text-muted-foreground shadow-sm",
     textClass: "text-muted-foreground",
-    connectorFillClass: "bg-border",
+    connectorTrackClass: "bg-border/90",
+    connectorFillClass: "bg-transparent",
+    connectorFillWidth: "0%",
   };
 }
 
@@ -149,13 +175,13 @@ export default function DeliveryProgressTracker({
 
   return (
     <div className={className}>
-      <div className="mb-6">
-        <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="mb-7">
+        <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           <span>Delivery progress</span>
           <span>{Math.round(progressPercent)}%</span>
         </div>
 
-        <div className="h-2 w-full overflow-hidden rounded-full bg-border">
+        <div className="h-2.5 w-full overflow-hidden rounded-full bg-border/90">
           <div
             className="h-full rounded-full bg-primary transition-all duration-500"
             style={{ width: `${progressPercent}%` }}
@@ -164,55 +190,56 @@ export default function DeliveryProgressTracker({
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[980px] px-1">
-          <div className="flex items-start">
+        <div className="min-w-[980px] px-2">
+          <div className="grid grid-cols-7 items-start">
             {steps.map((step, index) => {
               const Icon = step.icon;
               const isLast = index === steps.length - 1;
               const state = getDeliveryStepState(index, normalizedStatus, steps);
 
               return (
-                <div key={step.key} className="flex flex-1 items-start">
-                  <div className="flex w-full flex-col items-center text-center">
-                    <div
-                      className={[
-                        "flex items-center justify-center rounded-full border transition-all duration-300",
-                        state.isCurrent ? "h-14 w-14" : "h-11 w-11",
-                        state.circleClass,
-                      ].join(" ")}
-                    >
-                      <Icon className={state.isCurrent ? "h-6 w-6" : "h-5 w-5"} />
+                <div key={step.key} className="relative px-2 text-center">
+                  {!isLast && (
+                    <div className="absolute left-1/2 right-[-50%] top-7 z-0">
+                      <div
+                        className={`h-2 rounded-full ${state.connectorTrackClass}`}
+                      >
+                        <div
+                          className={`h-2 rounded-full transition-all duration-300 ${state.connectorFillClass}`}
+                          style={{ width: state.connectorFillWidth }}
+                        />
+                      </div>
                     </div>
+                  )}
 
-                    <div className="mt-3 min-h-[72px]">
-                      <p className={`text-sm font-semibold ${state.textClass}`}>
-                        {step.shortLabel}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">{step.label}</p>
+                  <div
+                    className={[
+                      "relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-300",
+                      state.circleClass,
+                    ].join(" ")}
+                  >
+                    <Icon className="h-5 w-5" />
+                  </div>
 
+                  <div className="mt-4 min-h-[64px]">
+                    <p className={`text-[15px] font-semibold ${state.textClass}`}>
+                      {step.shortLabel}
+                    </p>
+
+                    <div className="mt-3 min-h-[24px]">
                       {state.isCurrent && (
-                        <span className="mt-2 inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                        <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-primary">
                           Current
                         </span>
                       )}
 
                       {state.isCompleted && (
-                        <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                        <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-700">
                           Complete
                         </span>
                       )}
                     </div>
                   </div>
-
-                  {!isLast && (
-                    <div className="flex flex-1 items-center px-2 pt-5">
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
-                        <div
-                          className={`h-full w-full rounded-full ${state.connectorFillClass}`}
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
               );
             })}

@@ -1,29 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  AlertCircle,
   CheckCircle2,
   ChefHat,
   Clock3,
   CreditCard,
+  HandCoins,
+  Landmark,
   Loader2,
   MapPinned,
+  Navigation,
   PackageCheck,
+  Phone,
   RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
   Store,
   Truck,
-  XCircle,
-  Navigation,
-  AlertCircle,
-  HandCoins,
-  Phone,
   UserRound,
-  Landmark,
-  ShieldCheck,
+  XCircle,
+  type LucideIcon,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import Footer from "@/components/Footer";
 import maplibregl from "maplibre-gl";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/components/ui/sonner";
+import Footer from "@/components/Footer";
 import DeliveryProgressTracker, {
   type DeliveryStatus,
 } from "@/components/DeliveryProgressTracker";
@@ -75,6 +77,8 @@ type OrderRecord = {
   cash_collected: boolean | null;
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
+  destination_lat: number | null;
+  destination_lng: number | null;
 };
 
 type OrderItemOptionRecord = {
@@ -97,10 +101,46 @@ type OrderItemRecord = {
   selectedOptions: OrderItemOptionRecord[];
 };
 
-const CARD_REQUIRED_PAYMENT_METHODS = ["card"];
+type PaymentBanner = {
+  tone: string;
+  icon: typeof AlertCircle;
+  title: string;
+  description: string;
+};
+
+const CARD_REQUIRED_PAYMENT_METHODS = ["card", "online", "payfast"];
+const EFT_PAYMENT_METHODS = ["eft", "bank_transfer", "bank transfer"];
+const PAID_PAYMENT_STATUSES = ["paid", "completed", "success", "succeeded"];
+const FAILED_PAYMENT_STATUSES = ["failed", "cancelled", "canceled", "expired"];
+const PENDING_PAYMENT_STATUSES = ["pending", "processing", "initiated", "unpaid", ""];
+const ADVANCED_ORDER_STATUSES: OrderStatus[] = [
+  "confirmed",
+  "preparing",
+  "ready_for_delivery",
+  "on_the_way",
+  "arrived",
+  "delivered",
+];
+
+function cn(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function normalize(value: string | null | undefined) {
+  return (value || "").trim().toLowerCase();
+}
+
+function toNumberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
 
 function formatCurrency(value: number | null | undefined) {
-  return `R${Number(value || 0).toFixed(2)}`;
+  return new Intl.NumberFormat("en-ZA", {
+    style: "currency",
+    currency: "ZAR",
+  }).format(Number(value || 0));
 }
 
 function formatTime(value: string | null | undefined) {
@@ -140,8 +180,21 @@ function formatRelativeTime(value: string | null | undefined) {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-function normalize(value: string | null | undefined) {
-  return (value || "").trim().toLowerCase();
+function normalizeOrderStatus(value: string | null | undefined): OrderStatus {
+  const status = normalize(value);
+
+  switch (status) {
+    case "confirmed":
+    case "preparing":
+    case "ready_for_delivery":
+    case "on_the_way":
+    case "arrived":
+    case "delivered":
+    case "cancelled":
+      return status;
+    default:
+      return "pending";
+  }
 }
 
 function getStatusLabel(status: OrderStatus) {
@@ -170,12 +223,151 @@ function getTrackerStatus(status: OrderStatus): DeliveryStatus {
   return "pending";
 }
 
-type PaymentBanner = {
-  tone: string;
-  icon: typeof AlertCircle;
+function normalizeOrder(raw: any): OrderRecord {
+  return {
+    id: String(raw.id),
+    user_id: raw.user_id ?? null,
+    customer_name: raw.customer_name ?? "",
+    customer_phone: raw.customer_phone ?? null,
+    customer_email: raw.customer_email ?? null,
+    delivery_address: raw.delivery_address ?? null,
+    notes: raw.notes ?? null,
+    payment_method: raw.payment_method ?? null,
+    payment_provider: raw.payment_provider ?? null,
+    payment_reference: raw.payment_reference ?? null,
+    payment_status: raw.payment_status ?? null,
+    status: normalizeOrderStatus(raw.status),
+    subtotal: toNumberOrNull(raw.subtotal),
+    delivery_fee: toNumberOrNull(raw.delivery_fee),
+    discount_amount: toNumberOrNull(raw.discount_amount),
+    total: toNumberOrNull(raw.total),
+    created_at: raw.created_at,
+    estimated_delivery_time: raw.estimated_delivery_time ?? null,
+    driver_distance_km: toNumberOrNull(raw.driver_distance_km),
+    driver_lat: toNumberOrNull(raw.driver_lat),
+    driver_lng: toNumberOrNull(raw.driver_lng),
+    driver_last_updated: raw.driver_last_updated ?? null,
+    driver_id: raw.driver_id ?? null,
+    accepted_at: raw.accepted_at ?? null,
+    started_delivery_at: raw.started_delivery_at ?? null,
+    arrived_at: raw.arrived_at ?? null,
+    delivered_at: raw.delivered_at ?? null,
+    cash_collected: raw.cash_collected ?? null,
+    cash_collected_amount: toNumberOrNull(raw.cash_collected_amount),
+    cash_collected_at: raw.cash_collected_at ?? null,
+    destination_lat: toNumberOrNull(raw.destination_lat),
+    destination_lng: toNumberOrNull(raw.destination_lng),
+  };
+}
+
+function SectionCard({
+  title,
+  description,
+  icon: Icon,
+  action,
+  children,
+  className,
+  bodyClassName,
+}: {
   title: string;
+  description?: string;
+  icon?: LucideIcon;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+  bodyClassName?: string;
+}) {
+  return (
+    <section className={cn("overflow-hidden rounded-[28px] border border-border bg-card shadow-card", className)}>
+      <div className="border-b border-border bg-muted/30 px-5 py-5 md:px-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            {Icon && (
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Icon className="h-5 w-5" />
+              </div>
+            )}
+
+            <div>
+              <h2 className="text-xl font-semibold text-foreground">{title}</h2>
+              {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+            </div>
+          </div>
+
+          {action}
+        </div>
+      </div>
+
+      <div className={cn("p-5 md:p-6", bodyClassName)}>{children}</div>
+    </section>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  description,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
   description: string;
-};
+  icon: LucideIcon;
+}) {
+  return (
+    <div className="rounded-[22px] border border-border bg-background p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-2 truncate text-base font-semibold text-foreground">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        </div>
+
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoTile({
+  label,
+  value,
+  subValue,
+  icon: Icon,
+  accent = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  subValue?: React.ReactNode;
+  icon?: LucideIcon;
+  accent?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-background p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {label}
+          </p>
+          <div className={cn("mt-2 text-base font-semibold", accent ? "text-primary" : "text-foreground")}>
+            {value}
+          </div>
+          {subValue ? <div className="mt-1 text-xs text-muted-foreground">{subValue}</div> : null}
+        </div>
+
+        {Icon ? (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Icon className="h-4 w-4" />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
@@ -190,19 +382,16 @@ export default function OrderTrackingPage() {
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const markerRef = useRef<maplibregl.Marker | null>(null);
+  const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const destinationMarkerRef = useRef<maplibregl.Marker | null>(null);
 
   const paymentStatus = useMemo(() => normalize(order?.payment_status), [order?.payment_status]);
-  const orderStatus = useMemo<OrderStatus>(
-    () => ((normalize(order?.status) || "pending") as OrderStatus),
-    [order?.status]
-  );
+  const orderStatus = useMemo<OrderStatus>(() => normalizeOrderStatus(order?.status), [order?.status]);
   const paymentMethod = useMemo(() => normalize(order?.payment_method), [order?.payment_method]);
 
-  const paymentIsPaid = paymentStatus === "paid";
-  const paymentIsFailed = paymentStatus === "failed";
-  const paymentIsCancelled = paymentStatus === "cancelled";
-  const paymentIsPending = paymentStatus === "pending" || paymentStatus === "";
+  const paymentIsPaid = PAID_PAYMENT_STATUSES.includes(paymentStatus);
+  const paymentIsFailed = FAILED_PAYMENT_STATUSES.includes(paymentStatus);
+  const paymentIsPending = PENDING_PAYMENT_STATUSES.includes(paymentStatus);
 
   const isOrderCancelled = orderStatus === "cancelled";
   const isReadyForDelivery = orderStatus === "ready_for_delivery";
@@ -212,16 +401,29 @@ export default function OrderTrackingPage() {
 
   const isCardPayment = CARD_REQUIRED_PAYMENT_METHODS.includes(paymentMethod);
   const isCashPayment = paymentMethod === "cash";
-  const isEftPayment = paymentMethod === "eft";
+  const isEftPayment = EFT_PAYMENT_METHODS.includes(paymentMethod);
   const cashCollected = !!order?.cash_collected;
   const hasAssignedDriver = !!order?.driver_id && !!driver;
+
+  const totalItems = useMemo(
+    () => items.reduce((sum, item) => sum + item.quantity, 0),
+    [items]
+  );
+
+  const hasPaymentMismatch = useMemo(() => {
+    if (!order) return false;
+    if (!(isCardPayment || isEftPayment)) return false;
+    if (paymentIsPaid) return false;
+
+    return ADVANCED_ORDER_STATUSES.includes(orderStatus);
+  }, [order, isCardPayment, isEftPayment, paymentIsPaid, orderStatus]);
 
   const canRetryPayment = useMemo(() => {
     if (!order) return false;
 
     return (
       isCardPayment &&
-      ["pending", "failed", "cancelled", ""].includes(paymentStatus) &&
+      ["pending", "failed", "cancelled", "canceled", "expired", ""].includes(paymentStatus) &&
       ["pending", "cancelled"].includes(orderStatus)
     );
   }, [order, isCardPayment, paymentStatus, orderStatus]);
@@ -318,18 +520,32 @@ export default function OrderTrackingPage() {
   }, [isOrderCancelled, isDelivered, isArrived, isOnTheWay, isReadyForDelivery, orderStatus]);
 
   const summaryTone = useMemo(() => {
-    if (isOrderCancelled) return "border-rose-200 bg-rose-50 text-rose-800";
-    if (isDelivered) return "border-emerald-200 bg-emerald-50 text-emerald-800";
-    if (isArrived) return "border-cyan-200 bg-cyan-50 text-cyan-800";
-    if (isOnTheWay) return "border-indigo-200 bg-indigo-50 text-indigo-800";
-    if (isReadyForDelivery) return "border-orange-200 bg-orange-50 text-orange-800";
-    if (orderStatus === "preparing") return "border-violet-200 bg-violet-50 text-violet-800";
-    if (orderStatus === "confirmed") return "border-sky-200 bg-sky-50 text-sky-800";
-    return "border-amber-200 bg-amber-50 text-amber-800";
+    if (isOrderCancelled) return "border-rose-200 bg-gradient-to-r from-rose-50 to-rose-100/80";
+    if (isDelivered) return "border-emerald-300 bg-gradient-to-r from-emerald-50 to-emerald-100/80";
+    if (isArrived) return "border-cyan-200 bg-gradient-to-r from-cyan-50 to-cyan-100/75";
+    if (isOnTheWay) return "border-indigo-200 bg-gradient-to-r from-indigo-50 to-indigo-100/75";
+    if (isReadyForDelivery) return "border-orange-200 bg-gradient-to-r from-orange-50 to-amber-100/75";
+    if (orderStatus === "preparing") {
+      return "border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-100/70";
+    }
+    if (orderStatus === "confirmed") {
+      return "border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-100/70";
+    }
+    return "border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-100/70";
   }, [isOrderCancelled, isDelivered, isArrived, isOnTheWay, isReadyForDelivery, orderStatus]);
 
   const paymentBanner = useMemo<PaymentBanner | null>(() => {
     if (!order || isOrderCancelled) return null;
+
+    if (hasPaymentMismatch) {
+      return {
+        tone: "border-rose-200 bg-rose-50 text-rose-800",
+        icon: ShieldAlert,
+        title: "Payment verification mismatch",
+        description:
+          "This order has progressed beyond the normal payment stage, but payment is not marked as confirmed yet. The team should review this order status and payment record together.",
+      };
+    }
 
     if (isCashPayment && cashCollected) {
       return {
@@ -371,7 +587,7 @@ export default function OrderTrackingPage() {
       };
     }
 
-    if (isCardPayment && (paymentIsFailed || paymentIsCancelled)) {
+    if (isCardPayment && paymentIsFailed) {
       return {
         tone: "border-rose-200 bg-rose-50 text-rose-800",
         icon: XCircle,
@@ -387,7 +603,7 @@ export default function OrderTrackingPage() {
         icon: CreditCard,
         title: "Waiting for card payment confirmation",
         description:
-          "Your order cannot move into confirmation, preparation, dispatch, or delivery until the card payment is marked as paid.",
+          "Your order should remain in the early order stage until card payment is marked as paid.",
       };
     }
 
@@ -401,7 +617,7 @@ export default function OrderTrackingPage() {
       };
     }
 
-    if (isEftPayment && (paymentIsFailed || paymentIsCancelled)) {
+    if (isEftPayment && paymentIsFailed) {
       return {
         tone: "border-rose-200 bg-rose-50 text-rose-800",
         icon: XCircle,
@@ -425,6 +641,7 @@ export default function OrderTrackingPage() {
   }, [
     order,
     isOrderCancelled,
+    hasPaymentMismatch,
     isCashPayment,
     isCardPayment,
     isEftPayment,
@@ -432,7 +649,6 @@ export default function OrderTrackingPage() {
     isArrived,
     paymentIsPaid,
     paymentIsFailed,
-    paymentIsCancelled,
     paymentIsPending,
   ]);
 
@@ -471,11 +687,21 @@ export default function OrderTrackingPage() {
   }, [order]);
 
   const fetchOrder = useCallback(
-    async (showRefreshToast = false) => {
+    async ({
+      showRefreshToast = false,
+      background = false,
+    }: {
+      showRefreshToast?: boolean;
+      background?: boolean;
+    } = {}) => {
       if (!orderId) return;
 
       try {
-        if (!loading) setRefreshing(true);
+        if (background) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
 
         const { data: orderData, error: orderError } = await supabase
           .from("orders")
@@ -509,7 +735,9 @@ export default function OrderTrackingPage() {
             delivered_at,
             cash_collected,
             cash_collected_amount,
-            cash_collected_at
+            cash_collected_at,
+            destination_lat,
+            destination_lng
           `)
           .eq("id", orderId)
           .single();
@@ -529,7 +757,7 @@ export default function OrderTrackingPage() {
             item_note
           `)
           .eq("order_id", orderId)
-          .order("id", { ascending: true });
+          .order("created_at", { ascending: true });
 
         if (itemsError) throw itemsError;
 
@@ -583,7 +811,7 @@ export default function OrderTrackingPage() {
           });
         }
 
-        const nextOrder = orderData as OrderRecord;
+        const nextOrder = normalizeOrder(orderData);
         setOrder(nextOrder);
         setItems(normalizedItems);
 
@@ -604,7 +832,10 @@ export default function OrderTrackingPage() {
         }
 
         if (showRefreshToast) {
-          toast.success("Order refreshed");
+          toast.success("Tracking updated", {
+            description: "Latest order, payment, and driver details have been loaded.",
+            duration: 2200,
+          });
         }
       } catch (error: any) {
         toast.error(error.message || "Failed to load order");
@@ -613,7 +844,7 @@ export default function OrderTrackingPage() {
         setRefreshing(false);
       }
     },
-    [orderId, loading]
+    [orderId]
   );
 
   useEffect(() => {
@@ -626,65 +857,127 @@ export default function OrderTrackingPage() {
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*",
           schema: "public",
           table: "orders",
           filter: `id=eq.${orderId}`,
         },
         () => {
-          void fetchOrder();
+          void fetchOrder({ background: true });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "order_items",
+          filter: `order_id=eq.${orderId}`,
+        },
+        () => {
+          void fetchOrder({ background: true });
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, [orderId, fetchOrder]);
 
   useEffect(() => {
     if (!showMap || !mapContainerRef.current || !order) return;
 
-    const lngLat: [number, number] = [order.driver_lng as number, order.driver_lat as number];
-    const key = import.meta.env.VITE_MAPTILER_KEY;
+    const driverLngLat: [number, number] = [order.driver_lng as number, order.driver_lat as number];
+    const destinationLngLat =
+      order.destination_lng != null && order.destination_lat != null
+        ? ([order.destination_lng, order.destination_lat] as [number, number])
+        : null;
 
+    const key = import.meta.env.VITE_MAPTILER_KEY;
     if (!key) return;
 
     if (!mapRef.current) {
       mapRef.current = new maplibregl.Map({
         container: mapContainerRef.current,
         style: `https://api.maptiler.com/maps/streets/style.json?key=${key}`,
-        center: lngLat,
+        center: driverLngLat,
         zoom: isArrived ? 16 : 14,
       });
 
-      markerRef.current = new maplibregl.Marker({ color: "#111827" })
-        .setLngLat(lngLat)
+      driverMarkerRef.current = new maplibregl.Marker({ color: "#111827" })
+        .setLngLat(driverLngLat)
         .addTo(mapRef.current);
+
+      if (destinationLngLat) {
+        destinationMarkerRef.current = new maplibregl.Marker({ color: "#059669" })
+          .setLngLat(destinationLngLat)
+          .addTo(mapRef.current);
+      }
     } else {
-      mapRef.current.easeTo({
-        center: lngLat,
-        zoom: isArrived ? 16 : 14,
-        duration: 800,
-      });
-      markerRef.current?.setLngLat(lngLat);
+      driverMarkerRef.current?.setLngLat(driverLngLat);
+
+      if (destinationLngLat) {
+        if (!destinationMarkerRef.current) {
+          destinationMarkerRef.current = new maplibregl.Marker({ color: "#059669" })
+            .setLngLat(destinationLngLat)
+            .addTo(mapRef.current);
+        } else {
+          destinationMarkerRef.current.setLngLat(destinationLngLat);
+        }
+      } else {
+        destinationMarkerRef.current?.remove();
+        destinationMarkerRef.current = null;
+      }
     }
-  }, [showMap, isArrived, order?.driver_lat, order?.driver_lng, order]);
+
+    if (mapRef.current) {
+      if (destinationLngLat && !isArrived) {
+        const bounds = new maplibregl.LngLatBounds(driverLngLat, driverLngLat);
+        bounds.extend(destinationLngLat);
+        mapRef.current.fitBounds(bounds, {
+          padding: 60,
+          maxZoom: 15,
+          duration: 800,
+        });
+      } else {
+        mapRef.current.easeTo({
+          center: driverLngLat,
+          zoom: isArrived ? 16 : 14,
+          duration: 800,
+        });
+      }
+    }
+  }, [
+    showMap,
+    isArrived,
+    order?.driver_lat,
+    order?.driver_lng,
+    order?.destination_lat,
+    order?.destination_lng,
+    order,
+  ]);
 
   useEffect(() => {
     if (showMap) return;
 
-    markerRef.current?.remove();
+    driverMarkerRef.current?.remove();
+    destinationMarkerRef.current?.remove();
     mapRef.current?.remove();
-    markerRef.current = null;
+
+    driverMarkerRef.current = null;
+    destinationMarkerRef.current = null;
     mapRef.current = null;
   }, [showMap]);
 
   useEffect(() => {
     return () => {
-      markerRef.current?.remove();
+      driverMarkerRef.current?.remove();
+      destinationMarkerRef.current?.remove();
       mapRef.current?.remove();
-      markerRef.current = null;
+
+      driverMarkerRef.current = null;
+      destinationMarkerRef.current = null;
       mapRef.current = null;
     };
   }, []);
@@ -729,6 +1022,15 @@ export default function OrderTrackingPage() {
   };
 
   const paymentBadge = () => {
+    if (hasPaymentMismatch) {
+      return (
+        <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700">
+          <ShieldAlert className="h-4 w-4" />
+          Payment mismatch
+        </div>
+      );
+    }
+
     if (paymentIsPaid) {
       return (
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
@@ -774,11 +1076,11 @@ export default function OrderTrackingPage() {
       );
     }
 
-    if (paymentIsFailed || paymentIsCancelled) {
+    if (paymentIsFailed) {
       return (
         <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700">
           <XCircle className="h-4 w-4" />
-          Awaiting payment
+          Payment failed
         </div>
       );
     }
@@ -786,7 +1088,7 @@ export default function OrderTrackingPage() {
     return (
       <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
         <Clock3 className="h-4 w-4" />
-        Payment verification pending
+        Payment pending
       </div>
     );
   };
@@ -845,6 +1147,51 @@ export default function OrderTrackingPage() {
   const SummaryIcon = summaryIcon;
   const PaymentBannerIcon = paymentBanner?.icon;
 
+  const deliverySectionTitle = isArrived ? "Driver Has Arrived" : showMap ? "Live Driver Location" : "Delivery";
+  const deliverySectionDescription = isArrived
+    ? "Your driver is currently at your delivery location."
+    : showMap
+      ? order.destination_lat != null && order.destination_lng != null
+        ? "Live map showing both the driver and your destination."
+        : "Real-time driver tracking for your active delivery."
+      : hasAssignedDriver
+        ? "Driver and delivery status for this order."
+        : "Dispatch and delivery updates will appear here as your order progresses.";
+
+  const driverCardDescription = hasAssignedDriver
+    ? order.accepted_at
+      ? `Accepted ${formatTime(order.accepted_at)}`
+      : "Assigned to your order"
+    : "Not assigned yet";
+
+  const paymentMetricTitle = hasPaymentMismatch
+    ? "Needs review"
+    : isCashPayment
+      ? cashCollected
+        ? "Cash collected"
+        : "Cash on delivery"
+      : isEftPayment
+        ? paymentIsPaid
+          ? "EFT confirmed"
+          : "EFT pending"
+        : paymentIsPaid
+          ? "Paid online"
+          : "Awaiting payment";
+
+  const paymentMetricDescription = hasPaymentMismatch
+    ? "Order/payment out of sync"
+    : isCashPayment
+      ? cashCollected
+        ? "Received successfully"
+        : "Collected on arrival"
+      : isEftPayment
+        ? paymentIsPaid
+          ? "Manual confirmation complete"
+          : "Waiting for proof/verification"
+        : paymentIsPaid
+          ? "Provider confirmed"
+          : "Provider still pending";
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-7xl py-8 md:py-10">
@@ -855,29 +1202,36 @@ export default function OrderTrackingPage() {
               Live order updates · Payment status · Delivery tracking
             </div>
 
-            <h1 className="font-display text-4xl text-foreground sm:text-5xl">
-              Track Your Order
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-              Order ID: {order.id}
-            </p>
+            <h1 className="font-display text-4xl text-foreground sm:text-5xl">Track Your Order</h1>
+            <p className="mt-2 text-sm text-muted-foreground sm:text-base">Order ID: {order.id}</p>
           </div>
 
           <button
-            onClick={() => void fetchOrder(true)}
+            onClick={() => void fetchOrder({ showRefreshToast: true, background: true })}
             disabled={refreshing}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
-            {refreshing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
+            {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Refresh
           </button>
         </div>
 
-        <div className="mb-6 overflow-hidden rounded-[28px] border bg-card shadow-card">
+        {hasPaymentMismatch && (
+          <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-semibold">Order status and payment are out of sync</p>
+                <p className="mt-1 text-sm leading-6">
+                  This order has already moved into a later delivery stage, but payment is not yet marked as confirmed.
+                  That usually means the order needs an admin/payment review.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mb-6 overflow-hidden rounded-[30px] border border-border bg-card shadow-card">
           <div className="border-b border-border bg-muted/30 p-5 md:p-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl">
@@ -888,58 +1242,74 @@ export default function OrderTrackingPage() {
                   </div>
                 </div>
 
-                <div className={`rounded-2xl border p-4 ${summaryTone}`}>
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/70">
+                <div className={`rounded-[24px] border p-5 shadow-sm ${summaryTone}`}>
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/80 bg-white text-foreground shadow-sm">
                       <SummaryIcon className="h-5 w-5" />
                     </div>
 
-                    <div>
-                      <h2 className="text-xl font-semibold">What’s happening now</h2>
-                      <p className="mt-1 text-sm leading-6 opacity-90">{statusSummary}</p>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/60">
+                        What’s happening now
+                      </p>
+                      <p className="mt-2 text-base font-semibold leading-7 text-foreground sm:text-lg">
+                        {statusSummary}
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[400px]">
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Status</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">
-                    {getStatusLabel(orderStatus)}
-                  </p>
-                </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:min-w-[520px] xl:grid-cols-4">
+                <MetricCard
+                  label="Status"
+                  value={getStatusLabel(orderStatus)}
+                  description={
+                    isDelivered
+                      ? "Order completed"
+                      : isArrived
+                        ? "Driver at location"
+                        : isOnTheWay
+                          ? "Delivery in progress"
+                          : isReadyForDelivery
+                            ? "Waiting for dispatch"
+                            : orderStatus === "preparing"
+                              ? "Kitchen active"
+                              : orderStatus === "confirmed"
+                                ? "Store accepted"
+                                : "Waiting to start"
+                  }
+                  icon={SummaryIcon}
+                />
 
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Payment</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">
-                    {isCashPayment
-                      ? cashCollected
-                        ? "Cash collected"
-                        : "Cash on delivery"
+                <MetricCard
+                  label="Payment"
+                  value={paymentMetricTitle}
+                  description={paymentMetricDescription}
+                  icon={
+                    isCashPayment
+                      ? HandCoins
                       : isEftPayment
-                      ? paymentIsPaid
-                        ? "EFT confirmed"
-                        : "EFT pending"
-                      : paymentIsPaid
-                      ? "Paid online"
-                      : "Awaiting payment"}
-                  </p>
-                </div>
+                        ? Landmark
+                        : hasPaymentMismatch
+                          ? ShieldAlert
+                          : CreditCard
+                  }
+                />
 
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Driver</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">
-                    {hasAssignedDriver ? driver?.name || "Assigned" : "Waiting"}
-                  </p>
-                </div>
+                <MetricCard
+                  label="Driver"
+                  value={hasAssignedDriver ? driver?.name || "Assigned" : "Waiting"}
+                  description={driverCardDescription}
+                  icon={UserRound}
+                />
 
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Total</p>
-                  <p className="mt-1 text-sm font-semibold text-primary">
-                    {formatCurrency(order.total)}
-                  </p>
-                </div>
+                <MetricCard
+                  label="Total"
+                  value={formatCurrency(order.total)}
+                  description={`${totalItems} item${totalItems === 1 ? "" : "s"} in this order`}
+                  icon={PackageCheck}
+                />
               </div>
             </div>
           </div>
@@ -963,36 +1333,79 @@ export default function OrderTrackingPage() {
               </div>
             )}
 
-            {hasAssignedDriver && (
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-                <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold text-foreground">Your Driver</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Driver details for this delivery.
-                    </p>
+            <SectionCard
+              title={deliverySectionTitle}
+              description={deliverySectionDescription}
+              icon={showMap ? Navigation : Truck}
+              action={
+                showMap ? (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
+                    <Navigation className="h-4 w-4" />
+                    Live
                   </div>
+                ) : null
+              }
+            >
+              <div className="space-y-5">
+                {showMap && (
+                  <>
+                    <div
+                      ref={mapContainerRef}
+                      className="h-[320px] w-full overflow-hidden rounded-[24px] border border-border"
+                    />
 
-                  {order.accepted_at && (
-                    <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-primary">
-                      Accepted {formatTime(order.accepted_at)}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <InfoTile
+                        label="Driver distance"
+                        value={
+                          order.driver_distance_km != null
+                            ? `${order.driver_distance_km.toFixed(1)} km`
+                            : isArrived
+                              ? "At your location"
+                              : "Calculating..."
+                        }
+                      />
+                      <InfoTile
+                        label={isArrived ? "Arrival time" : "Estimated arrival"}
+                        value={
+                          isArrived
+                            ? formatTime(order.arrived_at || order.estimated_delivery_time)
+                            : formatTime(order.estimated_delivery_time)
+                        }
+                      />
+                      <InfoTile
+                        label="Last updated"
+                        value={
+                          order.driver_last_updated
+                            ? formatRelativeTime(order.driver_last_updated)
+                            : "Waiting..."
+                        }
+                      />
                     </div>
-                  )}
-                </div>
+
+                    {order.driver_last_updated && (
+                      <p className="text-xs text-muted-foreground">
+                        Last full update: {formatDateTime(order.driver_last_updated)}
+                      </p>
+                    )}
+                  </>
+                )}
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-border p-4">
-                    <p className="mb-1 text-sm text-muted-foreground">Driver name</p>
-                    <p className="flex items-center gap-2 text-base font-semibold text-foreground">
-                      <UserRound className="h-4 w-4 text-primary" />
-                      {driver?.name || "Assigned driver"}
-                    </p>
-                  </div>
+                  <InfoTile
+                    label="Driver"
+                    value={hasAssignedDriver ? driver?.name || "Assigned driver" : "Waiting for assignment"}
+                    subValue={driverCardDescription}
+                    icon={UserRound}
+                  />
 
-                  <div className="rounded-2xl border border-border p-4">
-                    <p className="mb-1 text-sm text-muted-foreground">Driver phone</p>
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      Driver phone
+                    </p>
+
                     {driver?.phone ? (
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="mt-2 flex items-center justify-between gap-3">
                         <p className="text-base font-semibold text-foreground">{driver.phone}</p>
                         <a
                           href={`tel:${driver.phone}`}
@@ -1003,89 +1416,29 @@ export default function OrderTrackingPage() {
                         </a>
                       </div>
                     ) : (
-                      <p className="text-base font-semibold text-foreground">Not available</p>
+                      <p className="mt-2 text-base font-semibold text-foreground">
+                        {hasAssignedDriver ? "Not available" : "Available after assignment"}
+                      </p>
                     )}
                   </div>
                 </div>
               </div>
-            )}
+            </SectionCard>
 
-            {showMap && (
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-                <div className="mb-4 flex items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-xl font-semibold text-foreground">
-                      {isArrived ? "Driver Has Arrived" : "Live Driver Location"}
-                    </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {isArrived
-                        ? "Your driver is at your delivery location."
-                        : "Real-time driver tracking for your active delivery."}
-                    </p>
-                  </div>
-
-                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
-                    <Navigation className="h-4 w-4" />
-                    Live
-                  </div>
-                </div>
-
-                <div
-                  ref={mapContainerRef}
-                  className="h-[320px] w-full overflow-hidden rounded-2xl border border-border"
-                />
-
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-border p-4">
-                    <p className="mb-1 text-sm text-muted-foreground">Driver distance</p>
-                    <p className="text-base font-semibold text-foreground">
-                      {order.driver_distance_km != null
-                        ? `${order.driver_distance_km.toFixed(1)} km`
-                        : isArrived
-                        ? "At your location"
-                        : "Calculating..."}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-border p-4">
-                    <p className="mb-1 text-sm text-muted-foreground">
-                      {isArrived ? "Arrival time" : "Estimated arrival"}
-                    </p>
-                    <p className="text-base font-semibold text-foreground">
-                      {isArrived
-                        ? formatTime(order.arrived_at || order.estimated_delivery_time)
-                        : formatTime(order.estimated_delivery_time)}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-border p-4">
-                    <p className="mb-1 text-sm text-muted-foreground">Last updated</p>
-                    <p className="text-base font-semibold text-foreground">
-                      {order.driver_last_updated ? formatTime(order.driver_last_updated) : "Waiting..."}
-                    </p>
-                  </div>
-                </div>
-
-                {order.driver_last_updated && (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    Last full update: {formatDateTime(order.driver_last_updated)}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-              <h2 className="mb-5 text-xl font-semibold text-foreground">Customer & Delivery</h2>
-
+            <SectionCard
+              title="Customer & Delivery"
+              description="Delivery address, customer details, and order notes."
+              icon={MapPinned}
+            >
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl border border-border p-4 text-sm">
+                <div className="rounded-2xl border border-border bg-background p-4 text-sm">
                   <p className="mb-1 text-muted-foreground">Customer</p>
                   <p className="font-medium text-foreground">{order.customer_name}</p>
                   {order.customer_phone && <p className="text-foreground">{order.customer_phone}</p>}
                   {order.customer_email && <p className="break-all text-foreground">{order.customer_email}</p>}
                 </div>
 
-                <div className="rounded-2xl border border-border p-4 text-sm">
+                <div className="rounded-2xl border border-border bg-background p-4 text-sm">
                   <p className="mb-1 text-muted-foreground">Delivery address</p>
                   <div className="flex items-start gap-2">
                     <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -1097,44 +1450,38 @@ export default function OrderTrackingPage() {
               </div>
 
               {order.notes && (
-                <div className="mt-4 rounded-2xl border border-border p-4 text-sm">
+                <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm">
                   <p className="mb-1 text-muted-foreground">Notes</p>
                   <p className="whitespace-pre-line leading-6 text-foreground">{order.notes}</p>
                 </div>
               )}
-            </div>
+            </SectionCard>
 
-            <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-              <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-foreground">Payment</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Secure checkout and payment status.
-                  </p>
-                </div>
-
-                {paymentBadge()}
-              </div>
-
+            <SectionCard
+              title="Payment"
+              description="Secure checkout, provider details, and payment state."
+              icon={CreditCard}
+              action={paymentBadge()}
+            >
               <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-                <div className="rounded-2xl border border-border p-4">
+                <div className="rounded-2xl border border-border bg-background p-4">
                   <p className="mb-1 text-muted-foreground">Payment method</p>
                   <p className="font-medium capitalize text-foreground">{order.payment_method || "N/A"}</p>
                 </div>
 
-                <div className="rounded-2xl border border-border p-4">
+                <div className="rounded-2xl border border-border bg-background p-4">
                   <p className="mb-1 text-muted-foreground">Payment provider</p>
                   <p className="font-medium text-foreground">{order.payment_provider || "N/A"}</p>
                 </div>
 
-                <div className="rounded-2xl border border-border p-4">
+                <div className="rounded-2xl border border-border bg-background p-4">
                   <p className="mb-1 text-muted-foreground">Payment reference</p>
                   <p className="break-all font-medium text-foreground">
                     {order.payment_reference || "Not available yet"}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-border p-4">
+                <div className="rounded-2xl border border-border bg-background p-4">
                   <p className="mb-1 text-muted-foreground">Amount</p>
                   <p className="font-medium text-foreground">{formatCurrency(order.total)}</p>
                 </div>
@@ -1163,12 +1510,14 @@ export default function OrderTrackingPage() {
                   </button>
                 </div>
               )}
-            </div>
+            </SectionCard>
 
             {milestones.length > 0 && (
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-                <h2 className="mb-5 text-xl font-semibold text-foreground">Milestones</h2>
-
+              <SectionCard
+                title="Milestones"
+                description="Important delivery timestamps recorded for this order."
+                icon={Clock3}
+              >
                 <div className="space-y-3">
                   {milestones.map((milestone) => {
                     const Icon = milestone.icon;
@@ -1176,7 +1525,7 @@ export default function OrderTrackingPage() {
                     return (
                       <div
                         key={milestone.label}
-                        className="flex items-start gap-3 rounded-2xl border border-border p-4"
+                        className="flex items-start gap-3 rounded-2xl border border-border bg-background p-4"
                       >
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                           <Icon className="h-4 w-4" />
@@ -1192,123 +1541,180 @@ export default function OrderTrackingPage() {
                     );
                   })}
                 </div>
-              </div>
+              </SectionCard>
             )}
           </div>
 
           <div className="xl:col-span-2">
             <div className="sticky top-24 space-y-4">
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-                <h2 className="mb-5 text-xl font-semibold text-foreground">Order Summary</h2>
-
-                <div className="mb-5 space-y-3">
-                  {items.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No items found for this order.</p>
-                  ) : (
-                    items.map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-2xl border border-border bg-background p-3 text-sm"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground">{item.product_name}</p>
-                            <p className="text-muted-foreground">
-                              {item.quantity} × {formatCurrency(item.final_unit_price || item.unit_price)}
-                            </p>
-                          </div>
-
-                          <p className="font-medium text-foreground">
-                            {formatCurrency(item.total_price)}
-                          </p>
-                        </div>
-
-                        {item.selectedOptions.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {item.selectedOptions.map((option) => (
-                              <span
-                                key={option.id}
-                                className="rounded-full bg-card px-2 py-1 text-[10px] font-medium text-muted-foreground"
-                              >
-                                {option.option_group_name}: {option.option_item_name}
-                                {option.price_delta > 0
-                                  ? ` (+${formatCurrency(option.price_delta)})`
-                                  : ""}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
-                        {item.item_note && (
-                          <p className="mt-2 rounded-lg bg-card px-2.5 py-2 text-xs text-muted-foreground">
-                            Note: {item.item_note}
-                          </p>
-                        )}
+              <section className="overflow-hidden rounded-[28px] border border-border bg-card shadow-card">
+                <div className="border-b border-border bg-muted/30 p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+                        <PackageCheck className="h-3.5 w-3.5" />
+                        Order Summary
                       </div>
-                    ))
-                  )}
-                </div>
-
-                <div className="space-y-2 border-t border-border pt-4 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span className="text-foreground">{formatCurrency(order.subtotal)}</span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Delivery</span>
-                    <span className="text-foreground">{formatCurrency(order.delivery_fee)}</span>
-                  </div>
-
-                  {!!Number(order.discount_amount || 0) && (
-                    <div className="flex justify-between text-emerald-700">
-                      <span>Discount</span>
-                      <span>-{formatCurrency(order.discount_amount)}</span>
+                      <h2 className="text-2xl font-semibold text-foreground">Your items</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Review quantities, selected options, and final line totals.
+                      </p>
                     </div>
-                  )}
 
-                  <div className="flex justify-between border-t border-border pt-3 text-base font-semibold">
-                    <span className="text-foreground">Total</span>
-                    <span className="text-primary">{formatCurrency(order.total)}</span>
+                    <div className="rounded-2xl border border-border bg-background px-4 py-3 text-right">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        Items
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-foreground">{totalItems}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-                <h2 className="mb-4 text-xl font-semibold text-foreground">Quick Info</h2>
+                <div className="p-5">
+                  <div className="mb-5 space-y-3">
+                    {items.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-border bg-background px-4 py-8 text-center text-sm text-muted-foreground">
+                        No items found for this order.
+                      </div>
+                    ) : (
+                      items.map((item) => (
+                        <div
+                          key={item.id}
+                          className="rounded-[22px] border border-border bg-background p-4 transition-shadow hover:shadow-sm"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-primary/10 px-2 text-xs font-semibold text-primary">
+                                  {item.quantity}×
+                                </span>
+                                <p className="truncate text-[15px] font-semibold text-foreground">
+                                  {item.product_name}
+                                </p>
+                              </div>
 
-                <div className="space-y-3 text-sm">
-                  <div className="rounded-2xl border border-border bg-background p-4">
-                    <p className="text-muted-foreground">Placed</p>
-                    <p className="mt-1 font-medium text-foreground">
-                      {formatDateTime(order.created_at)}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {formatRelativeTime(order.created_at)}
-                    </p>
+                              <p className="text-sm text-muted-foreground">
+                                Unit price{" "}
+                                <span className="font-medium text-foreground">
+                                  {formatCurrency(item.final_unit_price || item.unit_price)}
+                                </span>
+                              </p>
+                            </div>
+
+                            <div className="rounded-xl bg-card px-3 py-2 text-right">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                                Line total
+                              </p>
+                              <p className="mt-1 text-sm font-semibold text-foreground">
+                                {formatCurrency(item.total_price)}
+                              </p>
+                            </div>
+                          </div>
+
+                          {item.selectedOptions.length > 0 && (
+                            <div className="mt-4 border-t border-border/70 pt-3">
+                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                                Selected options
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {item.selectedOptions.map((option) => (
+                                  <span
+                                    key={option.id}
+                                    className="rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground/80"
+                                  >
+                                    {option.option_group_name}: {option.option_item_name}
+                                    {option.price_delta > 0
+                                      ? ` (+${formatCurrency(option.price_delta)})`
+                                      : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {item.item_note && (
+                            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700">
+                                Kitchen note
+                              </p>
+                              <p className="mt-1 text-sm leading-6 text-amber-900">{item.item_note}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
                   </div>
 
-                  <div className="rounded-2xl border border-border bg-background p-4">
-                    <p className="text-muted-foreground">Estimated arrival</p>
-                    <p className="mt-1 font-medium text-foreground">
-                      {formatTime(order.estimated_delivery_time)}
-                    </p>
-                  </div>
+                  <div className="rounded-[22px] border border-border bg-muted/25 p-4">
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Subtotal</span>
+                        <span className="font-medium text-foreground">{formatCurrency(order.subtotal)}</span>
+                      </div>
 
-                  <div className="rounded-2xl border border-border bg-background p-4">
-                    <p className="text-muted-foreground">Payment state</p>
-                    <div className="mt-2">{paymentBadge()}</div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Delivery fee</span>
+                        <span className="font-medium text-foreground">{formatCurrency(order.delivery_fee)}</span>
+                      </div>
+
+                      {!!Number(order.discount_amount || 0) && (
+                        <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">
+                          <span className="font-medium">Discount</span>
+                          <span className="font-semibold">-{formatCurrency(order.discount_amount)}</span>
+                        </div>
+                      )}
+
+                      <div className="border-t border-border pt-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-base font-semibold text-foreground">Total</span>
+                          <span className="text-xl font-semibold text-primary">{formatCurrency(order.total)}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </section>
 
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-                <h2 className="mb-3 text-xl font-semibold text-foreground">Need help?</h2>
-                <p className="text-sm leading-6 text-muted-foreground">
+              <SectionCard
+                title="Quick Info"
+                description="Key timing and payment information at a glance."
+                icon={Clock3}
+                bodyClassName="space-y-3"
+              >
+                <InfoTile
+                  label="Placed"
+                  value={formatDateTime(order.created_at)}
+                  subValue={formatRelativeTime(order.created_at)}
+                />
+
+                <InfoTile
+                  label="Estimated arrival"
+                  value={formatTime(order.estimated_delivery_time)}
+                  icon={MapPinned}
+                />
+
+                <div className="rounded-2xl border border-border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        Payment state
+                      </p>
+                      <div className="mt-2">{paymentBadge()}</div>
+                    </div>
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <CreditCard className="h-4 w-4" />
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
+
+              <section className="rounded-[28px] border border-border bg-gradient-to-br from-card to-muted/25 p-5 shadow-card">
+                <h2 className="text-xl font-semibold text-foreground">Need help?</h2>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
                   Refresh this page for the latest status, or contact your driver once assigned.
-                  If your payment is still pending, complete it before the order can continue.
+                  For card and EFT orders, payment should be confirmed before the order advances.
                 </p>
-              </div>
+              </section>
             </div>
           </div>
         </div>

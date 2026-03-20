@@ -1,7 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export type Category = "Kota" | "Bunny Chow" | "Sides" | "Drinks" | "Combos";
-export type SpiceLevel = "Mild" | "Medium" | "Hot" | "Extra Hot";
+export type Category = string;
+export type SpiceLevel = "Mild" | "Medium" | "Hot" | "Extra Hot" | null;
 
 export interface Product {
   id: string;
@@ -16,6 +16,8 @@ export interface Product {
   inStock: boolean;
   rating: number;
   reviewCount: number;
+  hasOptions: boolean;
+  optionGroupCount: number;
 }
 
 export const categories: Category[] = [
@@ -26,31 +28,20 @@ export const categories: Category[] = [
   "Combos",
 ];
 
-const mapCategory = (name: string | null): Category => {
-  switch (name) {
-    case "Kota":
-      return "Kota";
-    case "Bunny Chow":
-      return "Bunny Chow";
-    case "Sides":
-      return "Sides";
-    case "Drinks":
-      return "Drinks";
-    case "Combos":
-      return "Combos";
-    default:
-      return "Bunny Chow";
-  }
-};
+function normalizeCategoryName(name: string | null): Category {
+  const value = name?.trim();
+  return value || "Other";
+}
 
-const mapSpice = (level: number | null): SpiceLevel => {
-  if (!level || level <= 1) return "Mild";
+function mapSpice(level: number | null): SpiceLevel {
+  if (level == null || level <= 0) return null;
+  if (level === 1) return "Mild";
   if (level <= 3) return "Medium";
   if (level === 4) return "Hot";
   return "Extra Hot";
-};
+}
 
-const getCategoryName = (categoriesField: any): string | null => {
+function getCategoryName(categoriesField: any): string | null {
   if (!categoriesField) return null;
 
   if (Array.isArray(categoriesField)) {
@@ -58,7 +49,7 @@ const getCategoryName = (categoriesField: any): string | null => {
   }
 
   return categoriesField.name ?? null;
-};
+}
 
 export async function getProducts(): Promise<Product[]> {
   const { data, error } = await supabase
@@ -76,26 +67,37 @@ export async function getProducts(): Promise<Product[]> {
       rating,
       review_count,
       created_at,
-      categories(name)
+      categories(name),
+      product_option_groups(id, is_active)
     `)
     .order("is_available", { ascending: false })
     .order("created_at", { ascending: true });
 
   if (error) throw error;
 
-  return (data || []).map((item: any) => ({
-    id: String(item.id),
-    name: item.name?.trim() || "Untitled Item",
-    description:
-      item.description?.trim() || "Freshly prepared and packed with flavour.",
-    price: Number(item.price ?? 0),
-    category: mapCategory(getCategoryName(item.categories)),
-    image: item.image_url?.trim() || "",
-    spiceLevel: mapSpice(item.spice_level),
-    isPopular: Boolean(item.is_popular),
-    isFeatured: Boolean(item.is_featured),
-    inStock: Boolean(item.is_available),
-    rating: Number(item.rating ?? 0),
-    reviewCount: Number(item.review_count ?? 0),
-  }));
+  return (data || []).map((item: any) => {
+    const activeOptionGroups = Array.isArray(item.product_option_groups)
+      ? item.product_option_groups.filter((group: any) => Boolean(group?.is_active))
+      : [];
+
+    const optionGroupCount = activeOptionGroups.length;
+
+    return {
+      id: String(item.id),
+      name: item.name?.trim() || "Untitled Item",
+      description:
+        item.description?.trim() || "Freshly prepared and packed with flavour.",
+      price: Number(item.price ?? 0),
+      category: normalizeCategoryName(getCategoryName(item.categories)),
+      image: item.image_url?.trim() || "",
+      spiceLevel: mapSpice(item.spice_level),
+      isPopular: Boolean(item.is_popular),
+      isFeatured: Boolean(item.is_featured),
+      inStock: Boolean(item.is_available),
+      rating: Number(item.rating ?? 0),
+      reviewCount: Number(item.review_count ?? 0),
+      hasOptions: optionGroupCount > 0,
+      optionGroupCount,
+    };
+  });
 }
