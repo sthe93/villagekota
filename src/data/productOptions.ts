@@ -32,10 +32,34 @@ export interface SelectedOption {
   priceDelta: number;
 }
 
+interface ProductOptionItemRow {
+  id: string;
+  name: string;
+  description: string | null;
+  price_delta: number | null;
+  is_default: boolean | null;
+  is_available: boolean | null;
+  sort_order: number | null;
+}
+
+interface ProductOptionGroupRow {
+  id: string;
+  product_id: string;
+  name: string;
+  description: string | null;
+  selection_type: string | null;
+  min_select: number | null;
+  max_select: number | null;
+  is_required: boolean | null;
+  sort_order: number | null;
+  is_active: boolean | null;
+  product_option_items: ProductOptionItemRow[] | null;
+}
+
 export async function getProductOptionGroups(
   productId: string
 ): Promise<ProductOptionGroup[]> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("product_option_groups")
     .select(`
       id,
@@ -64,7 +88,7 @@ export async function getProductOptionGroups(
 
   if (error) throw error;
 
-  return (data || []).map((group: any) => ({
+  return ((data || []) as ProductOptionGroupRow[]).map((group) => ({
     id: String(group.id),
     productId: String(group.product_id),
     name: group.name,
@@ -75,7 +99,7 @@ export async function getProductOptionGroups(
     isRequired: Boolean(group.is_required),
     sortOrder: Number(group.sort_order ?? 0),
     isActive: Boolean(group.is_active),
-    items: ((group.product_option_items || []) as any[])
+    items: (group.product_option_items || [])
       .map((item) => ({
         id: String(item.id),
         name: item.name,

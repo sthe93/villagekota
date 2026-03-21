@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import Footer from "@/components/Footer";
+import { Fingerprint, Loader2, ScanFace, ShieldCheck } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import {
   enrollBiometricCredential,
   getStoredBiometricCredential,
@@ -12,12 +14,20 @@ import {
 
 export default function AuthPage() {
   const [submitting, setSubmitting] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricEnrolled, setBiometricEnrolled] = useState(false);
   const { signInWithGoogle, user, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const handledGoogleRedirect = useRef(false);
 
-  const redirectAfterLogin = async (
+  const storedBiometricCredential = useMemo(() => {
+    if (!biometricEnrolled) return null;
+    return getStoredBiometricCredential();
+  }, [biometricEnrolled]);
+
+  const redirectAfterLogin = useCallback(async (
     userId: string,
     successMessage = "Signed in successfully"
   ) => {
@@ -47,7 +57,25 @@ export default function AuthPage() {
     }
 
     navigate("/");
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadBiometricState = async () => {
+      const supported = await isBiometricPlatformAvailable();
+      if (!isMounted) return;
+
+      setBiometricSupported(supported);
+      setBiometricEnrolled(Boolean(getStoredBiometricCredential()));
+    };
+
+    void loadBiometricState();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const provider = new URLSearchParams(location.search).get("provider");
@@ -63,7 +91,7 @@ export default function AuthPage() {
 
     handledGoogleRedirect.current = true;
     void redirectAfterLogin(user.id, "Signed in with Google");
-  }, [loading, location.search, navigate, user]);
+  }, [loading, location.search, redirectAfterLogin, user]);
 
   const handleGoogleSignIn = async () => {
     setSubmitting(true);
@@ -136,6 +164,20 @@ export default function AuthPage() {
               your Google account to sign in or create your account.
             </div>
 
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-primary/10 p-2 text-primary">
+                  <ShieldCheck className="h-4 w-4" />
+                </div>
+                <div className="space-y-1">
+                  <p className="font-medium text-foreground">Secure, low-friction access</p>
+                  <p className="text-muted-foreground">
+                    Sign in with Google everywhere, and optionally add a device-level biometric check for faster return visits.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <button
               type="button"
               onClick={handleGoogleSignIn}
@@ -169,6 +211,60 @@ export default function AuthPage() {
               </span>
               {submitting ? "Connecting..." : "Continue with Google"}
             </button>
+
+            {biometricSupported && (
+              <div className="space-y-3 rounded-lg border border-border bg-background p-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-full bg-muted p-2 text-foreground">
+                    {biometricEnrolled ? (
+                      <ScanFace className="h-4 w-4" />
+                    ) : (
+                      <Fingerprint className="h-4 w-4" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {biometricEnrolled ? "Biometric verification enabled" : "Add biometric verification"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {biometricEnrolled
+                        ? `Saved on this device${storedBiometricCredential ? ` · enrolled ${new Date(storedBiometricCredential.enrolledAt).toLocaleDateString("en-ZA")}` : ""}.`
+                        : "Use Face ID or fingerprint as an extra verification step before Google sign-in."}
+                    </p>
+                  </div>
+                </div>
+
+                {!biometricEnrolled ? (
+                  <button
+                    type="button"
+                    onClick={handleBiometricEnroll}
+                    disabled={biometricLoading || submitting}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {biometricLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Fingerprint className="h-4 w-4" />
+                    )}
+                    Enable on this device
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleBiometricSignIn}
+                    disabled={biometricLoading || submitting}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-primary bg-primary/5 px-4 py-3 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {biometricLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ScanFace className="h-4 w-4" />
+                    )}
+                    Verify and continue
+                  </button>
+                )}
+              </div>
+            )}
 
             <p className="text-center text-xs text-muted-foreground font-body">
               By continuing, you’ll sign in securely using your Google account.
