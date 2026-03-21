@@ -11,7 +11,8 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Loader2 } from "lucide-react";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 const MenuPage = lazy(() => import("./pages/MenuPage"));
 const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
@@ -56,9 +57,40 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 }
 
 function DriverRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, isAdmin, isDriver } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
+  const [checkingDriver, setCheckingDriver] = useState(true);
+  const [isDriver, setIsDriver] = useState(false);
 
-  if (loading) {
+  useEffect(() => {
+    const checkDriver = async () => {
+      if (!user) {
+        setIsDriver(false);
+        setCheckingDriver(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("drivers")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (error) {
+        setIsDriver(false);
+      } else {
+        setIsDriver(!!data);
+      }
+
+      setCheckingDriver(false);
+    };
+
+    if (!loading) {
+      void checkDriver();
+    }
+  }, [user, loading]);
+
+  if (loading || checkingDriver) {
     return <FullScreenLoader />;
   }
 

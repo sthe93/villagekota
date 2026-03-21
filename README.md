@@ -1,6 +1,6 @@
-# Village Eats
+# Village Kota
 
-Village Eats is a React + Vite food ordering app backed by Supabase. Customers can browse a broad menu, customise items, place delivery orders, and track orders, while admins and drivers can manage fulfilment workflows. The current payment flow uses PayFast for card payments and supports EFT and cash on delivery paths in the UI.
+Village Kota is a React + Vite food ordering app backed by Supabase. Customers can browse the menu, customise items, place delivery orders, and track orders, while admins and drivers can manage fulfilment workflows. The current payment flow uses PayFast for card payments and supports EFT and cash on delivery paths in the UI.
 
 ## Tech stack
 
@@ -82,7 +82,6 @@ the Supabase dashboard yet.
 This repository includes Supabase Edge Functions under `supabase/functions/`, including:
 
 - `create-payfast-checkout` for starting PayFast card payments
-- `onevoucher-voucher` for validating and redeeming real provider-backed 1Voucher prepaid vouchers
 - `create-checkout` for the legacy Stripe checkout flow
 
 ### PayFast configuration
@@ -99,39 +98,6 @@ The `create-payfast-checkout` function requires these environment variables:
 - `PAYFAST_MERCHANT_EMAIL` (recommended for sandbox validation so the checkout function can reject same-account test payments early)
 
 The checkout function uses the incoming request origin first and only falls back to `APP_BASE_URL` when needed, which helps keep PayFast return and cancel URLs aligned with the actual frontend domain.
-
-### 1Voucher configuration
-
-The `onevoucher-voucher` function is designed for real provider integration, but
-1Voucher/Flash merchant API documentation is not public. Configure the function
-using the merchant endpoints and payload shapes supplied by 1Voucher/Flash.
-
-Required:
-
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `ONEVOUCHER_API_BASE_URL`
-
-Optional request configuration:
-
-- `ONEVOUCHER_VALIDATE_PATH` (default: `/vouchers/validate`)
-- `ONEVOUCHER_REDEEM_PATH` (default: `/vouchers/redeem`)
-- `ONEVOUCHER_VALIDATE_METHOD` (default: `POST`)
-- `ONEVOUCHER_REDEEM_METHOD` (default: `POST`)
-- `ONEVOUCHER_TIMEOUT_MS` (default: `15000`)
-- `ONEVOUCHER_HEADERS_TEMPLATE_JSON` (JSON object used as the outbound request headers)
-- `ONEVOUCHER_VALIDATE_BODY_TEMPLATE_JSON` (JSON template for validation payloads)
-- `ONEVOUCHER_REDEEM_BODY_TEMPLATE_JSON` (JSON template for redemption payloads)
-
-Template placeholders supported in the JSON templates:
-
-- `{{code}}`
-- `{{amount}}`
-- `{{currency}}`
-- `{{merchantReference}}`
-- `{{orderId}}`
-- `{{customerEmail}}`
-- `{{customerPhone}}`
 
 ## Database
 

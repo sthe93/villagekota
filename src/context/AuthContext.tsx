@@ -1,4 +1,11 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -20,8 +27,15 @@ interface AuthContextType {
   isDriver: boolean;
   postLoginPath: string;
   loading: boolean;
-  signUp: (email: string, password: string, displayName?: string) => Promise<{ error: Error | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    displayName?: string
+  ) => Promise<{ error: Error | null }>;
+  signIn: (
+    email: string,
+    password: string
+  ) => Promise<{ error: Error | null }>;
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -43,10 +57,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isDriver, setIsDriver] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const buildAuthRedirectUrl = (path = "/auth") => {
+  const buildAuthRedirectUrl = useCallback((path = "/auth") => {
     const basePath = import.meta.env.DEV ? "" : "/villagekota";
     return `${window.location.origin}${basePath}${path}`;
-  };
+  }, []);
 
   const resetAuthState = useCallback(() => {
     setProfile(null);
@@ -109,9 +123,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       void applySession(nextSession);
     });
 
-    supabase.auth.getSession().then(({ data: { session: nextSession } }) => {
-      void applySession(nextSession);
-    });
+    void supabase.auth
+      .getSession()
+      .then(({ data: { session: nextSession } }) => {
+        void applySession(nextSession);
+      });
 
     return () => {
       isMounted = false;
@@ -119,20 +135,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [resetAuthState, resolveUserState]);
 
-  const signUp = useCallback(async (email: string, password: string, displayName?: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: buildAuthRedirectUrl(),
-        data: { display_name: displayName || email.split("@")[0] },
-      },
-    });
-    return { error: error as Error | null };
-  }, []);
+  const signUp = useCallback(
+    async (email: string, password: string, displayName?: string) => {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: buildAuthRedirectUrl(),
+          data: { display_name: displayName || email.split("@")[0] },
+        },
+      });
+
+      return { error: error as Error | null };
+    },
+    [buildAuthRedirectUrl]
+  );
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
     return { error: error as Error | null };
   }, []);
 
@@ -149,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return { error: error as Error | null };
-  }, []);
+  }, [buildAuthRedirectUrl]);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
@@ -158,14 +182,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetAuthState();
   }, [resetAuthState]);
 
-  const value = useMemo(
+  const postLoginPath = getPostLoginPath(isAdmin, isDriver);
+
+  const value = useMemo<AuthContextType>(
     () => ({
       user,
       session,
       profile,
       isAdmin,
       isDriver,
-      postLoginPath: getPostLoginPath(isAdmin, isDriver),
+      postLoginPath,
       loading,
       signUp,
       signIn,
@@ -179,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile,
       isAdmin,
       isDriver,
+      postLoginPath,
       loading,
       signUp,
       signIn,
