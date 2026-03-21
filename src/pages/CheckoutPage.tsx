@@ -19,11 +19,16 @@ import {
 import Footer from "@/components/Footer";
 
 type PaymentMethod = "cash" | "card" | "eft";
+type VoucherProvider = "one_voucher" | "ott_voucher" | "blu_voucher" | "instant_money";
+type VoucherSource = "local" | "provider";
 
 interface VoucherInfo {
-  id: string;
+  id: string | null;
   code: string;
   type: string;
+  source: VoucherSource;
+  provider: VoucherProvider | null;
+  providerReference: string | null;
   value: number;
   balance: number;
   usedCount: number;
@@ -37,12 +42,23 @@ interface AddressSuggestion {
   lng: number;
 }
 
+type ExtendedPaymentMethod = PaymentMethod | "voucher";
+
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
   currency: "ZAR",
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
+
+const VOUCHER_PROVIDER_LABELS: Record<VoucherProvider, string> = {
+  one_voucher: "1Voucher",
+  ott_voucher: "OTT Voucher",
+  blu_voucher: "Blu Voucher",
+  instant_money: "Instant Money",
+};
+
+const ONE_VOUCHER_PIN_REGEX = /^\d{16}$/;
 
 export default function CheckoutPage() {
   const {
@@ -69,7 +85,7 @@ export default function CheckoutPage() {
     email: user?.email || "",
     address: profile?.default_address || "",
     notes: "",
-    payment: "cash" as PaymentMethod,
+    payment: "cash" as ExtendedPaymentMethod,
   });
 
   const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
@@ -105,6 +121,14 @@ export default function CheckoutPage() {
 
   const discountAmount = voucherInfo?.discountAmount || 0;
   const adjustedTotal = Math.max(0, total - discountAmount);
+  const prepaidVoucherApplied = voucherInfo?.type === "prepaid";
+  const voucherProviderLabel =
+    voucherInfo?.provider ? VOUCHER_PROVIDER_LABELS[voucherInfo.provider] : "Prepaid voucher";
+  const voucherCoversFullOrder = prepaidVoucherApplied && adjustedTotal === 0;
+  const selectedPaymentLabel =
+    form.payment === "voucher"
+      ? voucherProviderLabel
+      : paymentOptionsLabel(form.payment);
   const deliveryProgress =
     items.length === 0
       ? 0
@@ -114,8 +138,13 @@ export default function CheckoutPage() {
     if (submitting) return "Placing Order...";
     if (form.payment === "card") return `Continue to PayFast — ${priceFormatter.format(adjustedTotal)}`;
     if (form.payment === "eft") return `Place EFT Order — ${priceFormatter.format(adjustedTotal)}`;
+    if (form.payment === "voucher") {
+      return voucherCoversFullOrder
+        ? `Place ${voucherProviderLabel} Order — Paid`
+        : `Voucher balance remaining — ${priceFormatter.format(adjustedTotal)}`;
+    }
     return `Place Order — ${priceFormatter.format(adjustedTotal)}`;
-  }, [submitting, form.payment, adjustedTotal]);
+  }, [submitting, form.payment, adjustedTotal, voucherCoversFullOrder, voucherProviderLabel]);
 
   const geocodeAddress = async (address: string) => {
     const key = import.meta.env.VITE_MAPTILER_KEY;
@@ -211,15 +240,70 @@ export default function CheckoutPage() {
     setApplyingVoucher(true);
 
     try {
+      const normalizedCode = voucherCode.trim().toUpperCase();
       const { data, error } = await supabase
         .from("vouchers")
         .select("*")
-        .eq("code", voucherCode.trim().toUpperCase())
+        .eq("code", normalizedCode)
         .eq("is_active", true)
         .single();
 
       if (error || !data) {
-        toast.error("Invalid voucher code");
+        if (!ONE_VOUCHER_PIN_REGEX.test(normalizedCode)) {
+          toast.error("Invalid voucher code");
+          return;
+        }
+
+        if (!user) {
+          toast.error("Please sign in before validating a 1Voucher PIN.");
+          return;
+        }
+
+        const { data: providerData, error: providerError } = await supabase.functions.invoke(
+          "onevoucher-voucher",
+          {
+            body: {
+              action: "validate",
+              code: normalizedCode,
+              currency: "ZAR",
+              customerEmail: form.email.trim() || user.email || null,
+              customerPhone: form.phone.trim() || profile?.phone || null,
+            },
+          }
+        );
+
+        if (providerError || !providerData?.success) {
+          throw new Error(providerData?.message || providerError?.message || "1Voucher validation failed");
+        }
+
+        const providerBalance = Number(providerData.balance || 0);
+        const discountValue = Math.min(providerBalance, total);
+
+        if (discountValue <= 0) {
+          toast.error("This 1Voucher PIN has no available balance.");
+          return;
+        }
+
+        setVoucherInfo({
+          id: null,
+          code: normalizedCode,
+          type: "prepaid",
+          source: "provider",
+          provider: "one_voucher",
+          providerReference: providerData.providerReference || null,
+          value: providerBalance,
+          balance: providerBalance,
+          usedCount: 0,
+          discountAmount: discountValue,
+        });
+
+        setForm((prev) => ({
+          ...prev,
+          payment:
+            prev.payment === "cash" || prev.payment === "voucher" ? "voucher" : prev.payment,
+        }));
+
+        toast.success(`1Voucher applied: -${priceFormatter.format(discountValue)}`);
         return;
       }
 
@@ -252,11 +336,22 @@ export default function CheckoutPage() {
         id: data.id,
         code: data.code,
         type: data.type,
+        source: "local",
+        provider: (data.provider as VoucherProvider | null) ?? null,
+        providerReference: null,
         value: Number(data.value),
         balance: Number(data.balance || 0),
         usedCount: Number(data.used_count || 0),
         discountAmount: disc,
       });
+
+      if (data.type === "prepaid" && Number(data.balance || 0) > 0) {
+        setForm((prev) => ({
+          ...prev,
+          payment:
+            prev.payment === "cash" || prev.payment === "voucher" ? "voucher" : prev.payment,
+        }));
+      }
 
       toast.success(`Voucher applied: -${priceFormatter.format(disc)}`);
     } catch {
@@ -269,6 +364,10 @@ export default function CheckoutPage() {
   const removeVoucher = () => {
     setVoucherInfo(null);
     setVoucherCode("");
+    setForm((prev) => ({
+      ...prev,
+      payment: prev.payment === "voucher" ? "cash" : prev.payment,
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -295,6 +394,20 @@ export default function CheckoutPage() {
     if (form.payment === "card" && !customerEmail) {
       toast.error("Email is required for card payments.");
       return;
+    }
+
+    if (form.payment === "voucher") {
+      if (!voucherInfo || voucherInfo.type !== "prepaid") {
+        toast.error("Apply a valid prepaid voucher before choosing voucher payment.");
+        return;
+      }
+
+      if (!voucherCoversFullOrder) {
+        toast.error(
+          "This prepaid voucher does not cover the full order total yet. Use card, EFT, or cash for the remaining balance."
+        );
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -341,10 +454,28 @@ export default function CheckoutPage() {
           ? selectedDestination
           : await geocodeAddress(form.address);
 
-      const paymentProvider =
-        form.payment === "card" ? "payfast" : form.payment === "eft" ? "eft" : null;
+      const isProviderVoucherPayment =
+        form.payment === "voucher" &&
+        voucherInfo?.type === "prepaid" &&
+        voucherInfo.source === "provider";
 
-      const paymentStatus = form.payment === "card" || form.payment === "eft" ? "pending" : null;
+      const paymentProvider =
+        form.payment === "card"
+          ? "payfast"
+          : form.payment === "eft"
+            ? "eft"
+            : form.payment === "voucher"
+              ? voucherInfo?.provider || "voucher"
+              : null;
+
+      const paymentStatus =
+        form.payment === "card" || form.payment === "eft"
+          ? "pending"
+          : isProviderVoucherPayment
+            ? "pending"
+          : form.payment === "voucher"
+            ? "paid"
+            : null;
 
       const itemNotes = items
         .filter((item) => item.note?.trim())
@@ -417,7 +548,7 @@ export default function CheckoutPage() {
         if (optionInsertError) throw optionInsertError;
       }
 
-      if (voucherInfo) {
+      if (voucherInfo?.source === "local" && voucherInfo.id) {
         const { error: redemptionError } = await supabase.from("voucher_redemptions").insert({
           voucher_id: voucherInfo.id,
           order_id: order.id,
@@ -444,6 +575,48 @@ export default function CheckoutPage() {
           .eq("id", voucherInfo.id);
 
         if (voucherUpdateError) throw voucherUpdateError;
+      }
+
+      if (isProviderVoucherPayment && voucherInfo?.provider === "one_voucher") {
+        const { data: redemptionData, error: redemptionError } = await supabase.functions.invoke(
+          "onevoucher-voucher",
+          {
+            body: {
+              action: "redeem",
+              code: voucherInfo.code,
+              amount: discountAmount,
+              orderId: order.id,
+              currency: "ZAR",
+              customerEmail,
+              customerPhone: form.phone.trim(),
+            },
+          }
+        );
+
+        if (redemptionError || !redemptionData?.success) {
+          await supabase
+            .from("orders")
+            .update({
+              payment_status: "failed",
+            })
+            .eq("id", order.id);
+
+          throw new Error(
+            redemptionData?.message || redemptionError?.message || "1Voucher redemption failed"
+          );
+        }
+
+        const { error: orderPaymentUpdateError } = await supabase
+          .from("orders")
+          .update({
+            payment_provider: "one_voucher",
+            payment_status: "paid",
+            payment_reference:
+              redemptionData.providerReference || voucherInfo.providerReference || voucherInfo.code,
+          })
+          .eq("id", order.id);
+
+        if (orderPaymentUpdateError) throw orderPaymentUpdateError;
       }
 
       if (form.payment === "card") {
@@ -480,6 +653,13 @@ export default function CheckoutPage() {
         return;
       }
 
+      if (form.payment === "voucher") {
+        clearCart();
+        toast.success(`${voucherProviderLabel} accepted. Order placed and marked as paid.`);
+        navigate(`/order-tracking/${order.id}`);
+        return;
+      }
+
       clearCart();
       toast.success("Order placed successfully.");
       navigate(`/order-tracking/${order.id}`);
@@ -491,10 +671,11 @@ export default function CheckoutPage() {
   };
 
   const paymentOptions: Array<{
-    value: PaymentMethod;
+    value: ExtendedPaymentMethod;
     label: string;
     description: string;
     icon: typeof Banknote;
+    disabled?: boolean;
   }> = [
     {
       value: "cash",
@@ -514,7 +695,29 @@ export default function CheckoutPage() {
       description: "Manual bank transfer after placing the order.",
       icon: Landmark,
     },
+    {
+      value: "voucher",
+      label: voucherInfo?.provider ? voucherProviderLabel : "Prepaid voucher",
+      description: prepaidVoucherApplied
+        ? voucherCoversFullOrder
+          ? "Use your prepaid voucher as the payment method for this order."
+          : "Voucher value applied, but another method is still needed for the remaining balance."
+        : "Apply a 1Voucher, OTT Voucher, Blu Voucher, or Instant Money prepaid voucher first.",
+      icon: Tag,
+      disabled: !prepaidVoucherApplied,
+    },
   ];
+
+  function paymentOptionsLabel(method: PaymentMethod) {
+    switch (method) {
+      case "card":
+        return "Card / PayFast";
+      case "eft":
+        return "EFT";
+      default:
+        return "Cash on delivery";
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -735,11 +938,17 @@ export default function CheckoutPage() {
                       <button
                         key={method.value}
                         type="button"
-                        onClick={() => update("payment", method.value)}
+                        onClick={() => {
+                          if (method.disabled) return;
+                          update("payment", method.value);
+                        }}
+                        disabled={method.disabled}
                         className={`rounded-2xl border p-4 text-left transition-colors ${
                           active
                             ? "border-primary bg-primary/10"
-                            : "border-border bg-background hover:bg-muted"
+                            : method.disabled
+                              ? "border-border bg-background opacity-60"
+                              : "border-border bg-background hover:bg-muted"
                         }`}
                       >
                         <div className="flex items-start gap-3">
@@ -757,6 +966,11 @@ export default function CheckoutPage() {
                               {active && (
                                 <span className="text-xs font-semibold uppercase tracking-[0.08em] text-primary">
                                   Selected
+                                </span>
+                              )}
+                              {!active && method.disabled && (
+                                <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                                  Apply voucher first
                                 </span>
                               )}
                             </div>
@@ -785,6 +999,14 @@ export default function CheckoutPage() {
                 {form.payment === "cash" && (
                   <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
                     Pay the driver on delivery. Please have the correct amount ready if possible.
+                  </div>
+                )}
+
+                {form.payment === "voucher" && (
+                  <div className="mt-4 rounded-2xl border border-success/30 bg-success/10 p-4 text-sm text-success">
+                    {voucherCoversFullOrder
+                      ? `${voucherProviderLabel} will fully pay for this order during checkout.`
+                      : `${voucherProviderLabel} is applied as a discount, but another payment method is still required for the remaining balance.`}
                   </div>
                 )}
               </section>
@@ -943,13 +1165,18 @@ export default function CheckoutPage() {
 
                   <div className="mt-5 space-y-2 border-t border-border pt-4">
                     <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Payment</span>
+                      <span className="text-foreground">{selectedPaymentLabel}</span>
+                    </div>
+
+                    <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Subtotal</span>
                       <span className="text-foreground">{priceFormatter.format(subtotal)}</span>
                     </div>
 
                     {discountAmount > 0 && (
                       <div className="flex justify-between text-sm text-success">
-                        <span>Discount</span>
+                        <span>{voucherInfo?.provider ? `${voucherProviderLabel} applied` : "Discount"}</span>
                         <span>-{priceFormatter.format(discountAmount)}</span>
                       </div>
                     )}
