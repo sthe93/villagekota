@@ -24,7 +24,10 @@ export default function AuthPage() {
 
     toast.success(successMessage);
 
-    if (adminRole) return navigate("/admin");
+    if (adminRole) {
+      navigate("/admin");
+      return;
+    }
 
     const { data: driverProfile } = await supabase
       .from("drivers")
@@ -33,7 +36,10 @@ export default function AuthPage() {
       .eq("is_active", true)
       .maybeSingle();
 
-    if (driverProfile) return navigate("/driver");
+    if (driverProfile) {
+      navigate("/driver");
+      return;
+    }
 
     navigate("/");
   };
@@ -46,7 +52,9 @@ export default function AuthPage() {
       loading ||
       !user ||
       handledGoogleRedirect.current
-    ) return;
+    ) {
+      return;
+    }
 
     handledGoogleRedirect.current = true;
     void redirectAfterLogin(user.id, "Signed in with Google");
@@ -77,19 +85,29 @@ export default function AuthPage() {
               WELCOME
             </h1>
             <p className="text-muted-foreground font-body text-sm">
-              Continue with Google to access Village Eats
+              Continue with Google to access Village Kota
             </p>
           </div>
 
           <div className="bg-card rounded-lg border border-border p-6 space-y-4">
+            <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground font-body">
+              Google sign-in is currently the active login method. Continue with
+              your Google account to sign in or create your account.
+            </div>
+
             <button
               type="button"
               onClick={handleGoogleSignIn}
               disabled={submitting}
-              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span aria-hidden="true">
-                <svg width="18" height="18" viewBox="0 0 18 18">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 18 18"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
                   <path
                     d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62Z"
                     fill="#4285F4"
@@ -111,8 +129,8 @@ export default function AuthPage() {
               {submitting ? "Connecting..." : "Continue with Google"}
             </button>
 
-            <p className="text-center text-xs text-muted-foreground">
-              Secure Google authentication only
+            <p className="text-center text-xs text-muted-foreground font-body">
+              By continuing, you’ll sign in securely using your Google account.
             </p>
           </div>
         </div>
