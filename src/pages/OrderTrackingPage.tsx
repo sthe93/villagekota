@@ -379,11 +379,17 @@ export default function OrderTrackingPage() {
   const [loading, setLoading] = useState(true);
   const [retryingPayment, setRetryingPayment] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
   const destinationMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const lastOrderSnapshotRef = useRef<{
+    status: OrderStatus | null;
+    paymentStatus: string;
+    driverId: string | null;
+  } | null>(null);
 
   const paymentStatus = useMemo(() => normalize(order?.payment_status), [order?.payment_status]);
   const orderStatus = useMemo<OrderStatus>(() => normalizeOrderStatus(order?.status), [order?.status]);
@@ -831,6 +837,38 @@ export default function OrderTrackingPage() {
           setDriver(null);
         }
 
+        const nextSnapshot = {
+          status: nextOrder.status,
+          paymentStatus: normalize(nextOrder.payment_status),
+          driverId: nextOrder.driver_id,
+        };
+
+        if (background) {
+          const previousSnapshot = lastOrderSnapshotRef.current;
+
+          if (previousSnapshot) {
+            if (previousSnapshot.status !== nextSnapshot.status && nextOrder.status) {
+              toast.success(`Order is now ${getStatusLabel(nextOrder.status)}`, {
+                description: "Your tracking page updated automatically with the latest status.",
+                duration: 2400,
+              });
+            } else if (!previousSnapshot.driverId && nextSnapshot.driverId) {
+              toast.success("Driver assigned", {
+                description: "Your order now has a driver and live tracking details are being refreshed.",
+                duration: 2400,
+              });
+            } else if (previousSnapshot.paymentStatus !== nextSnapshot.paymentStatus) {
+              toast.success("Payment status updated", {
+                description: "Your payment details changed and have been refreshed automatically.",
+                duration: 2400,
+              });
+            }
+          }
+        }
+
+        lastOrderSnapshotRef.current = nextSnapshot;
+        setLastSyncAt(new Date().toISOString());
+
         if (showRefreshToast) {
           toast.success("Tracking updated", {
             description: "Latest order, payment, and driver details have been loaded.",
@@ -882,6 +920,18 @@ export default function OrderTrackingPage() {
 
     return () => {
       void supabase.removeChannel(channel);
+    };
+  }, [orderId, fetchOrder]);
+
+  useEffect(() => {
+    if (!orderId) return;
+
+    const pollId = window.setInterval(() => {
+      void fetchOrder({ background: true });
+    }, 15000);
+
+    return () => {
+      window.clearInterval(pollId);
     };
   }, [orderId, fetchOrder]);
 
@@ -1711,8 +1761,10 @@ export default function OrderTrackingPage() {
               <section className="rounded-[28px] border border-border bg-gradient-to-br from-card to-muted/25 p-5 shadow-card">
                 <h2 className="text-xl font-semibold text-foreground">Need help?</h2>
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  Refresh this page for the latest status, or contact your driver once assigned.
-                  For card and EFT orders, payment should be confirmed before the order advances.
+                  This page refreshes automatically when admins or drivers update your order. Last
+                  live sync: {lastSyncAt ? formatRelativeTime(lastSyncAt) : "Just now"}. Contact
+                  your driver once assigned, and remember that card and EFT orders should be
+                  confirmed before the order advances.
                 </p>
               </section>
             </div>
