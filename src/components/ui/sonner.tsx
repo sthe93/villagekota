@@ -21,8 +21,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
       visibleToasts={1}
       expand={false}
       duration={4200}
-      offset="5rem"
-      mobileOffset="1rem"
+      offset="18vh"
+      mobileOffset="12vh"
       closeButton={false}
       className="toaster group"
       icons={{
@@ -36,26 +36,26 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "group toast pointer-events-auto flex w-[calc(100vw-1rem)] max-w-[22rem] items-start gap-3 rounded-2xl border px-3 py-3 text-left text-slate-700 shadow-[0_20px_45px_rgba(15,23,42,0.14)] backdrop-blur sm:w-full sm:max-w-[24rem] sm:px-4 dark:text-slate-200",
-          content: "flex min-w-0 flex-1 flex-col gap-1 pr-1 text-left",
+            "group toast w-[calc(100vw-2rem)] max-w-[26rem] rounded-[28px] border border-slate-200/80 bg-white px-0 py-0 text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.18)] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+          content: "flex flex-col items-center px-7 pb-7 pt-8 text-center",
           icon:
-            "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-current/15 bg-white/80 [&>svg]:h-5 [&>svg]:w-5 dark:bg-slate-950/30",
-          title: "text-sm font-semibold leading-5 text-foreground sm:text-[15px]",
-          description: "text-xs leading-5 text-muted-foreground sm:text-sm",
+            "mx-auto flex h-16 w-16 items-center justify-center rounded-full border-4 border-current/10 bg-current/5 [&>svg]:h-8 [&>svg]:w-8",
+          title: "text-2xl font-semibold tracking-tight text-foreground",
+          description: "mt-1 text-sm leading-6 text-muted-foreground",
           actionButton:
-            "mt-2 inline-flex h-9 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90",
+            "mt-3 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground hover:opacity-90",
           cancelButton:
-            "mt-2 inline-flex h-9 items-center justify-center rounded-xl bg-muted px-4 text-sm font-semibold text-muted-foreground hover:bg-muted/80",
+            "mt-3 inline-flex h-11 items-center justify-center rounded-xl bg-muted px-5 text-sm font-semibold text-muted-foreground hover:bg-muted/80",
           success:
-            "border-emerald-200/90 bg-emerald-50/95 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/75 dark:text-emerald-300",
+            "text-emerald-600",
           error:
-            "border-rose-200/90 bg-rose-50/95 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/75 dark:text-rose-300",
+            "text-rose-600",
           warning:
-            "border-amber-200/90 bg-amber-50/95 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/75 dark:text-amber-300",
+            "text-amber-500",
           info:
-            "border-sky-200/90 bg-sky-50/95 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/75 dark:text-sky-300",
+            "text-sky-600",
           loading:
-            "border-primary/20 bg-background/95 text-primary dark:border-primary/30 dark:bg-slate-950/75",
+            "text-primary",
         },
       }}
       {...props}
