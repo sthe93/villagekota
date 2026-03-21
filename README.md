@@ -73,7 +73,7 @@ Use these values:
   - `http://localhost:8080/auth?provider=google`
   - `https://sthe93.github.io/villagekota/auth?provider=google`
 
-If Supabase shows `Unsupported provider: missing OAuth secret`, the Google provider is enabled but the **Client Secret has not been saved correctly** in the Supabase dashboard yet.
+If Supabase  `Unsupported provider: missing OAuth secret`, the Google provider is enabled but the **Client Secret has not been saved correctly** in the Supabase dashboard yet.
 
 ### Supabase Edge Functions
 
