@@ -2,16 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Eye, EyeOff } from "lucide-react";
 import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
 
 export default function AuthPage() {
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const { signIn, signInWithGoogle, signUp, user, loading } = useAuth();
   const navigate = useNavigate();
@@ -58,34 +52,34 @@ export default function AuthPage() {
     void redirectAfterLogin(user.id, "Signed in with Google");
   }, [loading, location.search, navigate, user]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const redirectAfterLogin = async (userId: string, successMessage = "Welcome back!") => {
+    const { data: adminRole } = await supabase
+      .from("user_roles")
+      .select("id")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (!email || !password) {
-      toast.error("Please fill in all fields");
+    toast.success(successMessage);
+
+    if (adminRole) {
+      navigate("/admin");
       return;
     }
 
-    setSubmitting(true);
+    const { data: driverProfile } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("auth_user_id", userId)
+      .eq("is_active", true)
+      .maybeSingle();
 
-    try {
-      if (isSignUp) {
-        const { error } = await signUp(email, password, displayName);
-        if (error) throw error;
-        toast.success("Account created! Check your email to confirm.");
-      } else {
-        const { error } = await signIn(email, password);
-        if (error) throw error;
+    if (driverProfile) {
+      navigate("/driver");
+      return;
+    }
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          toast.success("Welcome back!");
-          navigate("/");
-          return;
-        }
+    navigate("/");
+  };
 
         await redirectAfterLogin(user.id);
       }
@@ -113,9 +107,7 @@ export default function AuthPage() {
       <div className="min-h-[70vh] flex items-center justify-center px-4">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <h1 className="font-display text-5xl text-foreground mb-2">
-              {isSignUp ? "CREATE ACCOUNT" : "WELCOME BACK"}
-            </h1>
+            <h1 className="font-display text-5xl text-foreground mb-2">WELCOME</h1>
             <p className="text-muted-foreground font-body text-sm">
               {isSignUp ? "Join Village Kota and start ordering" : "Sign in to your account"}
             </p>
@@ -211,23 +203,34 @@ export default function AuthPage() {
             </div>
 
             <button
-              type="submit"
+              type="button"
+              onClick={handleGoogleSignIn}
               disabled={submitting}
-              className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? "Please wait..." : isSignUp ? "Create Account" : "Sign In"}
+              <span aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                  <path
+                    d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62Z"
+                    fill="#4285F4"
+                  />
+                  <path
+                    d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.82.86-3.06.86-2.35 0-4.33-1.58-5.04-3.7H.96v2.32A9 9 0 0 0 9 18Z"
+                    fill="#34A853"
+                  />
+                  <path
+                    d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.18.28-1.72V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.04l3-2.32Z"
+                    fill="#FBBC05"
+                  />
+                  <path
+                    d="M9 3.58c1.32 0 2.5.46 3.44 1.34l2.58-2.58C13.46.9 11.42 0 9 0A9 9 0 0 0 .96 4.96l3 2.32c.71-2.12 2.69-3.7 5.04-3.7Z"
+                    fill="#EA4335"
+                  />
+                </svg>
+              </span>
+              Continue with Google
             </button>
-          </form>
-
-          <p className="text-center text-sm text-muted-foreground mt-4 font-body">
-            {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
-            <button
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-primary font-medium hover:underline"
-            >
-              {isSignUp ? "Sign In" : "Sign Up"}
-            </button>
-          </p>
+          </div>
         </div>
       </div>
       <Footer />
