@@ -58,7 +58,7 @@ interface DriverProfile {
 }
 
 type AccountTab = "profile" | "orders" | "favorites" | "driver";
-type OrderFilter = "all" | "delivered" | "cancelled";
+type OrderFilter = "all" | "active" | "completed" | "cancelled";
 
 const inputClassName =
   "w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body";
@@ -198,24 +198,21 @@ export default function AccountPage() {
     };
   }, [orders]);
 
-  const activeOrders = useMemo(
-    () =>
-      orders.filter((o) =>
-        ["pending", "confirmed", "preparing", "ready_for_delivery", "on_the_way", "arrived"].includes(o.status)
-      ),
-    [orders]
-  );
-
-  const historyOrders = useMemo(
-    () => orders.filter((o) => !activeOrders.some((activeOrder) => activeOrder.id === o.id)),
-    [orders, activeOrders]
-  );
-
   const filteredOrders = useMemo(() => {
-    if (orderFilter === "all") return historyOrders;
-    if (orderFilter === "delivered") return historyOrders.filter((o) => o.status === "delivered");
-    return historyOrders.filter((o) => o.status === "cancelled");
-  }, [historyOrders, orderFilter]);
+    if (orderFilter === "all") return orders;
+
+    if (orderFilter === "active") {
+      return orders.filter((o) =>
+        ["pending", "confirmed", "preparing", "ready_for_delivery", "on_the_way", "arrived"].includes(o.status)
+      );
+    }
+
+    if (orderFilter === "completed") {
+      return orders.filter((o) => o.status === "delivered");
+    }
+
+    return orders.filter((o) => o.status === "cancelled");
+  }, [orders, orderFilter]);
 
   const handleOpenOrderDetails = async (orderId: string) => {
     setSelectedOrderId(orderId);
@@ -243,8 +240,9 @@ export default function AccountPage() {
   };
 
   const orderFilters: Array<{ key: OrderFilter; label: string; count: number }> = [
-    { key: "all", label: "History", count: historyOrders.length },
-    { key: "delivered", label: "Delivered", count: recentOrdersStats.delivered },
+    { key: "all", label: "All", count: orders.length },
+    { key: "active", label: "Active", count: recentOrdersStats.active },
+    { key: "completed", label: "Delivered", count: recentOrdersStats.delivered },
     { key: "cancelled", label: "Cancelled", count: recentOrdersStats.cancelled },
   ];
 
@@ -464,83 +462,22 @@ export default function AccountPage() {
               ))}
             </div>
 
-            <div className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">Active orders</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Orders still in progress stay here for quick live tracking.
-                  </p>
-                </div>
-
-                <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                  {activeOrders.length} active
-                </div>
-              </div>
-
-              {activeOrders.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-border bg-background px-4 py-8 text-center text-sm text-muted-foreground">
-                  No active orders right now.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {activeOrders.map((o) => (
-                    <div
-                      key={o.id}
-                      className="rounded-2xl border border-border bg-background p-4"
-                    >
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold text-foreground">
-                              #{o.id.slice(0, 8).toUpperCase()}
-                            </p>
-                            <span
-                              className={`rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${getAccountOrderStatusClass(
-                                o.status
-                              )}`}
-                            >
-                              {formatStatusLabel(o.status)}
-                            </span>
-                          </div>
-
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {getOrderStatusSummary(o.status)}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-medium text-primary">{formatCurrency(o.total)}</p>
-                          <button
-                            onClick={() => navigate(`/order-tracking/${o.id}`)}
-                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-                          >
-                            Track Live
-                            <ChevronRight className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-3">
-                <h3 className="text-lg font-semibold text-foreground">Order history</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Delivered and cancelled orders live here for receipt-style review.
-                </p>
-              </div>
-
             {filteredOrders.length === 0 ? (
-              <div className="py-12 text-center">
+              <div className="py-16 text-center">
                 <Package className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
-                <p className="font-medium text-muted-foreground">No history orders in this filter yet</p>
+                <p className="font-medium text-muted-foreground">No orders in this filter yet</p>
               </div>
             ) : (
               filteredOrders.map((o) => {
+                const isActiveOrder = [
+                  "pending",
+                  "confirmed",
+                  "preparing",
+                  "ready_for_delivery",
+                  "on_the_way",
+                  "arrived",
+                ].includes(o.status);
+
                 return (
                   <div
                     key={o.id}
@@ -583,6 +520,16 @@ export default function AccountPage() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
+                          {isActiveOrder && (
+                            <button
+                              onClick={() => navigate(`/order-tracking/${o.id}`)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                            >
+                              Track Live
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          )}
+
                           <button
                             onClick={() => void handleOpenOrderDetails(o.id)}
                             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
