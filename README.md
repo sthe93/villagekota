@@ -46,6 +46,70 @@ npm run test
 
 The frontend expects the standard Vite/Supabase environment configuration needed to connect to your Supabase project.
 
+### Supabase Auth providers
+
+Email/password auth is supported in the app, and the auth page also supports Google OAuth.
+
+To make Google login work, configure **three** places:
+
+1. **Supabase Dashboard → Authentication → Providers → Google**
+   - enable the provider
+   - paste your Google **Client ID**
+   - paste your Google **Client Secret**
+2. **Google Cloud → OAuth client**
+   - add your app origins under **Authorized JavaScript origins**
+   - add your Supabase callback URL under **Authorized redirect URIs**
+3. **Supabase Dashboard → Authentication → URL Configuration**
+   - set your app URL(s) so Supabase is allowed to redirect the browser back to your frontend after login
+
+Use these values:
+
+- **Authorized JavaScript origins** in Google Cloud:
+  - `http://localhost:8080`
+  - `https://sthe93.github.io`
+- **Authorized redirect URI** in Google Cloud:
+  - `https://<your-project-ref>.supabase.co/auth/v1/callback`
+- **Supabase Site URL / additional redirect URLs**:
+  - `http://localhost:8080/auth?provider=google`
+  - `https://sthe93.github.io/villagekota/auth?provider=google`
+
+If Supabase shows `Unsupported provider: missing OAuth secret`, the Google provider is enabled but the **Client Secret has not been saved correctly** in the Supabase dashboard yet.
+
+### Supabase Edge Functions
+
+This repository includes Supabase Edge Functions under `supabase/functions/`, including:
+
+- `create-payfast-checkout` for starting PayFast card payments
+- `create-checkout` for the legacy Stripe checkout flow
+
+### PayFast configuration
+
+The `create-payfast-checkout` function requires these environment variables:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `PAYFAST_MERCHANT_ID`
+- `PAYFAST_MERCHANT_KEY`
+- `PAYFAST_PASSPHRASE` (optional if your PayFast account uses one)
+- `PAYFAST_SANDBOX` (`true` for sandbox, otherwise production)
+- `APP_BASE_URL` (optional fallback if the incoming request origin is unavailable)
+- `PAYFAST_MERCHANT_EMAIL` (recommended for sandbox validation so the checkout function can reject same-account test payments early)
+
+The checkout function uses the incoming request origin first and only falls back to `APP_BASE_URL` when needed, which helps keep PayFast return and cancel URLs aligned with the actual frontend domain.
+
+## Database
+
+Supabase SQL migrations live in `supabase/migrations/`. The schema includes:
+
+- catalogue tables such as `products`, `categories`, and product option tables
+- customer/account tables such as `profiles` and `favorites`
+- order flow tables such as `orders`, `order_items`, `order_item_options`, and `payment_logs`
+- operational tables such as `drivers`, `user_roles`, and vouchers
+
+## Testing
+
+Vitest is configured for unit tests. Add or update tests under `src/` using the `*.test.ts` or `*.test.tsx` naming convention, then run:
+
 ### Supabase Edge Functions
 
 This repository includes Supabase Edge Functions under `supabase/functions/`, including:
