@@ -34,6 +34,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         close: <X />,
       }}
       toastOptions={{
+        unstyled: true,
         classNames: {
           toast:
             "group toast w-[calc(100vw-2rem)] max-w-[26rem] rounded-[28px] border border-slate-200/80 bg-white px-0 py-0 text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.18)] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
