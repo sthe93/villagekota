@@ -1,22 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  AlertCircle,
-  CheckCircle2,
-  ChefHat,
-  Clock3,
   CreditCard,
-  HandCoins,
-  Landmark,
   Loader2,
   MapPinned,
   Navigation,
   PackageCheck,
   Phone,
   RefreshCw,
-  ShieldAlert,
   ShieldCheck,
-  Store,
   Truck,
   UserRound,
   XCircle,
@@ -24,6 +16,12 @@ import {
 import maplibregl from "maplibre-gl";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/sonner";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import Footer from "@/components/Footer";
 import DeliveryProgressTracker from "@/components/DeliveryProgressTracker";
 import {
@@ -281,19 +279,19 @@ export default function OrderTrackingPage() {
           const previousSnapshot = lastOrderSnapshotRef.current;
 
           if (previousSnapshot) {
-            if (previousSnapshot.status !== nextSnapshot.status && nextOrder.status) {
-              toast.success(`Order is now ${getStatusLabel(nextOrder.status)}`, {
-                description: "Your tracking page updated automatically with the latest status.",
+            if (previousSnapshot.status !== nextSnapshot.status && nextOrder.status === "arrived") {
+              toast.success("Your driver has arrived", {
+                description: "Please be ready to receive your order.",
+                duration: 2400,
+              });
+            } else if (previousSnapshot.status !== nextSnapshot.status && nextOrder.status === "delivered") {
+              toast.success("Order delivered", {
+                description: "Your order was marked as delivered successfully.",
                 duration: 2400,
               });
             } else if (!previousSnapshot.driverId && nextSnapshot.driverId) {
               toast.success("Driver assigned", {
-                description: "Your order now has a driver and live tracking details are being refreshed.",
-                duration: 2400,
-              });
-            } else if (previousSnapshot.paymentStatus !== nextSnapshot.paymentStatus) {
-              toast.success("Payment status updated", {
-                description: "Your payment details changed and have been refreshed automatically.",
+                description: "Your order now has a driver and delivery progress will update here.",
                 duration: 2400,
               });
             }
@@ -533,7 +531,6 @@ export default function OrderTrackingPage() {
     );
   }
 
-  const SummaryIcon = summaryIcon;
   const PaymentBannerIcon = paymentBanner?.icon;
 
   const deliverySectionTitle = isArrived ? "Driver Has Arrived" : showMap ? "Live Driver Location" : "Delivery";
@@ -553,34 +550,6 @@ export default function OrderTrackingPage() {
       : "Assigned to your order"
     : "Not assigned yet";
 
-  const paymentMetricTitle = hasPaymentMismatch
-    ? "Needs review"
-    : isCashPayment
-      ? cashCollected
-        ? "Cash collected"
-        : "Cash on delivery"
-      : isEftPayment
-        ? paymentIsPaid
-          ? "EFT confirmed"
-          : "EFT pending"
-        : paymentIsPaid
-          ? "Paid online"
-          : "Awaiting payment";
-
-  const paymentMetricDescription = hasPaymentMismatch
-    ? "Order/payment out of sync"
-    : isCashPayment
-      ? cashCollected
-        ? "Received successfully"
-        : "Collected on arrival"
-      : isEftPayment
-        ? paymentIsPaid
-          ? "Manual confirmation complete"
-          : "Waiting for proof/verification"
-        : paymentIsPaid
-          ? "Provider confirmed"
-          : "Provider still pending";
-
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-7xl py-8 md:py-10">
@@ -588,7 +557,7 @@ export default function OrderTrackingPage() {
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
               <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-              Live order updates · Payment status · Delivery tracking
+              Live delivery progress
             </div>
 
             <h1 className="font-display text-4xl text-foreground sm:text-5xl">Track Your Order</h1>
@@ -596,7 +565,7 @@ export default function OrderTrackingPage() {
           </div>
 
           <button
-            onClick={() => void fetchOrder({ showRefreshToast: true, background: true })}
+            onClick={() => void fetchOrder({ background: true })}
             disabled={refreshing}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
@@ -605,24 +574,9 @@ export default function OrderTrackingPage() {
           </button>
         </div>
 
-        {hasPaymentMismatch && (
-          <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
-            <div className="flex items-start gap-3">
-              <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-semibold">Order status and payment are out of sync</p>
-                <p className="mt-1 text-sm leading-6">
-                  This order has already moved into a later delivery stage, but payment is not yet marked as confirmed.
-                  That usually means the order needs an admin/payment review.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="mb-6 overflow-hidden rounded-[30px] border border-border bg-card shadow-card">
           <div className="border-b border-border bg-muted/30 p-5 md:p-6">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
               <div className="max-w-3xl">
                 <div className="mb-3 flex flex-wrap items-center gap-3">
                   <OrderStatusBadge status={orderStatus} />
@@ -631,72 +585,47 @@ export default function OrderTrackingPage() {
                   </div>
                 </div>
 
-                <div className={`rounded-[24px] border p-5 shadow-sm ${summaryTone}`}>
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/80 bg-white text-foreground shadow-sm">
-                      <SummaryIcon className="h-5 w-5" />
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/60">
-                        What’s happening now
-                      </p>
-                      <p className="mt-2 text-base font-semibold leading-7 text-foreground sm:text-lg">
-                        {statusSummary}
-                      </p>
-                    </div>
-                  </div>
+                <div className="rounded-[24px] border border-border bg-background p-5 shadow-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    What’s happening now
+                  </p>
+                  <p className="mt-2 text-base font-semibold leading-7 text-foreground sm:text-lg">
+                    {statusSummary}
+                  </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:min-w-[520px] xl:grid-cols-4">
-                <MetricCard
-                  label="Status"
-                  value={getStatusLabel(orderStatus)}
-                  description={
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:min-w-[420px]">
+                <InfoTile
+                  label="Estimated arrival"
+                  value={
                     isDelivered
-                      ? "Order completed"
+                      ? "Delivered"
                       : isArrived
-                        ? "Driver at location"
-                        : isOnTheWay
-                          ? "Delivery in progress"
-                          : isReadyForDelivery
-                            ? "Waiting for dispatch"
-                            : orderStatus === "preparing"
-                              ? "Kitchen active"
-                              : orderStatus === "confirmed"
-                                ? "Store accepted"
-                                : "Waiting to start"
+                        ? "At your location"
+                        : formatTime(order.estimated_delivery_time)
                   }
-                  icon={SummaryIcon}
+                  subValue={
+                    isOnTheWay || isArrived
+                      ? order.driver_distance_km != null
+                        ? `${order.driver_distance_km.toFixed(1)} km away`
+                        : "Delivery in progress"
+                      : formatRelativeTime(order.created_at)
+                  }
+                  icon={MapPinned}
                 />
 
-                <MetricCard
-                  label="Payment"
-                  value={paymentMetricTitle}
-                  description={paymentMetricDescription}
-                  icon={
-                    isCashPayment
-                      ? HandCoins
-                      : isEftPayment
-                        ? Landmark
-                        : hasPaymentMismatch
-                          ? ShieldAlert
-                          : CreditCard
-                  }
-                />
-
-                <MetricCard
+                <InfoTile
                   label="Driver"
-                  value={hasAssignedDriver ? driver?.name || "Assigned" : "Waiting"}
-                  description={driverCardDescription}
+                  value={hasAssignedDriver ? driver?.name || "Assigned" : "Waiting for assignment"}
+                  subValue={driverCardDescription}
                   icon={UserRound}
                 />
 
-                <MetricCard
-                  label="Total"
+                <InfoTile
+                  label="Order total"
                   value={formatCurrency(order.total)}
-                  description={`${totalItems} item${totalItems === 1 ? "" : "s"} in this order`}
+                  subValue={`${totalItems} item${totalItems === 1 ? "" : "s"} in this order`}
                   icon={PackageCheck}
                 />
               </div>
@@ -787,6 +716,18 @@ export default function OrderTrackingPage() {
                     subValue={driverCardDescription}
                     icon={UserRound}
                   />
+
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      Delivery address
+                    </p>
+                    <div className="mt-2 flex items-start gap-2">
+                      <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <p className="whitespace-pre-line text-base font-semibold text-foreground">
+                        {order.delivery_address || "No address provided"}
+                      </p>
+                    </div>
+                  </div>
 
                   <div className="rounded-2xl border border-border bg-background p-4">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -1055,23 +996,30 @@ export default function OrderTrackingPage() {
                 </div>
               </section>
 
-              <SectionCard
-                title="Quick Info"
-                description="Key timing and payment information at a glance."
-                icon={Clock3}
-                bodyClassName="space-y-3"
-              >
-                <InfoTile
-                  label="Placed"
-                  value={formatDateTime(order.created_at)}
-                  subValue={formatRelativeTime(order.created_at)}
-                />
+                        {order.notes && (
+                          <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm">
+                            <p className="mb-1 text-muted-foreground">Notes</p>
+                            <p className="whitespace-pre-line leading-6 text-foreground">{order.notes}</p>
+                          </div>
+                        )}
+                      </AccordionContent>
+                    </AccordionItem>
 
-                <InfoTile
-                  label="Estimated arrival"
-                  value={formatTime(order.estimated_delivery_time)}
-                  icon={MapPinned}
-                />
+                    <AccordionItem value="payment">
+                      <AccordionTrigger className="text-left text-foreground">
+                        Payment details
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+                          <div className="rounded-2xl border border-border bg-background p-4">
+                            <p className="mb-1 text-muted-foreground">Payment method</p>
+                            <p className="font-medium capitalize text-foreground">{order.payment_method || "N/A"}</p>
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-background p-4">
+                            <p className="mb-1 text-muted-foreground">Payment provider</p>
+                            <p className="font-medium text-foreground">{order.payment_provider || "N/A"}</p>
+                          </div>
 
                 <div className="rounded-2xl border border-border bg-background p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -1098,15 +1046,14 @@ export default function OrderTrackingPage() {
                     </div>
                   </div>
                 </div>
-              </SectionCard>
+              </section>
 
               <section className="rounded-[28px] border border-border bg-gradient-to-br from-card to-muted/25 p-5 shadow-card">
                 <h2 className="text-xl font-semibold text-foreground">Need help?</h2>
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  This page refreshes automatically when admins or drivers update your order. Last
-                  live sync: {lastSyncAt ? formatRelativeTime(lastSyncAt) : "Just now"}. Contact
-                  your driver once assigned, and remember that card and EFT orders should be
-                  confirmed before the order advances.
+                  This page refreshes automatically while your order is active. Last live sync:{" "}
+                  {lastSyncAt ? formatRelativeTime(lastSyncAt) : "Just now"}. If you need more
+                  detail, open the order details section above. Contact your driver once assigned.
                 </p>
               </section>
             </div>

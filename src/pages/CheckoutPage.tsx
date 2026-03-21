@@ -61,6 +61,11 @@ const VOUCHER_PROVIDER_LABELS: Record<VoucherProvider, string> = {
 };
 
 const ONE_VOUCHER_PIN_REGEX = /^\d{16}$/;
+const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
+
+function getPhoneDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
 
 export default function CheckoutPage() {
   const {
@@ -119,6 +124,38 @@ export default function CheckoutPage() {
     if (field === "address") {
       setSelectedDestination({ lat: null, lng: null });
     }
+  };
+
+  const getCheckoutValidationMessages = () => {
+    const messages: string[] = [];
+    const trimmedName = form.name.trim();
+    const trimmedAddress = form.address.trim();
+    const trimmedEmail = form.email.trim();
+    const phoneDigits = getPhoneDigits(form.phone);
+
+    if (!user) {
+      messages.push("Please sign in before placing your order.");
+    }
+
+    if (!trimmedName) {
+      messages.push("Full name is required.");
+    }
+
+    if (!phoneDigits) {
+      messages.push("Cell phone number is required.");
+    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
+      messages.push("Enter a valid South African cell phone number with 10 digits.");
+    }
+
+    if (!trimmedAddress) {
+      messages.push("Delivery address is required.");
+    }
+
+    if (form.payment === "card" && !trimmedEmail) {
+      messages.push("Email is required for card payments.");
+    }
+
+    return messages;
   };
 
   const discountAmount = voucherInfo?.discountAmount || 0;
@@ -235,7 +272,7 @@ export default function CheckoutPage() {
               code: normalizedCode,
               currency: "ZAR",
               customerEmail: form.email.trim() || user.email || null,
-              customerPhone: form.phone.trim() || profile?.phone || null,
+              customerPhone: getPhoneDigits(form.phone) || profile?.phone || null,
             },
           }
         );
@@ -346,18 +383,18 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (!form.name.trim() || !form.phone.trim() || !form.address.trim()) {
-      toast.error("Please fill in all required fields");
+    const validationMessages = getCheckoutValidationMessages();
+    if (validationMessages.length > 0) {
+      toast.error("Unable to place order", {
+        description: validationMessages.join(" • "),
+      });
       return;
     }
 
-    if (!user) {
-      toast.error("Please sign in to place an order");
-      navigate("/auth");
-      return;
-    }
+    if (!user) return;
 
     const customerEmail = form.email.trim() || user.email || "";
+    const customerPhone = getPhoneDigits(form.phone);
 
     if (form.payment === "card" && !customerEmail) {
       toast.error("Email is required for card payments.");
@@ -464,7 +501,7 @@ export default function CheckoutPage() {
         .insert({
           user_id: user.id,
           customer_name: form.name.trim(),
-          customer_phone: form.phone.trim(),
+          customer_phone: customerPhone,
           customer_email: customerEmail || null,
           delivery_address: form.address.trim(),
           destination_lat: destination?.lat ?? null,
@@ -557,7 +594,7 @@ export default function CheckoutPage() {
               orderId: order.id,
               currency: "ZAR",
               customerEmail,
-              customerPhone: form.phone.trim(),
+              customerPhone,
             },
           }
         );
@@ -785,9 +822,14 @@ export default function CheckoutPage() {
                         type="tel"
                         value={form.phone}
                         onChange={(e) => update("phone", e.target.value)}
+                        placeholder="0XXXXXXXXX"
+                        inputMode="numeric"
                         className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                         required
                       />
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        South African cell phone numbers should be 10 digits.
+                      </p>
                     </div>
 
                     <div>
@@ -850,7 +892,7 @@ export default function CheckoutPage() {
                             key={suggestion.id}
                             type="button"
                             onClick={() => {
-                              setForm((prev) => ({ ...prev, address: suggestion.place_name }));
+                              update("address", suggestion.place_name);
                               setSelectedDestination({
                                 lat: suggestion.lat,
                                 lng: suggestion.lng,
@@ -982,7 +1024,7 @@ export default function CheckoutPage() {
 
               <button
                 type="submit"
-                disabled={submitting || !user}
+                disabled={submitting}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
