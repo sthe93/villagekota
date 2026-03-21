@@ -20,354 +20,50 @@ import {
   Truck,
   UserRound,
   XCircle,
-  type LucideIcon,
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/sonner";
 import Footer from "@/components/Footer";
-import DeliveryProgressTracker, {
-  type DeliveryStatus,
-} from "@/components/DeliveryProgressTracker";
-
-type OrderStatus =
-  | "pending"
-  | "confirmed"
-  | "preparing"
-  | "ready_for_delivery"
-  | "on_the_way"
-  | "arrived"
-  | "delivered"
-  | "cancelled";
-
-type DriverInfo = {
-  id: string;
-  name: string;
-  phone: string | null;
-};
-
-type OrderRecord = {
-  id: string;
-  user_id: string | null;
-  customer_name: string;
-  customer_phone: string | null;
-  customer_email: string | null;
-  delivery_address: string | null;
-  notes: string | null;
-  payment_method: string | null;
-  payment_provider: string | null;
-  payment_reference: string | null;
-  payment_status: string | null;
-  status: OrderStatus | null;
-  subtotal: number | null;
-  delivery_fee: number | null;
-  discount_amount: number | null;
-  total: number | null;
-  created_at: string;
-  estimated_delivery_time: string | null;
-  driver_distance_km: number | null;
-  driver_lat: number | null;
-  driver_lng: number | null;
-  driver_last_updated: string | null;
-  driver_id: string | null;
-  accepted_at: string | null;
-  started_delivery_at: string | null;
-  arrived_at: string | null;
-  delivered_at: string | null;
-  cash_collected: boolean | null;
-  cash_collected_amount: number | null;
-  cash_collected_at: string | null;
-  destination_lat: number | null;
-  destination_lng: number | null;
-};
-
-type OrderItemOptionRecord = {
-  id: string;
-  order_item_id: string;
-  option_group_name: string;
-  option_item_name: string;
-  price_delta: number;
-};
-
-type OrderItemRecord = {
-  id: string;
-  product_name: string;
-  quantity: number;
-  unit_price: number;
-  final_unit_price: number;
-  options_total: number;
-  total_price: number;
-  item_note: string | null;
-  selectedOptions: OrderItemOptionRecord[];
-};
-
-type PaymentBanner = {
-  tone: string;
-  icon: typeof AlertCircle;
-  title: string;
-  description: string;
-};
-
-const CARD_REQUIRED_PAYMENT_METHODS = ["card", "online", "payfast"];
-const EFT_PAYMENT_METHODS = ["eft", "bank_transfer", "bank transfer"];
-const PAID_PAYMENT_STATUSES = ["paid", "completed", "success", "succeeded"];
-const FAILED_PAYMENT_STATUSES = ["failed", "cancelled", "canceled", "expired"];
-const PENDING_PAYMENT_STATUSES = ["pending", "processing", "initiated", "unpaid", ""];
-const ADVANCED_ORDER_STATUSES: OrderStatus[] = [
-  "confirmed",
-  "preparing",
-  "ready_for_delivery",
-  "on_the_way",
-  "arrived",
-  "delivered",
-];
-
-function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
-function normalize(value: string | null | undefined) {
-  return (value || "").trim().toLowerCase();
-}
-
-function toNumberOrNull(value: unknown) {
-  if (value === null || value === undefined || value === "") return null;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
-}
-
-function formatCurrency(value: number | null | undefined) {
-  return new Intl.NumberFormat("en-ZA", {
-    style: "currency",
-    currency: "ZAR",
-  }).format(Number(value || 0));
-}
-
-function formatTime(value: string | null | undefined) {
-  if (!value) return "Calculating...";
-  return new Date(value).toLocaleTimeString("en-ZA", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("en-ZA", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatRelativeTime(value: string | null | undefined) {
-  if (!value) return "—";
-
-  const now = Date.now();
-  const then = new Date(value).getTime();
-  const diffMs = Math.max(0, now - then);
-
-  const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes} min ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr${hours === 1 ? "" : "s"} ago`;
-
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
-function normalizeOrderStatus(value: string | null | undefined): OrderStatus {
-  const status = normalize(value);
-
-  switch (status) {
-    case "confirmed":
-    case "preparing":
-    case "ready_for_delivery":
-    case "on_the_way":
-    case "arrived":
-    case "delivered":
-    case "cancelled":
-      return status;
-    default:
-      return "pending";
-  }
-}
-
-function getStatusLabel(status: OrderStatus) {
-  const labels: Record<OrderStatus, string> = {
-    pending: "Pending",
-    confirmed: "Confirmed",
-    preparing: "Preparing",
-    ready_for_delivery: "Ready for Delivery",
-    on_the_way: "On the Way",
-    arrived: "Arrived",
-    delivered: "Delivered",
-    cancelled: "Cancelled",
-  };
-
-  return labels[status];
-}
-
-function getTrackerStatus(status: OrderStatus): DeliveryStatus {
-  if (status === "cancelled") return "cancelled";
-  if (status === "delivered") return "delivered";
-  if (status === "arrived") return "arrived";
-  if (status === "on_the_way") return "on_the_way";
-  if (status === "ready_for_delivery") return "ready_for_delivery";
-  if (status === "preparing") return "preparing";
-  if (status === "confirmed") return "confirmed";
-  return "pending";
-}
-
-function normalizeOrder(raw: any): OrderRecord {
-  return {
-    id: String(raw.id),
-    user_id: raw.user_id ?? null,
-    customer_name: raw.customer_name ?? "",
-    customer_phone: raw.customer_phone ?? null,
-    customer_email: raw.customer_email ?? null,
-    delivery_address: raw.delivery_address ?? null,
-    notes: raw.notes ?? null,
-    payment_method: raw.payment_method ?? null,
-    payment_provider: raw.payment_provider ?? null,
-    payment_reference: raw.payment_reference ?? null,
-    payment_status: raw.payment_status ?? null,
-    status: normalizeOrderStatus(raw.status),
-    subtotal: toNumberOrNull(raw.subtotal),
-    delivery_fee: toNumberOrNull(raw.delivery_fee),
-    discount_amount: toNumberOrNull(raw.discount_amount),
-    total: toNumberOrNull(raw.total),
-    created_at: raw.created_at,
-    estimated_delivery_time: raw.estimated_delivery_time ?? null,
-    driver_distance_km: toNumberOrNull(raw.driver_distance_km),
-    driver_lat: toNumberOrNull(raw.driver_lat),
-    driver_lng: toNumberOrNull(raw.driver_lng),
-    driver_last_updated: raw.driver_last_updated ?? null,
-    driver_id: raw.driver_id ?? null,
-    accepted_at: raw.accepted_at ?? null,
-    started_delivery_at: raw.started_delivery_at ?? null,
-    arrived_at: raw.arrived_at ?? null,
-    delivered_at: raw.delivered_at ?? null,
-    cash_collected: raw.cash_collected ?? null,
-    cash_collected_amount: toNumberOrNull(raw.cash_collected_amount),
-    cash_collected_at: raw.cash_collected_at ?? null,
-    destination_lat: toNumberOrNull(raw.destination_lat),
-    destination_lng: toNumberOrNull(raw.destination_lng),
-  };
-}
-
-function SectionCard({
-  title,
-  description,
-  icon: Icon,
-  action,
-  children,
-  className,
-  bodyClassName,
-}: {
-  title: string;
-  description?: string;
-  icon?: LucideIcon;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-  bodyClassName?: string;
-}) {
-  return (
-    <section className={cn("overflow-hidden rounded-[28px] border border-border bg-card shadow-card", className)}>
-      <div className="border-b border-border bg-muted/30 px-5 py-5 md:px-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-3">
-            {Icon && (
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Icon className="h-5 w-5" />
-              </div>
-            )}
-
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">{title}</h2>
-              {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
-            </div>
-          </div>
-
-          {action}
-        </div>
-      </div>
-
-      <div className={cn("p-5 md:p-6", bodyClassName)}>{children}</div>
-    </section>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  description,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  description: string;
-  icon: LucideIcon;
-}) {
-  return (
-    <div className="rounded-[22px] border border-border bg-background p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {label}
-          </p>
-          <p className="mt-2 truncate text-base font-semibold text-foreground">{value}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        </div>
-
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-          <Icon className="h-4 w-4" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InfoTile({
-  label,
-  value,
-  subValue,
-  icon: Icon,
-  accent = false,
-}: {
-  label: string;
-  value: React.ReactNode;
-  subValue?: React.ReactNode;
-  icon?: LucideIcon;
-  accent?: boolean;
-}) {
-  return (
-    <div className="rounded-2xl border border-border bg-background p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {label}
-          </p>
-          <div className={cn("mt-2 text-base font-semibold", accent ? "text-primary" : "text-foreground")}>
-            {value}
-          </div>
-          {subValue ? <div className="mt-1 text-xs text-muted-foreground">{subValue}</div> : null}
-        </div>
-
-        {Icon ? (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Icon className="h-4 w-4" />
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
+import DeliveryProgressTracker from "@/components/DeliveryProgressTracker";
+import {
+  fetchOrderTrackingSnapshot,
+} from "@/features/order-tracking/api";
+import {
+  InfoTile,
+  MetricCard,
+  OrderStatusBadge,
+  OrderTotalsCard,
+  PaymentStatusBadge,
+  SectionCard,
+} from "@/features/order-tracking/components";
+import type {
+  DriverInfo,
+  OrderItemRecord,
+  OrderRecord,
+  OrderStatus,
+  PaymentBanner,
+} from "@/features/order-tracking/types";
+import {
+  ADVANCED_ORDER_STATUSES,
+  CARD_REQUIRED_PAYMENT_METHODS,
+  EFT_PAYMENT_METHODS,
+  FAILED_PAYMENT_STATUSES,
+  PAID_PAYMENT_STATUSES,
+  PENDING_PAYMENT_STATUSES,
+  formatCurrency,
+  formatDateTime,
+  formatRelativeTime,
+  formatTime,
+  getPaymentBanner,
+  getStatusLabel,
+  getSummaryIcon,
+  getSummaryTone,
+  getTrackingMilestones,
+  getTrackerStatus,
+  normalize,
+  normalizeOrderStatus,
+} from "@/features/order-tracking/utils";
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
@@ -515,135 +211,27 @@ export default function OrderTrackingPage() {
   ]);
 
   const summaryIcon = useMemo(() => {
-    if (isOrderCancelled) return XCircle;
-    if (isDelivered) return CheckCircle2;
-    if (isArrived) return MapPinned;
-    if (isOnTheWay) return Truck;
-    if (isReadyForDelivery) return PackageCheck;
-    if (orderStatus === "preparing") return ChefHat;
-    if (orderStatus === "confirmed") return Store;
-    return AlertCircle;
-  }, [isOrderCancelled, isDelivered, isArrived, isOnTheWay, isReadyForDelivery, orderStatus]);
+    return getSummaryIcon(orderStatus);
+  }, [orderStatus]);
 
   const summaryTone = useMemo(() => {
-    if (isOrderCancelled) return "border-rose-200 bg-gradient-to-r from-rose-50 to-rose-100/80";
-    if (isDelivered) return "border-emerald-300 bg-gradient-to-r from-emerald-50 to-emerald-100/80";
-    if (isArrived) return "border-cyan-200 bg-gradient-to-r from-cyan-50 to-cyan-100/75";
-    if (isOnTheWay) return "border-indigo-200 bg-gradient-to-r from-indigo-50 to-indigo-100/75";
-    if (isReadyForDelivery) return "border-orange-200 bg-gradient-to-r from-orange-50 to-amber-100/75";
-    if (orderStatus === "preparing") {
-      return "border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-100/70";
-    }
-    if (orderStatus === "confirmed") {
-      return "border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-100/70";
-    }
-    return "border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-100/70";
-  }, [isOrderCancelled, isDelivered, isArrived, isOnTheWay, isReadyForDelivery, orderStatus]);
+    return getSummaryTone(orderStatus);
+  }, [orderStatus]);
 
   const paymentBanner = useMemo<PaymentBanner | null>(() => {
-    if (!order || isOrderCancelled) return null;
-
-    if (hasPaymentMismatch) {
-      return {
-        tone: "border-rose-200 bg-rose-50 text-rose-800",
-        icon: ShieldAlert,
-        title: "Payment verification mismatch",
-        description:
-          "This order has progressed beyond the normal payment stage, but payment is not marked as confirmed yet. The team should review this order status and payment record together.",
-      };
-    }
-
-    if (isCashPayment && cashCollected) {
-      return {
-        tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
-        icon: HandCoins,
-        title: "Cash payment received",
-        description: order.cash_collected_at
-          ? `Cash payment was collected successfully at ${formatDateTime(order.cash_collected_at)}.`
-          : "Cash payment was collected successfully.",
-      };
-    }
-
-    if (isCashPayment && isArrived && !cashCollected) {
-      return {
-        tone: "border-amber-200 bg-amber-50 text-amber-800",
-        icon: HandCoins,
-        title: "Cash due now",
-        description: `Your driver has arrived. Please pay the cash amount of ${formatCurrency(
-          order.total
-        )} to complete delivery.`,
-      };
-    }
-
-    if (isCashPayment && !cashCollected) {
-      return {
-        tone: "border-slate-200 bg-slate-50 text-slate-700",
-        icon: HandCoins,
-        title: "Cash on delivery",
-        description: "This is a cash order. Payment will be collected by the driver on arrival.",
-      };
-    }
-
-    if (isCardPayment && paymentIsPaid) {
-      return {
-        tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
-        icon: CheckCircle2,
-        title: "Card payment confirmed",
-        description: "Your online card payment has been received successfully.",
-      };
-    }
-
-    if (isCardPayment && paymentIsFailed) {
-      return {
-        tone: "border-rose-200 bg-rose-50 text-rose-800",
-        icon: XCircle,
-        title: "Card payment needs attention",
-        description:
-          "Your card payment was not completed. Retry payment below to continue with your order.",
-      };
-    }
-
-    if (isCardPayment && paymentIsPending) {
-      return {
-        tone: "border-amber-200 bg-amber-50 text-amber-800",
-        icon: CreditCard,
-        title: "Waiting for card payment confirmation",
-        description:
-          "Your order should remain in the early order stage until card payment is marked as paid.",
-      };
-    }
-
-    if (isEftPayment && paymentIsPaid) {
-      return {
-        tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
-        icon: CheckCircle2,
-        title: "EFT payment confirmed",
-        description:
-          "Your EFT payment has been confirmed successfully and your order can continue normally.",
-      };
-    }
-
-    if (isEftPayment && paymentIsFailed) {
-      return {
-        tone: "border-rose-200 bg-rose-50 text-rose-800",
-        icon: XCircle,
-        title: "EFT payment needs attention",
-        description:
-          "Your EFT payment is not confirmed. Please contact support or send proof of payment if needed.",
-      };
-    }
-
-    if (isEftPayment && paymentIsPending) {
-      return {
-        tone: "border-amber-200 bg-amber-50 text-amber-800",
-        icon: Landmark,
-        title: "Awaiting EFT confirmation",
-        description:
-          "Your order is saved with payment pending. Preparation and dispatch should only continue after your EFT payment is confirmed manually.",
-      };
-    }
-
-    return null;
+    return getPaymentBanner({
+      order,
+      isOrderCancelled,
+      hasPaymentMismatch,
+      isCashPayment,
+      isCardPayment,
+      isEftPayment,
+      cashCollected,
+      isArrived,
+      paymentIsPaid,
+      paymentIsFailed,
+      paymentIsPending,
+    });
   }, [
     order,
     isOrderCancelled,
@@ -659,37 +247,7 @@ export default function OrderTrackingPage() {
   ]);
 
   const milestones = useMemo(() => {
-    if (!order) return [];
-
-    const entries = [
-      {
-        label: "Order placed",
-        value: order.created_at,
-        icon: Clock3,
-      },
-      {
-        label: "Driver accepted",
-        value: order.accepted_at,
-        icon: UserRound,
-      },
-      {
-        label: "Trip started",
-        value: order.started_delivery_at,
-        icon: Truck,
-      },
-      {
-        label: "Driver arrived",
-        value: order.arrived_at,
-        icon: MapPinned,
-      },
-      {
-        label: "Delivered",
-        value: order.delivered_at,
-        icon: CheckCircle2,
-      },
-    ];
-
-    return entries.filter((entry) => entry.value);
+    return getTrackingMilestones(order);
   }, [order]);
 
   const fetchOrder = useCallback(
@@ -709,139 +267,15 @@ export default function OrderTrackingPage() {
           setLoading(true);
         }
 
-        const { data: orderData, error: orderError } = await supabase
-          .from("orders")
-          .select(`
-            id,
-            user_id,
-            customer_name,
-            customer_phone,
-            customer_email,
-            delivery_address,
-            notes,
-            payment_method,
-            payment_provider,
-            payment_reference,
-            payment_status,
-            status,
-            subtotal,
-            delivery_fee,
-            discount_amount,
-            total,
-            created_at,
-            estimated_delivery_time,
-            driver_distance_km,
-            driver_lat,
-            driver_lng,
-            driver_last_updated,
-            driver_id,
-            accepted_at,
-            started_delivery_at,
-            arrived_at,
-            delivered_at,
-            cash_collected,
-            cash_collected_amount,
-            cash_collected_at,
-            destination_lat,
-            destination_lng
-          `)
-          .eq("id", orderId)
-          .single();
-
-        if (orderError) throw orderError;
-
-        const { data: itemData, error: itemsError } = await (supabase as any)
-          .from("order_items")
-          .select(`
-            id,
-            product_name,
-            quantity,
-            unit_price,
-            final_unit_price,
-            options_total,
-            total_price,
-            item_note
-          `)
-          .eq("order_id", orderId)
-          .order("created_at", { ascending: true });
-
-        if (itemsError) throw itemsError;
-
-        const normalizedItems: OrderItemRecord[] = ((itemData || []) as any[]).map((item) => ({
-          id: String(item.id),
-          product_name: item.product_name,
-          quantity: Number(item.quantity ?? 1),
-          unit_price: Number(item.unit_price ?? 0),
-          final_unit_price: Number(item.final_unit_price ?? item.unit_price ?? 0),
-          options_total: Number(item.options_total ?? 0),
-          total_price: Number(item.total_price ?? 0),
-          item_note: item.item_note || null,
-          selectedOptions: [],
-        }));
-
-        if (normalizedItems.length > 0) {
-          const orderItemIds = normalizedItems.map((item) => item.id);
-
-          const { data: optionData, error: optionsError } = await (supabase as any)
-            .from("order_item_options")
-            .select(`
-              id,
-              order_item_id,
-              option_group_name,
-              option_item_name,
-              price_delta
-            `)
-            .in("order_item_id", orderItemIds)
-            .order("created_at", { ascending: true });
-
-          if (optionsError) throw optionsError;
-
-          const optionsByItemId = new Map<string, OrderItemOptionRecord[]>();
-
-          ((optionData || []) as any[]).forEach((option) => {
-            const row: OrderItemOptionRecord = {
-              id: String(option.id),
-              order_item_id: String(option.order_item_id),
-              option_group_name: option.option_group_name,
-              option_item_name: option.option_item_name,
-              price_delta: Number(option.price_delta ?? 0),
-            };
-
-            const existing = optionsByItemId.get(row.order_item_id) || [];
-            existing.push(row);
-            optionsByItemId.set(row.order_item_id, existing);
-          });
-
-          normalizedItems.forEach((item) => {
-            item.selectedOptions = optionsByItemId.get(item.id) || [];
-          });
-        }
-
-        const nextOrder = normalizeOrder(orderData);
+        const {
+          order: nextOrder,
+          items: normalizedItems,
+          driver: nextDriver,
+          snapshot: nextSnapshot,
+        } = await fetchOrderTrackingSnapshot(orderId);
         setOrder(nextOrder);
         setItems(normalizedItems);
-
-        if (nextOrder.driver_id) {
-          const { data: driverData, error: driverError } = await supabase
-            .from("drivers")
-            .select("id, name, phone")
-            .eq("id", nextOrder.driver_id)
-            .maybeSingle();
-
-          if (!driverError) {
-            setDriver((driverData as DriverInfo | null) || null);
-          } else {
-            setDriver(null);
-          }
-        } else {
-          setDriver(null);
-        }
-
-        const nextSnapshot = {
-          status: nextOrder.status,
-          paymentStatus: normalize(nextOrder.payment_status),
-          driverId: nextOrder.driver_id,
-        };
+        setDriver(nextDriver);
 
         if (background) {
           const previousSnapshot = lastOrderSnapshotRef.current;
@@ -875,8 +309,8 @@ export default function OrderTrackingPage() {
             duration: 2200,
           });
         }
-      } catch (error: any) {
-        toast.error(error.message || "Failed to load order");
+      } catch (error: unknown) {
+        toast.error(error instanceof Error ? error.message : "Failed to load order");
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -1064,106 +498,11 @@ export default function OrderTrackingPage() {
       }
 
       window.location.href = data.url;
-    } catch (error: any) {
-      toast.error(error.message || "Failed to restart payment");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Failed to restart payment");
     } finally {
       setRetryingPayment(false);
     }
-  };
-
-  const paymentBadge = () => {
-    if (hasPaymentMismatch) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700">
-          <ShieldAlert className="h-4 w-4" />
-          Payment mismatch
-        </div>
-      );
-    }
-
-    if (paymentIsPaid) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
-          <CheckCircle2 className="h-4 w-4" />
-          {isEftPayment ? "EFT confirmed" : "Paid"}
-        </div>
-      );
-    }
-
-    if (isCashPayment && isDelivered && cashCollected) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
-          <HandCoins className="h-4 w-4" />
-          Cash collected
-        </div>
-      );
-    }
-
-    if (isCashPayment && isArrived && !cashCollected) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
-          <HandCoins className="h-4 w-4" />
-          Cash due now
-        </div>
-      );
-    }
-
-    if (isCashPayment) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700">
-          <HandCoins className="h-4 w-4" />
-          Cash on delivery
-        </div>
-      );
-    }
-
-    if (isEftPayment && paymentIsPending) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
-          <Landmark className="h-4 w-4" />
-          EFT pending
-        </div>
-      );
-    }
-
-    if (paymentIsFailed) {
-      return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700">
-          <XCircle className="h-4 w-4" />
-          Payment failed
-        </div>
-      );
-    }
-
-    return (
-      <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
-        <Clock3 className="h-4 w-4" />
-        Payment pending
-      </div>
-    );
-  };
-
-  const orderBadge = () => {
-    const map: Record<string, string> = {
-      pending: "border-amber-200 bg-amber-50 text-amber-700",
-      confirmed: "border-sky-200 bg-sky-50 text-sky-700",
-      preparing: "border-violet-200 bg-violet-50 text-violet-700",
-      ready_for_delivery: "border-orange-200 bg-orange-50 text-orange-700",
-      on_the_way: "border-indigo-200 bg-indigo-50 text-indigo-700",
-      arrived: "border-cyan-200 bg-cyan-50 text-cyan-700",
-      delivered: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      cancelled: "border-rose-200 bg-rose-50 text-rose-700",
-    };
-
-    return (
-      <div
-        className={`inline-flex rounded-full border px-3 py-1.5 text-sm font-medium ${
-          map[orderStatus] || "border-border bg-muted text-foreground"
-        }`}
-      >
-        {getStatusLabel(orderStatus)}
-      </div>
-    );
   };
 
   if (loading) {
@@ -1286,7 +625,7 @@ export default function OrderTrackingPage() {
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl">
                 <div className="mb-3 flex flex-wrap items-center gap-3">
-                  {orderBadge()}
+                  <OrderStatusBadge status={orderStatus} />
                   <div className="inline-flex rounded-full border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground">
                     Placed {formatDateTime(order.created_at)}
                   </div>
@@ -1511,7 +850,19 @@ export default function OrderTrackingPage() {
               title="Payment"
               description="Secure checkout, provider details, and payment state."
               icon={CreditCard}
-              action={paymentBadge()}
+              action={
+                <PaymentStatusBadge
+                  hasPaymentMismatch={hasPaymentMismatch}
+                  paymentIsPaid={paymentIsPaid}
+                  isEftPayment={isEftPayment}
+                  isCashPayment={isCashPayment}
+                  isDelivered={isDelivered}
+                  cashCollected={cashCollected}
+                  isArrived={isArrived}
+                  paymentIsPending={paymentIsPending}
+                  paymentIsFailed={paymentIsFailed}
+                />
+              }
             >
               <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
                 <div className="rounded-2xl border border-border bg-background p-4">
@@ -1695,33 +1046,12 @@ export default function OrderTrackingPage() {
                     )}
                   </div>
 
-                  <div className="rounded-[22px] border border-border bg-muted/25 p-4">
-                    <div className="space-y-3 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Subtotal</span>
-                        <span className="font-medium text-foreground">{formatCurrency(order.subtotal)}</span>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Delivery fee</span>
-                        <span className="font-medium text-foreground">{formatCurrency(order.delivery_fee)}</span>
-                      </div>
-
-                      {!!Number(order.discount_amount || 0) && (
-                        <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">
-                          <span className="font-medium">Discount</span>
-                          <span className="font-semibold">-{formatCurrency(order.discount_amount)}</span>
-                        </div>
-                      )}
-
-                      <div className="border-t border-border pt-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-base font-semibold text-foreground">Total</span>
-                          <span className="text-xl font-semibold text-primary">{formatCurrency(order.total)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <OrderTotalsCard
+                    subtotal={order.subtotal}
+                    deliveryFee={order.delivery_fee}
+                    discountAmount={order.discount_amount}
+                    total={order.total}
+                  />
                 </div>
               </section>
 
@@ -1749,7 +1079,19 @@ export default function OrderTrackingPage() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                         Payment state
                       </p>
-                      <div className="mt-2">{paymentBadge()}</div>
+                      <div className="mt-2">
+                        <PaymentStatusBadge
+                          hasPaymentMismatch={hasPaymentMismatch}
+                          paymentIsPaid={paymentIsPaid}
+                          isEftPayment={isEftPayment}
+                          isCashPayment={isCashPayment}
+                          isDelivered={isDelivered}
+                          cashCollected={cashCollected}
+                          isArrived={isArrived}
+                          paymentIsPending={paymentIsPending}
+                          paymentIsFailed={paymentIsFailed}
+                        />
+                      </div>
                     </div>
                     <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                       <CreditCard className="h-4 w-4" />

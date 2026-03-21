@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { ArrowRight, Star, Truck, Clock, Shield } from "lucide-react";
-import { getProducts, type Product } from "@/data/products";
 import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
 import { toast } from "@/components/ui/sonner";
 import heroBg from "@/assets/hero-bunny-chow.jpg";
+import { useProducts } from "@/hooks/use-products";
 
 const testimonials = [
   { name: "Thabo M.", text: "Village Eats makes it easy to order for the whole family. Great flavour, generous portions, and reliable delivery.", rating: 5 },
@@ -14,23 +14,15 @@ const testimonials = [
 ];
 
 export default function HomePage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: products = [], isLoading: loading, error } = useProducts();
+  const hasShownErrorRef = useRef(false);
 
   useEffect(() => {
-    const loadProducts = async () => {
-      try {
-        const data = await getProducts();
-        setProducts(data);
-      } catch (err: any) {
-        toast.error(err.message || "Failed to load products");
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!error || hasShownErrorRef.current) return;
 
-    loadProducts();
-  }, []);
+    hasShownErrorRef.current = true;
+    toast.error(error instanceof Error ? error.message : "Failed to load products");
+  }, [error]);
 
   const featured = products.filter((p) => p.isFeatured);
 
