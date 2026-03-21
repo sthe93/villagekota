@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import {
   Loader2,
@@ -20,6 +20,10 @@ import Footer from "@/components/Footer";
 import DeliveryProgressTracker, {
   type DeliveryStatus,
 } from "@/components/DeliveryProgressTracker";
+import {
+  geocodeSouthAfricaAddress,
+  getSouthAfricaDrivingRouteMeta,
+} from "@/lib/maps";
 
 type OrderStatus =
   | "pending"
@@ -225,7 +229,7 @@ export default function DriverPage() {
     )[0];
   }, [myOrders]);
 
-  const loadDriverAndOrders = async () => {
+  const loadDriverAndOrders = useCallback(async () => {
     if (!user) return;
 
     setPageLoading(true);
@@ -287,43 +291,7 @@ export default function DriverPage() {
     }
 
     setPageLoading(false);
-  };
-
-  const geocodeAddress = async (address: string) => {
-    const key = import.meta.env.VITE_MAPTILER_KEY;
-    if (!key) return null;
-
-    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(address)}.json?limit=1&country=za&key=${key}`;
-    const res = await fetch(url);
-    const json = await res.json();
-    const first = json?.features?.[0];
-
-    if (!first?.center) return null;
-
-    return {
-      lng: first.center[0],
-      lat: first.center[1],
-    };
-  };
-
-  const fetchRouteMeta = async (
-    driverLat: number,
-    driverLng: number,
-    destLat: number,
-    destLng: number
-  ) => {
-    const url = `https://router.project-osrm.org/route/v1/driving/${driverLng},${driverLat};${destLng},${destLat}?overview=false`;
-    const res = await fetch(url);
-    const json = await res.json();
-    const route = json?.routes?.[0];
-
-    if (!route) return null;
-
-    return {
-      durationMinutes: Math.round((route.duration || 0) / 60),
-      distanceKm: Number(((route.distance || 0) / 1000).toFixed(1)),
-    };
-  };
+  }, [user]);
 
   const pushLiveLocationUpdate = async (orderId: string, lat: number, lng: number) => {
     const order = orders.find((o) => o.id === orderId);
@@ -333,9 +301,9 @@ export default function DriverPage() {
     let estimated_delivery_time: string | null = null;
 
     if (order?.delivery_address) {
-      const dest = await geocodeAddress(order.delivery_address);
+      const dest = await geocodeSouthAfricaAddress(order.delivery_address);
       if (dest) {
-        const route = await fetchRouteMeta(lat, lng, dest.lat, dest.lng);
+        const route = await getSouthAfricaDrivingRouteMeta(lat, lng, dest.lat, dest.lng);
         if (route) {
           driver_distance_km = route.distanceKm;
           estimated_delivery_time = new Date(Date.now() + route.durationMinutes * 60000).toISOString();
@@ -579,9 +547,9 @@ export default function DriverPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      loadDriverAndOrders();
+      void loadDriverAndOrders();
     }
-  }, [loading, user]);
+  }, [loading, user, loadDriverAndOrders]);
 
   useEffect(() => {
     if (!driver) return;
@@ -622,7 +590,7 @@ export default function DriverPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [driver]);
+  }, [driver, loadDriverAndOrders]);
 
   useEffect(() => {
     return () => {
