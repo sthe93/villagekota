@@ -4,7 +4,7 @@ import { ArrowRight, Star, Truck, Clock, Shield } from "lucide-react";
 import { getProducts, type Product } from "@/data/products";
 import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import heroBg from "@/assets/hero-bunny-chow.jpg";
 
 const testimonials = [

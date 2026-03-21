@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import Footer from "@/components/Footer";
 import DeliveryProgressTracker, {
   type DeliveryStatus,
