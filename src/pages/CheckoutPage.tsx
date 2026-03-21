@@ -17,6 +17,11 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import Footer from "@/components/Footer";
+import {
+  geocodeSouthAfricaAddress,
+  searchSouthAfricaAddresses,
+  type AddressSuggestion,
+} from "@/lib/maps";
 
 type PaymentMethod = "cash" | "card" | "eft";
 type VoucherProvider = "one_voucher" | "ott_voucher" | "blu_voucher" | "instant_money";
@@ -35,11 +40,8 @@ interface VoucherInfo {
   discountAmount: number;
 }
 
-interface AddressSuggestion {
+interface InsertedOrderItemRow {
   id: string;
-  place_name: string;
-  lat: number;
-  lng: number;
 }
 
 type ExtendedPaymentMethod = PaymentMethod | "voucher";
@@ -59,6 +61,11 @@ const VOUCHER_PROVIDER_LABELS: Record<VoucherProvider, string> = {
 };
 
 const ONE_VOUCHER_PIN_REGEX = /^\d{16}$/;
+const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
+
+function getPhoneDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
 
 export default function CheckoutPage() {
   const {
@@ -119,6 +126,38 @@ export default function CheckoutPage() {
     }
   };
 
+  const getCheckoutValidationMessages = () => {
+    const messages: string[] = [];
+    const trimmedName = form.name.trim();
+    const trimmedAddress = form.address.trim();
+    const trimmedEmail = form.email.trim();
+    const phoneDigits = getPhoneDigits(form.phone);
+
+    if (!user) {
+      messages.push("Please sign in before placing your order.");
+    }
+
+    if (!trimmedName) {
+      messages.push("Full name is required.");
+    }
+
+    if (!phoneDigits) {
+      messages.push("Cell phone number is required.");
+    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
+      messages.push("Enter a valid South African cell phone number with 10 digits.");
+    }
+
+    if (!trimmedAddress) {
+      messages.push("Delivery address is required.");
+    }
+
+    if (form.payment === "card" && !trimmedEmail) {
+      messages.push("Email is required for card payments.");
+    }
+
+    return messages;
+  };
+
   const discountAmount = voucherInfo?.discountAmount || 0;
   const adjustedTotal = Math.max(0, total - discountAmount);
   const prepaidVoucherApplied = voucherInfo?.type === "prepaid";
@@ -146,27 +185,7 @@ export default function CheckoutPage() {
     return `Place Order — ${priceFormatter.format(adjustedTotal)}`;
   }, [submitting, form.payment, adjustedTotal, voucherCoversFullOrder, voucherProviderLabel]);
 
-  const geocodeAddress = async (address: string) => {
-    const key = import.meta.env.VITE_MAPTILER_KEY;
-    if (!key) return null;
-
-    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(
-      address
-    )}.json?limit=1&country=za&key=${key}`;
-
-    const res = await fetch(url);
-    const json = await res.json();
-
-    const first = json?.features?.[0];
-    if (!first?.center) return null;
-
-    return {
-      lng: first.center[0],
-      lat: first.center[1],
-    };
-  };
-
-  const searchAddresses = async (query: string) => {
+  const searchAddresses = async (query: string, signal?: AbortSignal) => {
     if (query.trim().length < 3) {
       setAddressSuggestions([]);
       return;
@@ -175,31 +194,13 @@ export default function CheckoutPage() {
     setAddressLoading(true);
 
     try {
-      const key = import.meta.env.VITE_MAPTILER_KEY;
-      if (!key) {
-        setAddressSuggestions([]);
-        return;
-      }
-
-      const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(
-        query
-      )}.json?limit=5&country=za&key=${key}`;
-
-      const res = await fetch(url);
-      const json = await res.json();
-
-      const suggestions: AddressSuggestion[] = (json?.features || []).map(
-        (feature: any, index: number) => ({
-          id: feature.id || `${feature.place_name}-${index}`,
-          place_name: feature.place_name,
-          lat: feature.center[1],
-          lng: feature.center[0],
-        })
-      );
-
+      const suggestions = await searchSouthAfricaAddresses(query, signal);
       setAddressSuggestions(suggestions);
       setShowSuggestions(true);
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
       setAddressSuggestions([]);
     } finally {
       setAddressLoading(false);
@@ -207,20 +208,24 @@ export default function CheckoutPage() {
   };
 
   useEffect(() => {
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       if (
         form.address.trim().length >= 3 &&
         selectedDestination.lat == null &&
         selectedDestination.lng == null
       ) {
-        searchAddresses(form.address);
+        void searchAddresses(form.address, controller.signal);
       } else if (form.address.trim().length < 3) {
         setAddressSuggestions([]);
         setShowSuggestions(false);
       }
     }, 350);
 
-    return () => clearTimeout(timer);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
   }, [form.address, selectedDestination.lat, selectedDestination.lng]);
 
   useEffect(() => {
@@ -267,7 +272,7 @@ export default function CheckoutPage() {
               code: normalizedCode,
               currency: "ZAR",
               customerEmail: form.email.trim() || user.email || null,
-              customerPhone: form.phone.trim() || profile?.phone || null,
+              customerPhone: getPhoneDigits(form.phone) || profile?.phone || null,
             },
           }
         );
@@ -378,18 +383,18 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (!form.name.trim() || !form.phone.trim() || !form.address.trim()) {
-      toast.error("Please fill in all required fields");
+    const validationMessages = getCheckoutValidationMessages();
+    if (validationMessages.length > 0) {
+      toast.error("Unable to place order", {
+        description: validationMessages.join(" • "),
+      });
       return;
     }
 
-    if (!user) {
-      toast.error("Please sign in to place an order");
-      navigate("/auth");
-      return;
-    }
+    if (!user) return;
 
     const customerEmail = form.email.trim() || user.email || "";
+    const customerPhone = getPhoneDigits(form.phone);
 
     if (form.payment === "card" && !customerEmail) {
       toast.error("Email is required for card payments.");
@@ -452,7 +457,7 @@ export default function CheckoutPage() {
       const destination =
         selectedDestination.lat != null && selectedDestination.lng != null
           ? selectedDestination
-          : await geocodeAddress(form.address);
+          : await geocodeSouthAfricaAddress(form.address);
 
       const isProviderVoucherPayment =
         form.payment === "voucher" &&
@@ -496,7 +501,7 @@ export default function CheckoutPage() {
         .insert({
           user_id: user.id,
           customer_name: form.name.trim(),
-          customer_phone: form.phone.trim(),
+          customer_phone: customerPhone,
           customer_email: customerEmail || null,
           delivery_address: form.address.trim(),
           destination_lat: destination?.lat ?? null,
@@ -516,7 +521,7 @@ export default function CheckoutPage() {
 
       if (orderError) throw orderError;
 
-      const { data: insertedOrderItems, error: itemsError } = await (supabase as any)
+      const { data: insertedOrderItemsData, error: itemsError } = await supabase
         .from("order_items")
         .insert(
           orderItems.map((item) => ({
@@ -527,6 +532,7 @@ export default function CheckoutPage() {
         .select("id");
 
       if (itemsError) throw itemsError;
+      const insertedOrderItems = (insertedOrderItemsData || []) as InsertedOrderItemRow[];
 
       for (let index = 0; index < items.length; index++) {
         const insertedOrderItemId = insertedOrderItems?.[index]?.id;
@@ -541,7 +547,7 @@ export default function CheckoutPage() {
           price_delta: option.priceDelta,
         }));
 
-        const { error: optionInsertError } = await (supabase as any)
+        const { error: optionInsertError } = await supabase
           .from("order_item_options")
           .insert(optionRows);
 
@@ -588,7 +594,7 @@ export default function CheckoutPage() {
               orderId: order.id,
               currency: "ZAR",
               customerEmail,
-              customerPhone: form.phone.trim(),
+              customerPhone,
             },
           }
         );
@@ -663,8 +669,8 @@ export default function CheckoutPage() {
       clearCart();
       toast.success("Order placed successfully.");
       navigate(`/order-tracking/${order.id}`);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to place order");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to place order");
     } finally {
       setSubmitting(false);
     }
@@ -816,9 +822,14 @@ export default function CheckoutPage() {
                         type="tel"
                         value={form.phone}
                         onChange={(e) => update("phone", e.target.value)}
+                        placeholder="0XXXXXXXXX"
+                        inputMode="numeric"
                         className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                         required
                       />
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        South African cell phone numbers should be 10 digits.
+                      </p>
                     </div>
 
                     <div>
@@ -881,7 +892,7 @@ export default function CheckoutPage() {
                             key={suggestion.id}
                             type="button"
                             onClick={() => {
-                              setForm((prev) => ({ ...prev, address: suggestion.place_name }));
+                              update("address", suggestion.place_name);
                               setSelectedDestination({
                                 lat: suggestion.lat,
                                 lng: suggestion.lng,
@@ -1013,7 +1024,7 @@ export default function CheckoutPage() {
 
               <button
                 type="submit"
-                disabled={submitting || !user}
+                disabled={submitting}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}

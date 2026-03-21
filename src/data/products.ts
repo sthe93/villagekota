@@ -28,6 +28,31 @@ export const categories: Category[] = [
   "Combos",
 ];
 
+interface CategoryRelation {
+  name: string | null;
+}
+
+interface ProductOptionGroupRelation {
+  id: string;
+  is_active: boolean | null;
+}
+
+interface ProductRow {
+  id: string;
+  name: string | null;
+  description: string | null;
+  price: number | string | null;
+  image_url: string | null;
+  spice_level: number | null;
+  is_available: boolean | null;
+  is_featured: boolean | null;
+  is_popular: boolean | null;
+  rating: number | null;
+  review_count: number | null;
+  categories: CategoryRelation | CategoryRelation[] | null;
+  product_option_groups: ProductOptionGroupRelation[] | null;
+}
+
 function normalizeCategoryName(name: string | null): Category {
   const value = name?.trim();
   return value || "Other";
@@ -41,7 +66,9 @@ function mapSpice(level: number | null): SpiceLevel {
   return "Extra Hot";
 }
 
-function getCategoryName(categoriesField: any): string | null {
+function getCategoryName(
+  categoriesField: CategoryRelation | CategoryRelation[] | null
+): string | null {
   if (!categoriesField) return null;
 
   if (Array.isArray(categoriesField)) {
@@ -75,9 +102,9 @@ export async function getProducts(): Promise<Product[]> {
 
   if (error) throw error;
 
-  return (data || []).map((item: any) => {
+  return ((data || []) as ProductRow[]).map((item) => {
     const activeOptionGroups = Array.isArray(item.product_option_groups)
-      ? item.product_option_groups.filter((group: any) => Boolean(group?.is_active))
+      ? item.product_option_groups.filter((group) => Boolean(group?.is_active))
       : [];
 
     const optionGroupCount = activeOptionGroups.length;
