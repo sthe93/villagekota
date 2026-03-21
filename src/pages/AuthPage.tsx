@@ -3,7 +3,12 @@ import { useAuth } from "@/context/AuthContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import Footer from "@/components/Footer";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  enrollBiometricCredential,
+  getStoredBiometricCredential,
+  isBiometricPlatformAvailable,
+  verifyBiometricCredential,
+} from "@/lib/biometricAuth";
 
 export default function AuthPage() {
   const [submitting, setSubmitting] = useState(false);
@@ -73,6 +78,42 @@ export default function AuthPage() {
           : "Unable to continue with Google"
       );
       setSubmitting(false);
+    }
+  };
+
+  const handleBiometricEnroll = async () => {
+    setBiometricLoading(true);
+
+    try {
+      await enrollBiometricCredential();
+      setBiometricEnrolled(true);
+      toast.success("Biometric sign-in enabled", {
+        description: "You can now use Face ID or fingerprint on this device before Google sign-in.",
+      });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Unable to enable biometric sign-in"
+      );
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
+
+  const handleBiometricSignIn = async () => {
+    setBiometricLoading(true);
+
+    try {
+      await verifyBiometricCredential();
+      toast.success("Biometric check complete", {
+        description: "Device verification passed. Continue with your Google account.",
+      });
+      await handleGoogleSignIn();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Biometric verification failed"
+      );
+    } finally {
+      setBiometricLoading(false);
     }
   };
 
