@@ -67,6 +67,7 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const merchantId = Deno.env.get("PAYFAST_MERCHANT_ID");
     const merchantKey = Deno.env.get("PAYFAST_MERCHANT_KEY");
+    const merchantEmail = (Deno.env.get("PAYFAST_MERCHANT_EMAIL") || "").trim().toLowerCase();
     const passphrase = Deno.env.get("PAYFAST_PASSPHRASE") || "";
     const isSandbox = Deno.env.get("PAYFAST_SANDBOX") === "true";
     const configuredAppBaseUrl = normalizeBaseUrl(Deno.env.get("APP_BASE_URL"));
@@ -79,7 +80,7 @@ Deno.serve(async (req) => {
     }
 
     const requestOrigin = normalizeBaseUrl(req.headers.get("origin"));
-    const appBaseUrl = configuredAppBaseUrl || requestOrigin;
+    const appBaseUrl = requestOrigin || configuredAppBaseUrl;
 
     if (!appBaseUrl) {
       return new Response(
@@ -96,6 +97,20 @@ Deno.serve(async (req) => {
     if (!body.orderId || !body.total || !body.customerEmail || !body.itemName) {
       return new Response(
         JSON.stringify({ error: "Missing required fields" }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    if (
+      isSandbox &&
+      merchantEmail &&
+      body.customerEmail.trim().toLowerCase() === merchantEmail
+    ) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "PayFast sandbox cannot process payments when the customer email matches the merchant account. Use a separate buyer sandbox account/email to test checkout.",
+        }),
         { status: 400, headers: corsHeaders }
       );
     }

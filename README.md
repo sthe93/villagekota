@@ -87,4 +87,5 @@ npm run test
 ## Notes
 
 - Card checkout currently uses PayFast from the checkout page.
+- In PayFast sandbox mode, test with a buyer account/email that is different from the merchant account or PayFast will reject the payment as a same-account transaction.
 - There is still a legacy Stripe edge function in the repo; keep documentation and deployment configuration aligned with the payment providers you actually use.
