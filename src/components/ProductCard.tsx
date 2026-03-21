@@ -216,7 +216,7 @@ export default function ProductCard({ product }: { product: Product }) {
                   ) : (
                     <ShoppingBag className="h-4 w-4" />
                   )}
-                  {hasCustomisation ? "Customize & add" : "Add to cart"}
+                  {hasCustomisation ? "Customise & add" : "Add to cart"}
                 </>
               ) : (
                 <>
