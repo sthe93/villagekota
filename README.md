@@ -63,10 +63,9 @@ The `create-payfast-checkout` function requires these environment variables:
 - `PAYFAST_MERCHANT_KEY`
 - `PAYFAST_PASSPHRASE` (optional if your PayFast account uses one)
 - `PAYFAST_SANDBOX` (`true` for sandbox, otherwise production)
-- `APP_BASE_URL` (optional fallback if the incoming request origin is unavailable)
-- `PAYFAST_MERCHANT_EMAIL` (recommended for sandbox validation so the checkout function can reject same-account test payments early)
+- `APP_BASE_URL` (recommended for production so payment return and cancel URLs always point to the correct frontend)
 
-The checkout function uses the incoming request origin first and only falls back to `APP_BASE_URL` when needed, which helps keep PayFast return and cancel URLs aligned with the actual frontend domain.
+If `APP_BASE_URL` is not set, the edge function will fall back to the incoming request origin when it is valid.
 
 ## Database
 
