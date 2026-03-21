@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   SlidersHorizontal,
@@ -10,10 +10,11 @@ import {
   ChefHat,
   Tag,
 } from "lucide-react";
-import { getProducts, type Category, type SpiceLevel, type Product } from "@/data/products";
+import { type Category, type SpiceLevel } from "@/data/products";
 import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
 import { toast } from "@/components/ui/sonner";
+import { useProducts } from "@/hooks/use-products";
 
 const sortOptions = [
   { value: "default", label: "Recommended" },
@@ -41,28 +42,20 @@ function sortCategories(categories: string[]) {
 }
 
 export default function MenuPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: products = [], isLoading: loading, error, refetch, isFetching } = useProducts();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<Category | "All">("All");
   const [activeSpice, setActiveSpice] = useState<FilterSpiceLevel | "All">("All");
   const [sortBy, setSortBy] = useState<SortOption>("default");
   const [showFilters, setShowFilters] = useState(false);
+  const hasShownErrorRef = useRef(false);
 
   useEffect(() => {
-    const loadProducts = async () => {
-      try {
-        const data = await getProducts();
-        setProducts(data);
-      } catch (err: any) {
-        toast.error(err.message || "Failed to load products");
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!error || hasShownErrorRef.current) return;
 
-    void loadProducts();
-  }, []);
+    hasShownErrorRef.current = true;
+    toast.error(error instanceof Error ? error.message : "Failed to load products");
+  }, [error]);
 
   const featuredCount = useMemo(
     () => products.filter((p) => p.isFeatured).length,
@@ -443,11 +436,14 @@ export default function MenuPage() {
 
             {hasActiveFilters && (
               <button
-                onClick={clearFilters}
+                onClick={() => {
+                  clearFilters();
+                  void refetch();
+                }}
                 className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Clear all
+                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+                {isFetching ? "Refreshing..." : "Clear all"}
               </button>
             )}
           </div>
