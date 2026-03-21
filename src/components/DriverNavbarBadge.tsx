@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Truck, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,11 +19,10 @@ export default function DriverNavbarBadge() {
   const [driver, setDriver] = useState<DriverRecord | null>(null);
   const [availableCount, setAvailableCount] = useState(0);
   const [checking, setChecking] = useState(true);
-  const knownAvailableIdsRef = useRef<string[]>([]);
 
   const isReady = useMemo(() => !loading && !checking, [loading, checking]);
 
-  const loadDriverAndCount = async () => {
+  const loadDriverAndCount = useCallback(async () => {
     if (!user) {
       setDriver(null);
       setAvailableCount(0);
@@ -57,15 +56,14 @@ export default function DriverNavbarBadge() {
 
     const rows = (orderData || []) as OrderRow[];
     setAvailableCount(rows.length);
-    knownAvailableIdsRef.current = rows.map((row) => row.id);
     setChecking(false);
-  };
+  }, [user]);
 
   useEffect(() => {
     if (!loading) {
-      loadDriverAndCount();
+      void loadDriverAndCount();
     }
-  }, [loading, user]);
+  }, [loading, loadDriverAndCount]);
 
   useEffect(() => {
     if (!driver) return;
@@ -84,7 +82,6 @@ export default function DriverNavbarBadge() {
 
           const rows = (data || []) as OrderRow[];
           setAvailableCount(rows.length);
-          knownAvailableIdsRef.current = rows.map((row) => row.id);
         }
       )
       .subscribe();
