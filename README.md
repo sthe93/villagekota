@@ -1,6 +1,6 @@
-# Village Eats
+# Village Kota
 
-Village Eats is a React + Vite food ordering app backed by Supabase. Customers can browse a broad menu, customise items, place delivery orders, and track orders, while admins and drivers can manage fulfilment workflows. The current payment flow uses PayFast for card payments and supports EFT and cash on delivery paths in the UI.
+Village Kota is a React + Vite food ordering app backed by Supabase. Customers can browse the menu, customise items, place delivery orders, and track orders, while admins and drivers can manage fulfilment workflows. The current payment flow uses PayFast for card payments and supports EFT and cash on delivery paths in the UI.
 
 ## Tech stack
 

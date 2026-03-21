@@ -48,6 +48,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return `${window.location.origin}${basePath}${path}`;
   };
 
+  const fetchProfile = async (userId: string) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
+    setProfile(data);
+  };
+
   const resetAuthState = useCallback(() => {
     setProfile(null);
     setIsAdmin(false);
@@ -136,7 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: error as Error | null };
   }, []);
 
-  const signInWithGoogle = useCallback(async () => {
+  const signInWithGoogle = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -149,43 +158,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return { error: error as Error | null };
-  }, []);
+  };
 
-  const signOut = useCallback(async () => {
+  const signOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
     resetAuthState();
   }, [resetAuthState]);
 
-  const value = useMemo(
-    () => ({
-      user,
-      session,
-      profile,
-      isAdmin,
-      isDriver,
-      postLoginPath: getPostLoginPath(isAdmin, isDriver),
-      loading,
-      signUp,
-      signIn,
-      signInWithGoogle,
-      signOut,
-      refreshProfile,
-    }),
-    [
-      user,
-      session,
-      profile,
-      isAdmin,
-      isDriver,
-      loading,
-      signUp,
-      signIn,
-      signInWithGoogle,
-      signOut,
-      refreshProfile,
-    ]
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        profile,
+        isAdmin,
+        loading,
+        signUp,
+        signIn,
+        signInWithGoogle,
+        signOut,
+        refreshProfile,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
