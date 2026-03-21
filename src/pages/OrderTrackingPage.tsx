@@ -11,7 +11,6 @@ import {
   ShieldCheck,
   Truck,
   UserRound,
-  XCircle,
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,10 +28,8 @@ import {
 } from "@/features/order-tracking/api";
 import {
   InfoTile,
-  MetricCard,
   OrderStatusBadge,
   OrderTotalsCard,
-  PaymentStatusBadge,
   SectionCard,
 } from "@/features/order-tracking/components";
 import type {
@@ -208,14 +205,6 @@ export default function OrderTrackingPage() {
     paymentIsPaid,
   ]);
 
-  const summaryIcon = useMemo(() => {
-    return getSummaryIcon(orderStatus);
-  }, [orderStatus]);
-
-  const summaryTone = useMemo(() => {
-    return getSummaryTone(orderStatus);
-  }, [orderStatus]);
-
   const paymentBanner = useMemo<PaymentBanner | null>(() => {
     return getPaymentBanner({
       order,
@@ -300,13 +289,6 @@ export default function OrderTrackingPage() {
 
         lastOrderSnapshotRef.current = nextSnapshot;
         setLastSyncAt(new Date().toISOString());
-
-        if (showRefreshToast) {
-          toast.success("Tracking updated", {
-            description: "Latest order, payment, and driver details have been loaded.",
-            duration: 2200,
-          });
-        }
       } catch (error: unknown) {
         toast.error(error instanceof Error ? error.message : "Failed to load order");
       } finally {
@@ -754,137 +736,6 @@ export default function OrderTrackingPage() {
                 </div>
               </div>
             </SectionCard>
-
-            <SectionCard
-              title="Customer & Delivery"
-              description="Delivery address, customer details, and order notes."
-              icon={MapPinned}
-            >
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl border border-border bg-background p-4 text-sm">
-                  <p className="mb-1 text-muted-foreground">Customer</p>
-                  <p className="font-medium text-foreground">{order.customer_name}</p>
-                  {order.customer_phone && <p className="text-foreground">{order.customer_phone}</p>}
-                  {order.customer_email && <p className="break-all text-foreground">{order.customer_email}</p>}
-                </div>
-
-                <div className="rounded-2xl border border-border bg-background p-4 text-sm">
-                  <p className="mb-1 text-muted-foreground">Delivery address</p>
-                  <div className="flex items-start gap-2">
-                    <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <p className="whitespace-pre-line font-medium text-foreground">
-                      {order.delivery_address || "No address provided"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {order.notes && (
-                <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm">
-                  <p className="mb-1 text-muted-foreground">Notes</p>
-                  <p className="whitespace-pre-line leading-6 text-foreground">{order.notes}</p>
-                </div>
-              )}
-            </SectionCard>
-
-            <SectionCard
-              title="Payment"
-              description="Secure checkout, provider details, and payment state."
-              icon={CreditCard}
-              action={
-                <PaymentStatusBadge
-                  hasPaymentMismatch={hasPaymentMismatch}
-                  paymentIsPaid={paymentIsPaid}
-                  isEftPayment={isEftPayment}
-                  isCashPayment={isCashPayment}
-                  isDelivered={isDelivered}
-                  cashCollected={cashCollected}
-                  isArrived={isArrived}
-                  paymentIsPending={paymentIsPending}
-                  paymentIsFailed={paymentIsFailed}
-                />
-              }
-            >
-              <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="mb-1 text-muted-foreground">Payment method</p>
-                  <p className="font-medium capitalize text-foreground">{order.payment_method || "N/A"}</p>
-                </div>
-
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="mb-1 text-muted-foreground">Payment provider</p>
-                  <p className="font-medium text-foreground">{order.payment_provider || "N/A"}</p>
-                </div>
-
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="mb-1 text-muted-foreground">Payment reference</p>
-                  <p className="break-all font-medium text-foreground">
-                    {order.payment_reference || "Not available yet"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <p className="mb-1 text-muted-foreground">Amount</p>
-                  <p className="font-medium text-foreground">{formatCurrency(order.total)}</p>
-                </div>
-              </div>
-
-              {canRetryPayment && !paymentIsPaid && (
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-muted/40 p-4">
-                  <div>
-                    <p className="font-medium text-foreground">Complete your payment</p>
-                    <p className="text-sm text-muted-foreground">
-                      Retry payment is available only while the order is still pending or cancelled.
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={handleRetryPayment}
-                    disabled={retryingPayment}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    {retryingPayment ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <CreditCard className="h-4 w-4" />
-                    )}
-                    {retryingPayment ? "Starting payment..." : "Retry Payment"}
-                  </button>
-                </div>
-              )}
-            </SectionCard>
-
-            {milestones.length > 0 && (
-              <SectionCard
-                title="Milestones"
-                description="Important delivery timestamps recorded for this order."
-                icon={Clock3}
-              >
-                <div className="space-y-3">
-                  {milestones.map((milestone) => {
-                    const Icon = milestone.icon;
-
-                    return (
-                      <div
-                        key={milestone.label}
-                        className="flex items-start gap-3 rounded-2xl border border-border bg-background p-4"
-                      >
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                          <Icon className="h-4 w-4" />
-                        </div>
-
-                        <div>
-                          <p className="font-medium text-foreground">{milestone.label}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {formatDateTime(milestone.value)}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </SectionCard>
-            )}
           </div>
 
           <div className="xl:col-span-2">
@@ -996,6 +847,40 @@ export default function OrderTrackingPage() {
                 </div>
               </section>
 
+              <section className="overflow-hidden rounded-[28px] border border-border bg-card shadow-card">
+                <div className="border-b border-border bg-muted/30 px-5 py-5">
+                  <h2 className="text-xl font-semibold text-foreground">Order details</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Secondary information like payment records, delivery notes, and timeline history.
+                  </p>
+                </div>
+
+                <div className="px-5">
+                  <Accordion type="multiple" className="w-full">
+                    <AccordionItem value="customer">
+                      <AccordionTrigger className="text-left text-foreground">
+                        Customer & delivery details
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div className="rounded-2xl border border-border bg-background p-4 text-sm">
+                            <p className="mb-1 text-muted-foreground">Customer</p>
+                            <p className="font-medium text-foreground">{order.customer_name}</p>
+                            {order.customer_phone && <p className="text-foreground">{order.customer_phone}</p>}
+                            {order.customer_email && <p className="break-all text-foreground">{order.customer_email}</p>}
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-background p-4 text-sm">
+                            <p className="mb-1 text-muted-foreground">Delivery address</p>
+                            <div className="flex items-start gap-2">
+                              <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                              <p className="whitespace-pre-line font-medium text-foreground">
+                                {order.delivery_address || "No address provided"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
                         {order.notes && (
                           <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm">
                             <p className="mb-1 text-muted-foreground">Notes</p>
@@ -1021,30 +906,78 @@ export default function OrderTrackingPage() {
                             <p className="font-medium text-foreground">{order.payment_provider || "N/A"}</p>
                           </div>
 
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                        Payment state
-                      </p>
-                      <div className="mt-2">
-                        <PaymentStatusBadge
-                          hasPaymentMismatch={hasPaymentMismatch}
-                          paymentIsPaid={paymentIsPaid}
-                          isEftPayment={isEftPayment}
-                          isCashPayment={isCashPayment}
-                          isDelivered={isDelivered}
-                          cashCollected={cashCollected}
-                          isArrived={isArrived}
-                          paymentIsPending={paymentIsPending}
-                          paymentIsFailed={paymentIsFailed}
-                        />
-                      </div>
-                    </div>
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <CreditCard className="h-4 w-4" />
-                    </div>
-                  </div>
+                          <div className="rounded-2xl border border-border bg-background p-4">
+                            <p className="mb-1 text-muted-foreground">Payment reference</p>
+                            <p className="break-all font-medium text-foreground">
+                              {order.payment_reference || "Not available yet"}
+                            </p>
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-background p-4">
+                            <p className="mb-1 text-muted-foreground">Amount</p>
+                            <p className="font-medium text-foreground">{formatCurrency(order.total)}</p>
+                          </div>
+                        </div>
+
+                        {canRetryPayment && !paymentIsPaid && (
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-muted/40 p-4">
+                            <div>
+                              <p className="font-medium text-foreground">Complete your payment</p>
+                              <p className="text-sm text-muted-foreground">
+                                Retry payment is available only while the order is still pending or cancelled.
+                              </p>
+                            </div>
+
+                            <button
+                              onClick={handleRetryPayment}
+                              disabled={retryingPayment}
+                              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                            >
+                              {retryingPayment ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <CreditCard className="h-4 w-4" />
+                              )}
+                              {retryingPayment ? "Starting payment..." : "Retry Payment"}
+                            </button>
+                          </div>
+                        )}
+                      </AccordionContent>
+                    </AccordionItem>
+
+                    {milestones.length > 0 && (
+                      <AccordionItem value="history">
+                        <AccordionTrigger className="text-left text-foreground">
+                          Delivery history
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="space-y-3">
+                            {milestones.map((milestone) => {
+                              const Icon = milestone.icon;
+
+                              return (
+                                <div
+                                  key={milestone.label}
+                                  className="flex items-start gap-3 rounded-2xl border border-border bg-background p-4"
+                                >
+                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                                    <Icon className="h-4 w-4" />
+                                  </div>
+
+                                  <div>
+                                    <p className="font-medium text-foreground">{milestone.label}</p>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                      {formatDateTime(milestone.value)}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    )}
+                  </Accordion>
                 </div>
               </section>
 
