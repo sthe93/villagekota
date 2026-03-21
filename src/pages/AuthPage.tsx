@@ -48,14 +48,14 @@ export default function AuthPage() {
               WELCOME
             </h1>
             <p className="text-muted-foreground font-body text-sm">
-              Continue with Google to access Village Kota
+              Continue with Google to access Village Eats
             </p>
           </div>
 
           <div className="bg-card rounded-lg border border-border p-6 space-y-4">
             <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground font-body">
               Google sign-in is currently the active login method. Continue with
-              your Google account to sign in or create your account.
+              your Google account to sign in or create your Village Eats account.
             </div>
 
             <button

@@ -15,7 +15,8 @@ export default function Footer() {
           </div>
 
           <p className="text-sm leading-7 text-secondary-foreground/85 font-body max-w-xs">
-            Premium Bunny Chow & Kota delivery, inspired by bold local flavour and elevated with a refined Village Eats experience.
+            Village Eats brings together bold local flavour, comfort food favourites, and
+            everyday meal options in one elevated delivery experience.
           </p>
         </div>
 

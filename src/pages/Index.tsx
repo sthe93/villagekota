@@ -8,9 +8,9 @@ import { toast } from "@/components/ui/sonner";
 import heroBg from "@/assets/hero-bunny-chow.jpg";
 
 const testimonials = [
-  { name: "Thabo M.", text: "Best kota in Joburg! The flavours are incredible and delivery is fast.", rating: 5 },
-  { name: "Naledi S.", text: "The Chicken Bunny Chow is to die for. Ordering every weekend now!", rating: 5 },
-  { name: "James P.", text: "Finally, a premium kota experience. Quality you can taste in every bite.", rating: 5 },
+  { name: "Thabo M.", text: "Village Eats makes it easy to order for the whole family. Great flavour, generous portions, and reliable delivery.", rating: 5 },
+  { name: "Naledi S.", text: "Love the variety. From bunny chow to hearty meals and drinks, it feels like one app for every craving.", rating: 5 },
+  { name: "James P.", text: "Premium food, smooth ordering, and a menu that goes way beyond one type of dish. Exactly what our area needed.", rating: 5 },
 ];
 
 export default function HomePage() {
@@ -38,7 +38,7 @@ export default function HomePage() {
     <div>
       <section className="relative min-h-[70vh] flex items-center">
         <div className="absolute inset-0">
-          <img src={heroBg} alt="Bunny Chow" className="w-full h-full object-cover" />
+          <img src={heroBg} alt="Village Eats food selection" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-r from-secondary/90 via-secondary/70 to-secondary/30" />
         </div>
         <div className="container relative z-10 py-20">
@@ -47,11 +47,11 @@ export default function HomePage() {
               🔥 Now Delivering in Joburg
             </span>
             <h1 className="font-display text-5xl sm:text-7xl text-primary-foreground leading-none mb-4">
-  SOUTH AFRICA'S <br />
-  <span className="text-primary">FINEST</span>
-</h1>
+              VILLAGE EATS, <br />
+              <span className="text-primary">ALL YOUR FAVOURITES</span>
+            </h1>
             <p className="text-primary-foreground/70 text-lg mb-8 font-body max-w-md">
-              Premium Bunny Chow & Kota delivered to your door. Authentic street food, crafted with soul.
+              From street-food classics to hearty meals, sides, and drinks, Village Eats brings bold flavour straight to your door.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
@@ -98,7 +98,7 @@ export default function HomePage() {
       <section id="featured" className="container py-16">
         <div className="text-center mb-10">
           <h2 className="font-display text-4xl sm:text-5xl text-foreground mb-2">FEATURED MEALS</h2>
-          <p className="text-muted-foreground font-body">Our most loved creations, handpicked for you</p>
+          <p className="text-muted-foreground font-body">Popular picks from across the Village Eats menu</p>
         </div>
 
         {loading ? (
@@ -145,7 +145,7 @@ export default function HomePage() {
       <section className="container py-16 text-center">
         <h2 className="font-display text-4xl sm:text-5xl text-foreground mb-4">HUNGRY YET?</h2>
         <p className="text-muted-foreground mb-8 font-body max-w-md mx-auto">
-          Order now and get your favourite Kota or Bunny Chow delivered hot to your door.
+          Explore the Village Eats menu and get your next meal, snack, or favourite comfort-food fix delivered hot to your door.
         </p>
         <Link
           to="/menu"
