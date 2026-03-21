@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import {
   Package,
   ShoppingBag,
@@ -86,6 +86,21 @@ interface Driver {
   name: string;
   phone: string | null;
   is_active: boolean;
+  auth_user_id: string | null;
+}
+
+interface UserProfile {
+  id: string;
+  user_id: string;
+  display_name: string | null;
+  email: string | null;
+  phone: string | null;
+  created_at: string;
+}
+
+interface UserRoleRow {
+  user_id: string;
+  role: "admin" | "user";
 }
 
 interface OrderItemRow {
@@ -117,6 +132,19 @@ interface TopItem {
   name: string;
   qty: number;
   revenue: number;
+}
+
+interface ManagedUser {
+  user_id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  created_at: string;
+  totalOrders: number;
+  totalSpent: number;
+  lastOrderAt: string | null;
+  isAdmin: boolean;
+  assignedDriver: Driver | null;
 }
 
 type AdminTab =
@@ -267,6 +295,8 @@ export default function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
+  const [userRoles, setUserRoles] = useState<UserRoleRow[]>([]);
   const [orderItems, setOrderItems] = useState<OrderItemRow[]>([]);
 
   const [editingProduct, setEditingProduct] = useState<Partial<DbProduct> | null>(null);
@@ -313,6 +343,8 @@ export default function AdminPage() {
         fetchCategories(),
         fetchVouchers(),
         fetchDrivers(),
+        fetchProfiles(),
+        fetchUserRoles(),
         fetchOrderItems(),
       ]);
     } finally {
@@ -356,10 +388,27 @@ export default function AdminPage() {
   const fetchDrivers = async () => {
     const { data, error } = await supabase
       .from("drivers")
-      .select("id, name, phone, is_active")
+      .select("id, name, phone, is_active, auth_user_id")
       .order("name");
     if (error) toast.error(error.message);
     setDrivers((data || []) as Driver[]);
+  };
+
+  const fetchProfiles = async () => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, user_id, display_name, email, phone, created_at")
+      .order("created_at", { ascending: false });
+    if (error) toast.error(error.message);
+    setProfiles((data || []) as UserProfile[]);
+  };
+
+  const fetchUserRoles = async () => {
+    const { data, error } = await supabase
+      .from("user_roles")
+      .select("user_id, role");
+    if (error) toast.error(error.message);
+    setUserRoles((data || []) as UserRoleRow[]);
   };
 
   const fetchOrderItems = async () => {
@@ -540,6 +589,60 @@ export default function AdminPage() {
     }
   };
 
+  const handleToggleAdminRole = async (userId: string, makeAdmin: boolean) => {
+    if (makeAdmin) {
+      const { error } = await supabase.from("user_roles").insert({ user_id: userId, role: "admin" });
+      if (error) {
+        toast.error(error.message || "Failed to grant admin role");
+        return;
+      }
+      toast.success("Admin role assigned");
+    } else {
+      const { error } = await supabase
+        .from("user_roles")
+        .delete()
+        .eq("user_id", userId)
+        .eq("role", "admin");
+      if (error) {
+        toast.error(error.message || "Failed to remove admin role");
+        return;
+      }
+      toast.success("Admin role removed");
+    }
+
+    fetchUserRoles();
+  };
+
+  const handleAssignDriverToUser = async (userId: string, driverId: string | null) => {
+    const { error: clearExistingForUserError } = await supabase
+      .from("drivers")
+      .update({ auth_user_id: null })
+      .eq("auth_user_id", userId);
+
+    if (clearExistingForUserError) {
+      toast.error(clearExistingForUserError.message || "Failed to clear driver assignment");
+      return;
+    }
+
+    if (driverId) {
+      const { error: assignError } = await supabase
+        .from("drivers")
+        .update({ auth_user_id: userId })
+        .eq("id", driverId);
+
+      if (assignError) {
+        toast.error(assignError.message || "Failed to assign driver profile");
+        return;
+      }
+
+      toast.success("Driver profile assigned");
+    } else {
+      toast.success("Driver profile removed");
+    }
+
+    fetchDrivers();
+  };
+
   const filteredAdminOrders = useMemo(() => {
     return orders.filter((o) => {
       const searchTerm = orderSearch.trim().toLowerCase();
@@ -667,6 +770,49 @@ export default function AdminPage() {
     );
   }, [orders]);
 
+  const adminUserIds = useMemo(() => {
+    return new Set(userRoles.filter((role) => role.role === "admin").map((role) => role.user_id));
+  }, [userRoles]);
+
+  const driverByUserId = useMemo(() => {
+    const map = new Map<string, Driver>();
+    drivers.forEach((driver) => {
+      if (driver.auth_user_id) {
+        map.set(driver.auth_user_id, driver);
+      }
+    });
+    return map;
+  }, [drivers]);
+
+  const managedUsers = useMemo<ManagedUser[]>(() => {
+    const customerByKey = new Map<string, CustomerSummary>();
+
+    customers.forEach((customer) => {
+      if (customer.email) customerByKey.set(`email:${customer.email.toLowerCase()}`, customer);
+      if (customer.phone) customerByKey.set(`phone:${customer.phone}`, customer);
+    });
+
+    return profiles.map((profile) => {
+      const customerMatch =
+        (profile.email && customerByKey.get(`email:${profile.email.toLowerCase()}`)) ||
+        (profile.phone && customerByKey.get(`phone:${profile.phone}`)) ||
+        null;
+
+      return {
+        user_id: profile.user_id,
+        name: profile.display_name || profile.email || profile.phone || "Unnamed user",
+        email: profile.email,
+        phone: profile.phone,
+        created_at: profile.created_at,
+        totalOrders: customerMatch?.totalOrders || 0,
+        totalSpent: customerMatch?.totalSpent || 0,
+        lastOrderAt: customerMatch?.lastOrderAt || null,
+        isAdmin: adminUserIds.has(profile.user_id),
+        assignedDriver: driverByUserId.get(profile.user_id) || null,
+      };
+    });
+  }, [adminUserIds, customers, driverByUserId, profiles]);
+
   const categoryNameById = useMemo(() => {
     const map = new Map<string, string>();
     categories.forEach((c) => map.set(c.id, c.name));
@@ -692,7 +838,7 @@ export default function AdminPage() {
   const filteredCustomers = useMemo(() => {
     const term = customerSearch.trim().toLowerCase();
 
-    return customers.filter((c) => {
+    return managedUsers.filter((c) => {
       return (
         !term ||
         c.name.toLowerCase().includes(term) ||
@@ -700,7 +846,7 @@ export default function AdminPage() {
         (c.phone || "").toLowerCase().includes(term)
       );
     });
-  }, [customers, customerSearch]);
+  }, [managedUsers, customerSearch]);
 
   const filteredVouchers = useMemo(() => {
     const term = voucherSearch.trim().toLowerCase();
@@ -766,7 +912,7 @@ export default function AdminPage() {
     { key: "products", label: "Products", icon: Package },
     { key: "categories", label: "Categories", icon: Tags },
     { key: "vouchers", label: "Vouchers", icon: TicketPercent },
-    { key: "customers", label: "Customers", icon: Users },
+    { key: "customers", label: "Users", icon: Users },
     { key: "drivers", label: "Drivers", icon: Bike },
   ] as const;
 
@@ -781,7 +927,7 @@ export default function AdminPage() {
             <div>
               <p className="font-medium text-foreground">Loading admin dashboard...</p>
               <p className="text-sm text-muted-foreground">
-                Fetching products, orders, vouchers, and drivers
+                Fetching products, orders, vouchers, drivers, and users
               </p>
             </div>
           </div>
@@ -802,7 +948,7 @@ export default function AdminPage() {
               Admin Dashboard
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Manage orders, products, categories, vouchers, customers, and drivers.
+              Manage orders, products, categories, vouchers, users, and drivers.
             </p>
           </div>
 
@@ -2028,7 +2174,7 @@ export default function AdminPage() {
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
-                  placeholder="Search customers by name, email, or phone"
+                  placeholder="Search users by name, email, or phone"
                   value={customerSearch}
                   onChange={(e) => setCustomerSearch(e.target.value)}
                   className={`${inputClassName} pl-10`}
@@ -2039,19 +2185,31 @@ export default function AdminPage() {
             {filteredCustomers.length === 0 ? (
               <EmptyState
                 icon={<Users className="h-5 w-5" />}
-                title="No customers found"
-                description="Customers will appear here after orders are placed."
+                title="No users found"
+                description="Users will appear here after they sign in for the first time."
               />
             ) : (
               <div className="space-y-3">
                 {filteredCustomers.map((c) => (
                   <div
-                    key={c.key}
+                    key={c.user_id}
                     className="rounded-3xl border border-border bg-card p-4 shadow-sm"
                   >
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                       <div className="min-w-0">
                         <p className="text-base font-semibold text-foreground">{c.name}</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {c.isAdmin ? (
+                            <Badge className="border-blue-200 bg-blue-50 text-blue-700">Admin</Badge>
+                          ) : (
+                            <Badge className="border-border bg-muted text-muted-foreground">User</Badge>
+                          )}
+                          {c.assignedDriver ? (
+                            <Badge className="border-orange-200 bg-orange-50 text-orange-700">
+                              Driver · {c.assignedDriver.name}
+                            </Badge>
+                          ) : null}
+                        </div>
                         <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                           <p className="flex items-center gap-2">
                             <Phone className="h-4 w-4" />
@@ -2064,28 +2222,86 @@ export default function AdminPage() {
                           <p className="flex items-center gap-2">
                             <Clock3 className="h-4 w-4" />
                             <span>
-                              Last order: {new Date(c.lastOrderAt).toLocaleString("en-ZA")}
+                              Last order: {c.lastOrderAt ? new Date(c.lastOrderAt).toLocaleString("en-ZA") : "No orders yet"}
                             </span>
                           </p>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 sm:min-w-[260px]">
-                        <div className="rounded-2xl border border-border bg-background/50 p-4 text-center">
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                            Orders
-                          </p>
-                          <p className="mt-1 font-display text-2xl text-foreground">
-                            {c.totalOrders}
-                          </p>
+                      <div className="space-y-3 sm:min-w-[320px]">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-2xl border border-border bg-background/50 p-4 text-center">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                              Orders
+                            </p>
+                            <p className="mt-1 font-display text-2xl text-foreground">
+                              {c.totalOrders}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-border bg-background/50 p-4 text-center">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                              Spent
+                            </p>
+                            <p className="mt-1 font-display text-2xl text-primary">
+                              {currency(c.totalSpent)}
+                            </p>
+                          </div>
                         </div>
-                        <div className="rounded-2xl border border-border bg-background/50 p-4 text-center">
+
+                        <div className="rounded-2xl border border-border bg-background/50 p-4">
                           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                            Spent
+                            Admin Access
                           </p>
-                          <p className="mt-1 font-display text-2xl text-primary">
-                            {currency(c.totalSpent)}
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">
+                                {c.isAdmin ? "Administrator" : "Standard user"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Toggle admin access for this user account.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleAdminRole(c.user_id, !c.isAdmin)}
+                              className={`inline-flex min-w-28 items-center justify-center rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                                c.isAdmin
+                                  ? "bg-blue-600 text-white hover:bg-blue-700"
+                                  : "border border-border bg-background text-foreground hover:bg-muted"
+                              }`}
+                            >
+                              {c.isAdmin ? "Remove Admin" : "Make Admin"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-border bg-background/50 p-4">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Driver Profile
                           </p>
+                          <div className="mt-3 space-y-2">
+                            <select
+                              value={c.assignedDriver?.id || ""}
+                              onChange={(e) => handleAssignDriverToUser(c.user_id, e.target.value || null)}
+                              className={selectClassName}
+                            >
+                              <option value="">No driver profile</option>
+                              {drivers.map((driver) => {
+                                const isAssignedElsewhere =
+                                  !!driver.auth_user_id && driver.auth_user_id !== c.user_id;
+
+                                return (
+                                  <option key={driver.id} value={driver.id} disabled={isAssignedElsewhere}>
+                                    {driver.name}
+                                    {isAssignedElsewhere ? " — linked to another user" : ""}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <p className="text-xs text-muted-foreground">
+                              Link this user account to a driver profile so they can access the driver page.
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>

@@ -375,6 +375,7 @@ export type Database = {
           is_active: boolean | null
           max_uses: number | null
           min_order: number | null
+          provider: string | null
           type: string
           used_count: number | null
           value: number
@@ -388,6 +389,7 @@ export type Database = {
           is_active?: boolean | null
           max_uses?: number | null
           min_order?: number | null
+          provider?: string | null
           type: string
           used_count?: number | null
           value: number
@@ -401,6 +403,7 @@ export type Database = {
           is_active?: boolean | null
           max_uses?: number | null
           min_order?: number | null
+          provider?: string | null
           type?: string
           used_count?: number | null
           value?: number
