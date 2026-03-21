@@ -8,36 +8,46 @@ import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import CartFAB from "@/components/CartFAB";
 import Index from "./pages/Index";
-import MenuPage from "./pages/MenuPage";
-import CheckoutPage from "./pages/CheckoutPage";
-import AuthPage from "./pages/AuthPage";
-import AccountPage from "./pages/AccountPage";
-import AdminPage from "./pages/AdminPage";
-import OrderTrackingPage from "./pages/OrderTrackingPage";
-import AdminOrdersPage from "@/pages/AdminOrdersPage";
-import DriverPage from "@/pages/DriverPage";
-import PaymentSuccessPage from "./pages/PaymentSuccessPage";
-import PaymentCancelPage from "./pages/PaymentCancelPage";
 import NotFound from "./pages/NotFound";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
+const MenuPage = lazy(() => import("./pages/MenuPage"));
+const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
+const AuthPage = lazy(() => import("./pages/AuthPage"));
+const AccountPage = lazy(() => import("./pages/AccountPage"));
+const AdminPage = lazy(() => import("./pages/AdminPage"));
+const OrderTrackingPage = lazy(() => import("./pages/OrderTrackingPage"));
+const AdminOrdersPage = lazy(() => import("@/pages/AdminOrdersPage"));
+const DriverPage = lazy(() => import("@/pages/DriverPage"));
+const PaymentSuccessPage = lazy(() => import("./pages/PaymentSuccessPage"));
+const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
+
 const queryClient = new QueryClient();
+
+function FullScreenLoader({ label = "Loading..." }: { label?: string }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="flex flex-col items-center gap-3 rounded-3xl border border-border/80 bg-card/95 px-8 py-7 text-center shadow-card backdrop-blur-sm">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">{label}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Please wait a moment.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, isAdmin, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Loading...
-        </div>
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   if (!user) return <Navigate to="/auth" replace />;
@@ -76,19 +86,12 @@ function DriverRoute({ children }: { children: React.ReactNode }) {
     };
 
     if (!loading) {
-      checkDriver();
+      void checkDriver();
     }
   }, [user, loading]);
 
   if (loading || checkingDriver) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Loading...
-        </div>
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   if (!user) return <Navigate to="/auth" replace />;
@@ -109,45 +112,47 @@ const App = () => (
             <CartDrawer />
             <CartFAB />
 
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/menu" element={<MenuPage />} />
-              <Route path="/checkout" element={<CheckoutPage />} />
-              <Route path="/auth" element={<AuthPage />} />
-              <Route path="/account" element={<AccountPage />} />
+            <Suspense fallback={<FullScreenLoader label="Loading page" />}>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/menu" element={<MenuPage />} />
+                <Route path="/checkout" element={<CheckoutPage />} />
+                <Route path="/auth" element={<AuthPage />} />
+                <Route path="/account" element={<AccountPage />} />
 
-              <Route
-                path="/admin"
-                element={
-                  <AdminRoute>
-                    <AdminPage />
-                  </AdminRoute>
-                }
-              />
+                <Route
+                  path="/admin"
+                  element={
+                    <AdminRoute>
+                      <AdminPage />
+                    </AdminRoute>
+                  }
+                />
 
-              <Route
-                path="/admin/orders"
-                element={
-                  <AdminRoute>
-                    <AdminOrdersPage />
-                  </AdminRoute>
-                }
-              />
+                <Route
+                  path="/admin/orders"
+                  element={
+                    <AdminRoute>
+                      <AdminOrdersPage />
+                    </AdminRoute>
+                  }
+                />
 
-              <Route
-                path="/driver"
-                element={
-                  <DriverRoute>
-                    <DriverPage />
-                  </DriverRoute>
-                }
-              />
+                <Route
+                  path="/driver"
+                  element={
+                    <DriverRoute>
+                      <DriverPage />
+                    </DriverRoute>
+                  }
+                />
 
-              <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
-              <Route path="/payment/success" element={<PaymentSuccessPage />} />
-              <Route path="/payment/cancel" element={<PaymentCancelPage />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+                <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
+                <Route path="/payment/success" element={<PaymentSuccessPage />} />
+                <Route path="/payment/cancel" element={<PaymentCancelPage />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </BrowserRouter>
         </CartProvider>
       </AuthProvider>
