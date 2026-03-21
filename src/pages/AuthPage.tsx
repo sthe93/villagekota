@@ -3,9 +3,18 @@ import { useAuth } from "@/context/AuthContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
 import Footer from "@/components/Footer";
+import {
+  enrollBiometricCredential,
+  getStoredBiometricCredential,
+  isBiometricPlatformAvailable,
+  verifyBiometricCredential,
+} from "@/lib/biometricAuth";
 
 export default function AuthPage() {
   const [submitting, setSubmitting] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricEnrolled, setBiometricEnrolled] = useState(false);
   const { signInWithGoogle, user, loading, postLoginPath } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -25,6 +34,16 @@ export default function AuthPage() {
     navigate(postLoginPath, { replace: true });
   }, [loading, location.search, navigate, postLoginPath, user]);
 
+  useEffect(() => {
+    const loadBiometricState = async () => {
+      const supported = await isBiometricPlatformAvailable();
+      setBiometricSupported(supported);
+      setBiometricEnrolled(!!getStoredBiometricCredential());
+    };
+
+    void loadBiometricState();
+  }, []);
+
   const handleGoogleSignIn = async () => {
     setSubmitting(true);
 
@@ -36,6 +55,42 @@ export default function AuthPage() {
         err instanceof Error ? err.message : "Unable to continue with Google"
       );
       setSubmitting(false);
+    }
+  };
+
+  const handleBiometricEnroll = async () => {
+    setBiometricLoading(true);
+
+    try {
+      await enrollBiometricCredential();
+      setBiometricEnrolled(true);
+      toast.success("Biometric sign-in enabled", {
+        description: "You can now use Face ID or fingerprint on this device before Google sign-in.",
+      });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Unable to enable biometric sign-in"
+      );
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
+
+  const handleBiometricSignIn = async () => {
+    setBiometricLoading(true);
+
+    try {
+      await verifyBiometricCredential();
+      toast.success("Biometric check complete", {
+        description: "Device verification passed. Continue with your Google account.",
+      });
+      await handleGoogleSignIn();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Biometric verification failed"
+      );
+    } finally {
+      setBiometricLoading(false);
     }
   };
 
@@ -53,15 +108,22 @@ export default function AuthPage() {
           </div>
 
           <div className="bg-card rounded-lg border border-border p-6 space-y-4">
-            <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground font-body">
-              Google sign-in is currently the active login method. Continue with
-              your Google account to sign in or create your Village Eats account.
+            <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground font-body space-y-2">
+              <p>
+                Google sign-in is currently the active login method. Continue with
+                your Google account to sign in or create your Village Eats account.
+              </p>
+              {biometricSupported && (
+                <p className="text-xs text-muted-foreground/90">
+                  You can also enable Face ID or fingerprint as a quick sign-in step on this device.
+                </p>
+              )}
             </div>
 
             <button
               type="button"
               onClick={handleGoogleSignIn}
-              disabled={submitting}
+              disabled={submitting || biometricLoading}
               className="flex w-full items-center justify-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span aria-hidden="true">
@@ -91,6 +153,47 @@ export default function AuthPage() {
               </span>
               {submitting ? "Connecting..." : "Continue with Google"}
             </button>
+
+            {biometricSupported && (
+              <div className="rounded-lg border border-border/70 bg-background/80 p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {biometricEnrolled ? "Biometric quick sign-in" : "Enable Face ID / fingerprint"}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {biometricEnrolled
+                      ? "Use your device biometrics as a quick verification step before continuing to Google sign-in on this device."
+                      : "Set up fingerprint or facial recognition on this device for a faster, more premium sign-in flow."}
+                  </p>
+                </div>
+
+                {biometricEnrolled ? (
+                  <button
+                    type="button"
+                    onClick={handleBiometricSignIn}
+                    disabled={biometricLoading || submitting}
+                    className="flex w-full items-center justify-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {biometricLoading ? "Checking biometrics..." : "Use Face ID / Fingerprint"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleBiometricEnroll}
+                    disabled={biometricLoading || submitting}
+                    className="flex w-full items-center justify-center rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {biometricLoading ? "Setting up biometrics..." : "Enable on this device"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!biometricSupported && (
+              <p className="text-center text-xs text-muted-foreground font-body">
+                Biometric sign-in is available on supported secure devices and browsers.
+              </p>
+            )}
 
             <p className="text-center text-xs text-muted-foreground font-body">
               By continuing, you’ll sign in securely using your Google account.
