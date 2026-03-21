@@ -40,6 +40,20 @@ function buildPayfastSignature(data: Record<string, string>, passphrase?: string
   return CryptoJS.MD5(signatureBase).toString();
 }
 
+function normalizeBaseUrl(value?: string | null) {
+  if (!value) return null;
+
+  try {
+    const normalized = new URL(value);
+    normalized.pathname = "";
+    normalized.search = "";
+    normalized.hash = "";
+    return normalized.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -55,6 +69,7 @@ Deno.serve(async (req) => {
     const merchantKey = Deno.env.get("PAYFAST_MERCHANT_KEY");
     const passphrase = Deno.env.get("PAYFAST_PASSPHRASE") || "";
     const isSandbox = Deno.env.get("PAYFAST_SANDBOX") === "true";
+    const configuredAppBaseUrl = normalizeBaseUrl(Deno.env.get("APP_BASE_URL"));
 
     if (!supabaseUrl || !serviceRoleKey || !merchantId || !merchantKey) {
       return new Response(
@@ -63,11 +78,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    const origin = req.headers.get("origin");
-    const appBaseUrl =
-      origin === "http://localhost:8080"
-        ? "http://localhost:8080"
-        : "https://sthe93.github.io/villagekota";
+    const requestOrigin = normalizeBaseUrl(req.headers.get("origin"));
+    const appBaseUrl = configuredAppBaseUrl || requestOrigin;
+
+    if (!appBaseUrl) {
+      return new Response(
+        JSON.stringify({
+          error: "APP_BASE_URL is not configured and no valid request origin was provided",
+        }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
     const body = (await req.json()) as Payload;

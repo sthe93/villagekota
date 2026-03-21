@@ -445,7 +445,7 @@ export default function ProductQuickAddSheet({
         >
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
-              <h2 className="font-display text-2xl text-foreground">Customize Item</h2>
+              <h2 className="font-display text-2xl text-foreground">Customise Item</h2>
               <p className="text-sm text-muted-foreground">
                 {getProductHelperText(product)}
               </p>
@@ -775,7 +775,7 @@ export default function ProductQuickAddSheet({
                                     {item.hasOptions ? (
                                       <>
                                         <SlidersHorizontal className="h-3.5 w-3.5" />
-                                        Customize
+                                        Customise
                                       </>
                                     ) : (
                                       <>
