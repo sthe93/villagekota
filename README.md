@@ -1,73 +1,121 @@
-# Welcome to your Lovable project
+# Village Kota
 
-## Project info
+Village Kota is a React + Vite food ordering app backed by Supabase. Customers can browse the menu, customise items, place delivery orders, and track orders, while admins and drivers can manage fulfilment workflows. The current payment flow uses PayFast for card payments and supports EFT and cash on delivery paths in the UI.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Tech stack
 
-## How can I edit this code?
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- shadcn/ui
+- Supabase
+- Vitest
 
-There are several ways of editing your application.
+## Getting started
 
-**Use Lovable**
+### Prerequisites
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+- Node.js 20+
+- npm
+- A Supabase project with the required tables, functions, and environment variables configured
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+### Install dependencies
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+npm install
+```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+### Start the development server
 
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```sh
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### Other useful commands
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```sh
+npm run build
+npm run lint
+npm run test
+```
 
-**Use GitHub Codespaces**
+## Environment and services
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Frontend
 
-## What technologies are used for this project?
+The frontend expects the standard Vite/Supabase environment configuration needed to connect to your Supabase project.
 
-This project is built with:
+### Supabase Auth providers
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Email/password auth is supported in the app, and the auth page also supports Google OAuth.
 
-## How can I deploy this project?
+To make Google login work, configure **three** places:
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+1. **Supabase Dashboard → Authentication → Providers → Google**
+   - enable the provider
+   - paste your Google **Client ID**
+   - paste your Google **Client Secret**
+2. **Google Cloud → OAuth client**
+   - add your app origins under **Authorized JavaScript origins**
+   - add your Supabase callback URL under **Authorized redirect URIs**
+3. **Supabase Dashboard → Authentication → URL Configuration**
+   - set your app URL(s) so Supabase is allowed to redirect the browser back to your frontend after login
 
-## Can I connect a custom domain to my Lovable project?
+Use these values:
 
-Yes, you can!
+- **Authorized JavaScript origins** in Google Cloud:
+  - `http://localhost:8080`
+  - `https://sthe93.github.io`
+- **Authorized redirect URI** in Google Cloud:
+  - `https://<your-project-ref>.supabase.co/auth/v1/callback`
+- **Supabase Site URL / additional redirect URLs**:
+  - `http://localhost:8080/auth?provider=google`
+  - `https://sthe93.github.io/villagekota/auth?provider=google`
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+If Supabase shows `Unsupported provider: missing OAuth secret`, the Google provider is enabled but the **Client Secret has not been saved correctly** in the Supabase dashboard yet.
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+### Supabase Edge Functions
+
+This repository includes Supabase Edge Functions under `supabase/functions/`, including:
+
+- `create-payfast-checkout` for starting PayFast card payments
+- `create-checkout` for the legacy Stripe checkout flow
+
+### PayFast configuration
+
+The `create-payfast-checkout` function requires these environment variables:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `PAYFAST_MERCHANT_ID`
+- `PAYFAST_MERCHANT_KEY`
+- `PAYFAST_PASSPHRASE` (optional if your PayFast account uses one)
+- `PAYFAST_SANDBOX` (`true` for sandbox, otherwise production)
+- `APP_BASE_URL` (optional fallback if the incoming request origin is unavailable)
+- `PAYFAST_MERCHANT_EMAIL` (recommended for sandbox validation so the checkout function can reject same-account test payments early)
+
+The checkout function uses the incoming request origin first and only falls back to `APP_BASE_URL` when needed, which helps keep PayFast return and cancel URLs aligned with the actual frontend domain.
+
+## Database
+
+Supabase SQL migrations live in `supabase/migrations/`. The schema includes:
+
+- catalogue tables such as `products`, `categories`, and product option tables
+- customer/account tables such as `profiles` and `favorites`
+- order flow tables such as `orders`, `order_items`, `order_item_options`, and `payment_logs`
+- operational tables such as `drivers`, `user_roles`, and vouchers
+
+## Testing
+
+Vitest is configured for unit tests. Add or update tests under `src/` using the `*.test.ts` or `*.test.tsx` naming convention, then run:
+
+```sh
+npm run test
+```
+
+## Notes
+
+- Card checkout currently uses PayFast from the checkout page.
+- In PayFast sandbox mode, test with a buyer account/email that is different from the merchant account or PayFast will reject the payment as a same-account transaction.
+- There is still a legacy Stripe edge function in the repo; keep documentation and deployment configuration aligned with the payment providers you actually use.

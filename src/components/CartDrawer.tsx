@@ -491,7 +491,7 @@ export default function CartDrawer() {
                                   onClick={() => handleQuickAddSuggestion(product)}
                                   className="inline-flex shrink-0 items-center justify-center rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                                 >
-                                  {product.hasOptions ? "Customize" : "Add"}
+                                  {product.hasOptions ? "Customise" : "Add"}
                                 </button>
                               </div>
 

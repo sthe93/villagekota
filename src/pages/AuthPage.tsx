@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
 import Footer from "@/components/Footer";
@@ -13,8 +13,50 @@ export default function AuthPage() {
   const [displayName, setDisplayName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const { signIn, signUp } = useAuth();
+  const { signIn, signInWithGoogle, signUp, user, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const handledGoogleRedirect = useRef(false);
+
+  const redirectAfterLogin = async (userId: string, successMessage = "Welcome back!") => {
+    const { data: adminRole } = await supabase
+      .from("user_roles")
+      .select("id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    toast.success(successMessage);
+
+    if (adminRole) {
+      navigate("/admin");
+      return;
+    }
+
+    const { data: driverProfile } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("auth_user_id", userId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (driverProfile) {
+      navigate("/driver");
+      return;
+    }
+
+    navigate("/");
+  };
+
+  useEffect(() => {
+    const provider = new URLSearchParams(location.search).get("provider");
+
+    if (provider !== "google" || loading || !user || handledGoogleRedirect.current) {
+      return;
+    }
+
+    handledGoogleRedirect.current = true;
+    void redirectAfterLogin(user.id, "Signed in with Google");
+  }, [loading, location.search, navigate, user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,36 +87,23 @@ export default function AuthPage() {
           return;
         }
 
-        const { data: adminRole } = await supabase
-          .from("user_roles")
-          .select("id")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (adminRole) {
-          toast.success("Welcome back!");
-          navigate("/admin");
-          return;
-        }
-
-        const { data: driverProfile } = await supabase
-          .from("drivers")
-          .select("id")
-          .eq("auth_user_id", user.id)
-          .eq("is_active", true)
-          .maybeSingle();
-
-        toast.success("Welcome back!");
-
-        if (driverProfile) {
-          navigate("/driver");
-        } else {
-          navigate("/");
-        }
+        await redirectAfterLogin(user.id);
       }
-    } catch (err: any) {
-      toast.error(err.message || "Something went wrong");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Something went wrong");
     } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setSubmitting(true);
+
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) throw error;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unable to continue with Google");
       setSubmitting(false);
     }
   };
@@ -88,11 +117,46 @@ export default function AuthPage() {
               {isSignUp ? "CREATE ACCOUNT" : "WELCOME BACK"}
             </h1>
             <p className="text-muted-foreground font-body text-sm">
-              {isSignUp ? "Join Kota King and start ordering" : "Sign in to your account"}
+              {isSignUp ? "Join Village Kota and start ordering" : "Sign in to your account"}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="bg-card rounded-lg border border-border p-6 space-y-4">
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={submitting}
+              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                  <path
+                    d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62Z"
+                    fill="#4285F4"
+                  />
+                  <path
+                    d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.82.86-3.06.86-2.35 0-4.33-1.58-5.04-3.7H.96v2.32A9 9 0 0 0 9 18Z"
+                    fill="#34A853"
+                  />
+                  <path
+                    d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.18.28-1.72V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.04l3-2.32Z"
+                    fill="#FBBC05"
+                  />
+                  <path
+                    d="M9 3.58c1.32 0 2.5.46 3.44 1.34l2.58-2.58C13.46.9 11.42 0 9 0A9 9 0 0 0 .96 4.96l3 2.32c.71-2.12 2.69-3.7 5.04-3.7Z"
+                    fill="#EA4335"
+                  />
+                </svg>
+              </span>
+              Continue with Google
+            </button>
+
+            <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              <span>Email</span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+
             {isSignUp && (
               <div>
                 <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
