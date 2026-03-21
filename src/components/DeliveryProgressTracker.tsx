@@ -154,6 +154,9 @@ export default function DeliveryProgressTracker({
   const normalizedStatus = normalizeStatus(status);
   const isCancelled = normalizedStatus === "cancelled";
   const progressPercent = getDeliveryProgressPercent(normalizedStatus, steps);
+  const currentIndex = getDeliveryTimelineIndex(normalizedStatus, steps);
+  const currentStep = steps[currentIndex] || steps[0];
+  const currentStepState = getDeliveryStepState(currentIndex, normalizedStatus, steps);
 
   if (isCancelled) {
     return (
@@ -189,60 +192,120 @@ export default function DeliveryProgressTracker({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <div className="min-w-[980px] px-2">
-          <div className="grid grid-cols-7 items-start">
-            {steps.map((step, index) => {
-              const Icon = step.icon;
-              const isLast = index === steps.length - 1;
-              const state = getDeliveryStepState(index, normalizedStatus, steps);
+      <div className="md:hidden">
+        <div className="rounded-2xl border border-border bg-card/70 p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div
+              className={[
+                "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition-all duration-300",
+                currentStepState.circleClass,
+              ].join(" ")}
+            >
+              <currentStep.icon className="h-5 w-5" />
+            </div>
 
-              return (
-                <div key={step.key} className="relative px-2 text-center">
-                  {!isLast && (
-                    <div className="absolute left-1/2 right-[-50%] top-7 z-0">
-                      <div
-                        className={`h-2 rounded-full ${state.connectorTrackClass}`}
-                      >
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Current stage
+              </p>
+              <p className="mt-1 text-base font-semibold text-foreground">{currentStep.label}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Step {currentIndex + 1} of {steps.length}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {steps.map((step, index) => {
+            const Icon = step.icon;
+            const state = getDeliveryStepState(index, normalizedStatus, steps);
+
+            return (
+              <div
+                key={step.key}
+                className={[
+                  "rounded-2xl border px-3 py-3 text-center transition-all duration-300",
+                  state.isCurrent
+                    ? "border-primary bg-primary/5 shadow-sm"
+                    : state.isCompleted
+                      ? "border-emerald-200 bg-emerald-50/80"
+                      : "border-border bg-background",
+                ].join(" ")}
+              >
+                <div
+                  className={[
+                    "mx-auto flex h-10 w-10 items-center justify-center rounded-full border",
+                    state.circleClass,
+                  ].join(" ")}
+                >
+                  <Icon className="h-4 w-4" />
+                </div>
+                <p className={`mt-2 text-xs font-semibold leading-5 ${state.textClass}`}>
+                  {step.shortLabel}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="hidden md:block">
+        <div className="overflow-x-auto">
+          <div className="min-w-[980px] px-2">
+            <div className="grid grid-cols-7 items-start">
+              {steps.map((step, index) => {
+                const Icon = step.icon;
+                const isLast = index === steps.length - 1;
+                const state = getDeliveryStepState(index, normalizedStatus, steps);
+
+                return (
+                  <div key={step.key} className="relative px-2 text-center">
+                    {!isLast && (
+                      <div className="absolute left-1/2 right-[-50%] top-7 z-0">
                         <div
-                          className={`h-2 rounded-full transition-all duration-300 ${state.connectorFillClass}`}
-                          style={{ width: state.connectorFillWidth }}
-                        />
+                          className={`h-2 rounded-full ${state.connectorTrackClass}`}
+                        >
+                          <div
+                            className={`h-2 rounded-full transition-all duration-300 ${state.connectorFillClass}`}
+                            style={{ width: state.connectorFillWidth }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div
+                      className={[
+                        "relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-300",
+                        state.circleClass,
+                      ].join(" ")}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </div>
+
+                    <div className="mt-4 min-h-[64px]">
+                      <p className={`text-[15px] font-semibold ${state.textClass}`}>
+                        {step.shortLabel}
+                      </p>
+
+                      <div className="mt-3 min-h-[24px]">
+                        {state.isCurrent && (
+                          <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-primary">
+                            Current
+                          </span>
+                        )}
+
+                        {state.isCompleted && (
+                          <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-700">
+                            Complete
+                          </span>
+                        )}
                       </div>
                     </div>
-                  )}
-
-                  <div
-                    className={[
-                      "relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-300",
-                      state.circleClass,
-                    ].join(" ")}
-                  >
-                    <Icon className="h-5 w-5" />
                   </div>
-
-                  <div className="mt-4 min-h-[64px]">
-                    <p className={`text-[15px] font-semibold ${state.textClass}`}>
-                      {step.shortLabel}
-                    </p>
-
-                    <div className="mt-3 min-h-[24px]">
-                      {state.isCurrent && (
-                        <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-primary">
-                          Current
-                        </span>
-                      )}
-
-                      {state.isCompleted && (
-                        <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-700">
-                          Complete
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
