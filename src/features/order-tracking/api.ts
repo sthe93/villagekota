@@ -8,6 +8,76 @@ import type {
 } from "./types";
 import { normalize, normalizeOrderStatus, toNumberOrNull } from "./utils";
 
+const ORDER_TRACKING_SELECT = `
+  id,
+  user_id,
+  customer_name,
+  customer_phone,
+  customer_email,
+  delivery_address,
+  notes,
+  payment_method,
+  payment_provider,
+  payment_reference,
+  payment_status,
+  status,
+  subtotal,
+  delivery_fee,
+  discount_amount,
+  total,
+  created_at,
+  estimated_delivery_time,
+  driver_distance_km,
+  driver_lat,
+  driver_lng,
+  driver_last_updated,
+  driver_id,
+  accepted_at,
+  started_delivery_at,
+  arrived_at,
+  delivered_at,
+  cash_collected,
+  cash_collected_amount,
+  cash_collected_at,
+  destination_lat,
+  destination_lng
+`;
+
+const ORDER_TRACKING_LEGACY_SELECT = `
+  id,
+  user_id,
+  customer_name,
+  customer_phone,
+  customer_email,
+  delivery_address,
+  notes,
+  payment_method,
+  status,
+  subtotal,
+  delivery_fee,
+  total,
+  created_at
+`;
+
+const ORDER_ITEMS_SELECT = `
+  id,
+  product_name,
+  quantity,
+  unit_price,
+  final_unit_price,
+  options_total,
+  total_price,
+  item_note
+`;
+
+const ORDER_ITEMS_LEGACY_SELECT = `
+  id,
+  product_name,
+  quantity,
+  unit_price,
+  total_price
+`;
+
 interface OrderRow {
   id: string;
   user_id: string | null;
@@ -64,6 +134,27 @@ interface OrderItemOptionRow {
   price_delta: number | null;
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return "";
+}
+
+function isSchemaCompatibilityError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+
+  return (
+    message.includes("schema cache") ||
+    message.includes("could not find the") ||
+    (message.includes("column") && message.includes("does not exist")) ||
+    message.includes("pgrst204") ||
+    message.includes("pgrst205")
+  );
+}
+
 function normalizeOrder(row: OrderRow): OrderRecord {
   return {
     id: String(row.id),
@@ -118,7 +209,7 @@ function normalizeOrderItems(rows: OrderItemRow[]): OrderItemRecord[] {
 }
 
 export async function fetchOrderTrackingSnapshot(orderId: string) {
-  const { data: orderData, error: orderError } = await supabase
+  let orderResult = await supabase
     .from("orders")
     .select(`
       id,
@@ -159,22 +250,33 @@ export async function fetchOrderTrackingSnapshot(orderId: string) {
     .eq("id", orderId)
     .single();
 
+  if (orderResult.error && isSchemaCompatibilityError(orderResult.error)) {
+    orderResult = await supabase
+      .from("orders")
+      .select(ORDER_TRACKING_LEGACY_SELECT)
+      .eq("id", orderId)
+      .single();
+  }
+
+  const { data: orderData, error: orderError } = orderResult;
+
   if (orderError) throw orderError;
 
-  const { data: itemData, error: itemsError } = await supabase
+  let itemResult = await supabase
     .from("order_items")
-    .select(`
-      id,
-      product_name,
-      quantity,
-      unit_price,
-      final_unit_price,
-      options_total,
-      total_price,
-      item_note
-    `)
+    .select(ORDER_ITEMS_SELECT)
     .eq("order_id", orderId)
     .order("created_at", { ascending: true });
+
+  if (itemResult.error && isSchemaCompatibilityError(itemResult.error)) {
+    itemResult = await supabase
+      .from("order_items")
+      .select(ORDER_ITEMS_LEGACY_SELECT)
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true });
+  }
+
+  const { data: itemData, error: itemsError } = itemResult;
 
   if (itemsError) throw itemsError;
 
@@ -195,7 +297,7 @@ export async function fetchOrderTrackingSnapshot(orderId: string) {
       .in("order_item_id", orderItemIds)
       .order("created_at", { ascending: true });
 
-    if (optionsError) throw optionsError;
+    if (optionsError && !isSchemaCompatibilityError(optionsError)) throw optionsError;
 
     const optionsByItemId = new Map<string, OrderItemOptionRecord[]>();
 
