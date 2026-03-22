@@ -3,6 +3,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { generateDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
+import { isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
 import { toast } from "@/components/ui/sonner";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -68,27 +69,6 @@ const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
 
 function getPhoneDigits(value: string) {
   return value.replace(/\D/g, "");
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error !== null && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string") return message;
-  }
-  return "";
-}
-
-function isSchemaCompatibilityError(error: unknown) {
-  const message = getErrorMessage(error).toLowerCase();
-
-  return (
-    message.includes("schema cache") ||
-    message.includes("could not find the") ||
-    message.includes("column") && message.includes("does not exist") ||
-    message.includes("pgrst204") ||
-    message.includes("pgrst205")
-  );
 }
 
 export default function CheckoutPage() {
