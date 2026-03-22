@@ -3,6 +3,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { generateDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
+import { isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
 import { toast } from "@/components/ui/sonner";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -70,25 +71,16 @@ function getPhoneDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error !== null && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string") return message;
+function formatSupabaseError(error: unknown) {
+  if (typeof error !== "object" || error === null) {
+    return error instanceof Error ? error.message : "Failed to place order";
   }
-  return "";
-}
 
-function isSchemaCompatibilityError(error: unknown) {
-  const message = getErrorMessage(error).toLowerCase();
+  const record = error as Record<string, unknown>;
+  const parts = [record.message, record.details, record.hint, record.code]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 
-  return (
-    message.includes("schema cache") ||
-    message.includes("could not find the") ||
-    message.includes("column") && message.includes("does not exist") ||
-    message.includes("pgrst204") ||
-    message.includes("pgrst205")
-  );
+  return parts.length > 0 ? parts.join(" · ") : "Failed to place order";
 }
 
 export default function CheckoutPage() {
@@ -529,6 +521,8 @@ export default function CheckoutPage() {
         .filter(Boolean)
         .join("\n\n");
 
+      const deliveryConfirmationCode = generateDeliveryConfirmationCode();
+
       const fullOrderPayload: OrderInsertPayload = {
         user_id: user.id,
         customer_name: form.name.trim(),
@@ -541,6 +535,38 @@ export default function CheckoutPage() {
         payment_method: form.payment,
         payment_provider: paymentProvider,
         payment_status: paymentStatus,
+        subtotal,
+        delivery_fee: deliveryFee,
+        discount_amount: discountAmount,
+        voucher_code: voucherInfo?.code || null,
+        delivery_confirmation_code: deliveryConfirmationCode,
+        total: adjustedTotal,
+      };
+
+      const deliveryCompatibleOrderPayload: OrderInsertPayload = {
+        user_id: user.id,
+        customer_name: form.name.trim(),
+        customer_phone: customerPhone,
+        customer_email: customerEmail || null,
+        delivery_address: form.address.trim(),
+        notes: combinedNotes || null,
+        payment_method: form.payment,
+        subtotal,
+        delivery_fee: deliveryFee,
+        discount_amount: discountAmount,
+        voucher_code: voucherInfo?.code || null,
+        delivery_confirmation_code: deliveryConfirmationCode,
+        total: adjustedTotal,
+      };
+
+      const voucherCompatibleOrderPayload: OrderInsertPayload = {
+        user_id: user.id,
+        customer_name: form.name.trim(),
+        customer_phone: customerPhone,
+        customer_email: customerEmail || null,
+        delivery_address: form.address.trim(),
+        notes: combinedNotes || null,
+        payment_method: form.payment,
         subtotal,
         delivery_fee: deliveryFee,
         discount_amount: discountAmount,
@@ -561,23 +587,38 @@ export default function CheckoutPage() {
         total: adjustedTotal,
       };
 
+      const orderPayloadCandidates = [
+        fullOrderPayload,
+        deliveryCompatibleOrderPayload,
+        voucherCompatibleOrderPayload,
+        legacyOrderPayload,
+      ];
+
       let orderResult = await supabase
         .from("orders")
-        .insert(fullOrderPayload)
-        .select("id")
-        .single();
+        .insert(orderPayloadCandidates[0])
+        .select("id");
 
-      if (orderResult.error && isSchemaCompatibilityError(orderResult.error)) {
+      for (let index = 1; index < orderPayloadCandidates.length; index += 1) {
+        if (!orderResult.error || !isSchemaCompatibilityError(orderResult.error)) {
+          break;
+        }
+
         orderResult = await supabase
           .from("orders")
-          .insert(legacyOrderPayload)
-          .select("id")
-          .single();
+          .insert(orderPayloadCandidates[index])
+          .select("id");
       }
 
-      const { data: order, error: orderError } = orderResult;
+      const { data: insertedOrders, error: orderError } = orderResult;
 
       if (orderError) throw orderError;
+
+      const order = insertedOrders?.[0];
+
+      if (!order?.id) {
+        throw new Error("Order insert completed but no order id was returned.");
+      }
 
       const fullOrderItemsPayload = orderItems.map((item, index) => {
         const cartItem = items[index];
@@ -760,7 +801,7 @@ export default function CheckoutPage() {
       toast.success("Order placed successfully.");
       navigate(`/order-tracking/${order.id}`);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to place order");
+      toast.error(formatSupabaseError(err));
     } finally {
       setSubmitting(false);
     }
