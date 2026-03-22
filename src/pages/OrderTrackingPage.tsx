@@ -59,7 +59,10 @@ import {
   normalize,
   normalizeOrderStatus,
 } from "@/features/order-tracking/utils";
-import { formatDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
+import {
+  deriveDeliveryConfirmationCode,
+  formatDeliveryConfirmationCode,
+} from "@/lib/deliveryConfirmation";
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
@@ -103,8 +106,8 @@ export default function OrderTrackingPage() {
   const cashCollected = !!order?.cash_collected;
   const hasAssignedDriver = !!order?.driver_id && !!driver;
   const deliveryConfirmationCode = useMemo(
-    () => formatDeliveryConfirmationCode(order?.delivery_confirmation_code),
-    [order?.delivery_confirmation_code]
+    () => formatDeliveryConfirmationCode(deriveDeliveryConfirmationCode(order?.id)),
+    [order?.id]
   );
   const deliveryConfirmationReady = useMemo(() => {
     return !!deliveryConfirmationCode && ["on_the_way", "arrived", "delivered"].includes(orderStatus);
@@ -593,9 +596,7 @@ export default function OrderTrackingPage() {
                         </p>
                         <p className="mt-2 text-sm leading-6 text-foreground">
                           {isDelivered
-                            ? order.delivery_confirmation_verified_at
-                              ? `Verified at ${formatDateTime(order.delivery_confirmation_verified_at)}.`
-                              : "This PIN was used to confirm handoff."
+                            ? "This PIN was used to confirm handoff."
                             : deliveryConfirmationReady
                               ? "Share this PIN with your driver when they hand over the order."
                               : "Your PIN is already prepared and will be needed once the driver is close."}

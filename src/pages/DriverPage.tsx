@@ -30,6 +30,7 @@ import {
   getSouthAfricaDrivingRouteMeta,
 } from "@/lib/maps";
 import {
+  deriveDeliveryConfirmationCode,
   DELIVERY_CONFIRMATION_CODE_LENGTH,
   isDeliveryConfirmationCodeComplete,
   normalizeDeliveryConfirmationCode,
@@ -531,9 +532,15 @@ export default function DriverPage() {
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
     const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
+    const expectedCode = deriveDeliveryConfirmationCode(orderId);
 
     if (!isDeliveryConfirmationCodeComplete(confirmationCode)) {
       toast.error("Enter the 4-digit delivery PIN from the customer.");
+      return;
+    }
+
+    if (confirmationCode !== expectedCode) {
+      toast.error("That PIN does not match this order.");
       return;
     }
 
@@ -976,11 +983,6 @@ export default function DriverPage() {
                                 <p className="mt-1 text-sm text-foreground">
                                   Ask the customer for their 4-digit PIN before completing the handoff.
                                 </p>
-                                {order.delivery_confirmation_verified_at ? (
-                                  <p className="mt-2 text-xs text-muted-foreground">
-                                    Verified at {formatDateTime(order.delivery_confirmation_verified_at)}
-                                  </p>
-                                ) : null}
                               </div>
 
                               <div className="rounded-2xl border border-border bg-background p-3">

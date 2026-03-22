@@ -1,5 +1,6 @@
 import {
   DELIVERY_CONFIRMATION_CODE_LENGTH,
+  deriveDeliveryConfirmationCode,
   formatDeliveryConfirmationCode,
   generateDeliveryConfirmationCode,
   isDeliveryConfirmationCodeComplete,
@@ -20,6 +21,11 @@ describe("deliveryConfirmation", () => {
 
   it("formats a code for customer-friendly display", () => {
     expect(formatDeliveryConfirmationCode("1234")).toBe("1 2 3 4");
+  });
+
+  it("derives a stable code from the same seed", () => {
+    expect(deriveDeliveryConfirmationCode("order-123")).toBe(deriveDeliveryConfirmationCode("order-123"));
+    expect(deriveDeliveryConfirmationCode("order-123")).not.toBe(deriveDeliveryConfirmationCode("order-456"));
   });
 
   it("detects when a code is complete", () => {
