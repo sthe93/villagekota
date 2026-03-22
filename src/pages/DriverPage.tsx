@@ -16,6 +16,18 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "@/components/ui/sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 import Footer from "@/components/Footer";
 import DeliveryProgressTracker, {
   type DeliveryStatus,
@@ -24,6 +36,12 @@ import {
   geocodeSouthAfricaAddress,
   getSouthAfricaDrivingRouteMeta,
 } from "@/lib/maps";
+import {
+  deriveDeliveryConfirmationCode,
+  DELIVERY_CONFIRMATION_CODE_LENGTH,
+  isDeliveryConfirmationCodeComplete,
+  normalizeDeliveryConfirmationCode,
+} from "@/lib/deliveryConfirmation";
 
 type OrderStatus =
   | "pending"
@@ -154,6 +172,8 @@ export default function DriverPage() {
   const [watchId, setWatchId] = useState<number | null>(null);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
   const [newOrderIds, setNewOrderIds] = useState<string[]>([]);
+  const [deliveryCodes, setDeliveryCodes] = useState<Record<string, string>>({});
+  const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
   const audioUnlockedRef = useRef(false);
 
   const playNotificationSound = () => {
@@ -509,19 +529,78 @@ export default function DriverPage() {
     }
 
     toast.success("Cash marked as collected");
+    setDeliveryCodes((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
     setActionOrderId(null);
     await loadDriverAndOrders();
   };
 
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
+    const currentOrder = orders.find((order) => order.id === orderId);
+    const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
+    const expectedCode = deriveDeliveryConfirmationCode(orderId);
+
+    if (!isDeliveryConfirmationCodeComplete(confirmationCode)) {
+      toast.error("Enter the 4-digit delivery PIN from the customer.");
+      return;
+    }
+
+    if (confirmationCode !== expectedCode) {
+      toast.error("That PIN does not match this order.");
+      return;
+    }
 
     setActionOrderId(orderId);
 
-    const { data, error } = await supabase.rpc("complete_delivery_order", {
-      p_order_id: orderId,
-      p_driver_id: driver.id,
-    });
+    const { data: latestOrder, error: latestOrderError } = await supabase
+      .from("orders")
+      .select("status, payment_method, cash_collected")
+      .eq("id", orderId)
+      .maybeSingle();
+
+    if (!latestOrderError && latestOrder) {
+      const latestPaymentMethod = normalizeValue(latestOrder.payment_method);
+      const latestCashCollected = !!latestOrder.cash_collected;
+
+      if (normalizeValue(latestOrder.status) !== "arrived") {
+        toast.error("This delivery is no longer in the arrival step.");
+        setActionOrderId(null);
+        await loadDriverAndOrders();
+        return;
+      }
+
+      if (latestPaymentMethod === "cash" && !latestCashCollected) {
+        toast.error("Collect cash before completing this delivery.");
+        setActionOrderId(null);
+        await loadDriverAndOrders();
+        return;
+      }
+    }
+
+    const runCompleteDelivery = () =>
+      supabase.rpc("complete_delivery_order", {
+        p_order_id: orderId,
+        p_driver_id: driver.id,
+      });
+
+    let { data, error } = await runCompleteDelivery();
+
+    if (!error && !data) {
+      await loadDriverAndOrders();
+
+      const shouldRetry =
+        currentOrder?.status === "arrived" &&
+        (!isCashPaymentMethod(currentOrder?.payment_method) || currentOrder?.cash_collected);
+
+      if (shouldRetry) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        ({ data, error } = await runCompleteDelivery());
+      }
+    }
 
     if (error) {
       toast.error(error.message || "Failed to complete delivery");
@@ -541,6 +620,12 @@ export default function DriverPage() {
     }
 
     toast.success("Delivery completed");
+    setDeliveryCodes((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
+    setConfirmingOrderId(null);
     setActionOrderId(null);
     await loadDriverAndOrders();
   };
@@ -834,6 +919,7 @@ export default function DriverPage() {
                   const canComplete =
                     order.status === "arrived" &&
                     (isCardPaymentMethod(order.payment_method) || order.cash_collected);
+                  const deliveryCodeValue = deliveryCodes[order.id] || "";
 
                   return (
                     <div key={order.id} className="rounded-lg border border-border bg-background p-4">
@@ -934,7 +1020,7 @@ export default function DriverPage() {
 
                         {order.status === "arrived" && isCashPaymentMethod(order.payment_method) && !order.cash_collected && (
                           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                            This is a cash order. Collect payment before completing delivery.
+                            This is a cash order. Collect payment first, then enter the delivery PIN on the final completion step.
                           </div>
                         )}
 
@@ -1018,7 +1104,7 @@ export default function DriverPage() {
                         {canComplete && (
                           <button
                             type="button"
-                            onClick={() => completeDelivery(order.id)}
+                            onClick={() => setConfirmingOrderId(order.id)}
                             disabled={actionOrderId === order.id}
                             className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                           >
@@ -1031,6 +1117,77 @@ export default function DriverPage() {
                           </button>
                         )}
                       </div>
+
+                      <Dialog
+                        open={confirmingOrderId === order.id}
+                        onOpenChange={(open) => {
+                          if (!open) {
+                            setConfirmingOrderId((current) => (current === order.id ? null : current));
+                          }
+                        }}
+                      >
+                        <DialogContent className="sm:max-w-md">
+                          <DialogHeader>
+                            <DialogTitle>Confirm delivery handoff</DialogTitle>
+                            <DialogDescription>
+                              Ask the customer for their 4-digit PIN, then confirm the order handoff.
+                            </DialogDescription>
+                          </DialogHeader>
+
+                          <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                              Delivery confirmation
+                            </p>
+                            <p className="mt-2 text-sm text-foreground">
+                              Enter the customer PIN only when you are ready to complete this delivery.
+                            </p>
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-background p-4">
+                            <InputOTP
+                              maxLength={DELIVERY_CONFIRMATION_CODE_LENGTH}
+                              value={deliveryCodeValue}
+                              onChange={(value) =>
+                                setDeliveryCodes((prev) => ({
+                                  ...prev,
+                                  [order.id]: normalizeDeliveryConfirmationCode(value),
+                                }))
+                              }
+                              containerClassName="justify-center"
+                            >
+                              <InputOTPGroup>
+                                {Array.from({ length: DELIVERY_CONFIRMATION_CODE_LENGTH }, (_, index) => (
+                                  <InputOTPSlot key={index} index={index} />
+                                ))}
+                              </InputOTPGroup>
+                            </InputOTP>
+                          </div>
+
+                          <div className="flex justify-end gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingOrderId(null)}
+                              className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            >
+                              Cancel
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => completeDelivery(order.id)}
+                              disabled={actionOrderId === order.id || !isDeliveryConfirmationCodeComplete(deliveryCodeValue)}
+                              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                            >
+                              {actionOrderId === order.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4" />
+                              )}
+                              Confirm Delivery
+                            </button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   );
                 })
