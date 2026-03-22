@@ -3,6 +3,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { generateDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
+import { isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
 import { toast } from "@/components/ui/sonner";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -68,27 +69,6 @@ const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
 
 function getPhoneDigits(value: string) {
   return value.replace(/\D/g, "");
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error !== null && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string") return message;
-  }
-  return "";
-}
-
-function isSchemaCompatibilityError(error: unknown) {
-  const message = getErrorMessage(error).toLowerCase();
-
-  return (
-    message.includes("schema cache") ||
-    message.includes("could not find the") ||
-    message.includes("column") && message.includes("does not exist") ||
-    message.includes("pgrst204") ||
-    message.includes("pgrst205")
-  );
 }
 
 export default function CheckoutPage() {
@@ -529,6 +509,8 @@ export default function CheckoutPage() {
         .filter(Boolean)
         .join("\n\n");
 
+      const deliveryConfirmationCode = generateDeliveryConfirmationCode();
+
       const fullOrderPayload: OrderInsertPayload = {
         user_id: user.id,
         customer_name: form.name.trim(),
@@ -541,6 +523,38 @@ export default function CheckoutPage() {
         payment_method: form.payment,
         payment_provider: paymentProvider,
         payment_status: paymentStatus,
+        subtotal,
+        delivery_fee: deliveryFee,
+        discount_amount: discountAmount,
+        voucher_code: voucherInfo?.code || null,
+        delivery_confirmation_code: deliveryConfirmationCode,
+        total: adjustedTotal,
+      };
+
+      const deliveryCompatibleOrderPayload: OrderInsertPayload = {
+        user_id: user.id,
+        customer_name: form.name.trim(),
+        customer_phone: customerPhone,
+        customer_email: customerEmail || null,
+        delivery_address: form.address.trim(),
+        notes: combinedNotes || null,
+        payment_method: form.payment,
+        subtotal,
+        delivery_fee: deliveryFee,
+        discount_amount: discountAmount,
+        voucher_code: voucherInfo?.code || null,
+        delivery_confirmation_code: deliveryConfirmationCode,
+        total: adjustedTotal,
+      };
+
+      const voucherCompatibleOrderPayload: OrderInsertPayload = {
+        user_id: user.id,
+        customer_name: form.name.trim(),
+        customer_phone: customerPhone,
+        customer_email: customerEmail || null,
+        delivery_address: form.address.trim(),
+        notes: combinedNotes || null,
+        payment_method: form.payment,
         subtotal,
         delivery_fee: deliveryFee,
         discount_amount: discountAmount,
@@ -561,16 +575,27 @@ export default function CheckoutPage() {
         total: adjustedTotal,
       };
 
+      const orderPayloadCandidates = [
+        fullOrderPayload,
+        deliveryCompatibleOrderPayload,
+        voucherCompatibleOrderPayload,
+        legacyOrderPayload,
+      ];
+
       let orderResult = await supabase
         .from("orders")
-        .insert(fullOrderPayload)
+        .insert(orderPayloadCandidates[0])
         .select("id")
         .single();
 
-      if (orderResult.error && isSchemaCompatibilityError(orderResult.error)) {
+      for (let index = 1; index < orderPayloadCandidates.length; index += 1) {
+        if (!orderResult.error || !isSchemaCompatibilityError(orderResult.error)) {
+          break;
+        }
+
         orderResult = await supabase
           .from("orders")
-          .insert(legacyOrderPayload)
+          .insert(orderPayloadCandidates[index])
           .select("id")
           .single();
       }
