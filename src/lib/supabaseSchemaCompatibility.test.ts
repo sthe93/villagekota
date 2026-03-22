@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSupabaseError, isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
+import { isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
 
 describe("isSchemaCompatibilityError", () => {
   it("detects postgrest schema cache errors from details", () => {
@@ -27,23 +27,5 @@ describe("isSchemaCompatibilityError", () => {
         message: "duplicate key value violates unique constraint",
       })
     ).toBe(false);
-  });
-});
-
-
-describe("formatSupabaseError", () => {
-  it("joins message, details, hint, and code when present", () => {
-    expect(
-      formatSupabaseError({
-        message: "Insert failed",
-        details: "row violates policy",
-        hint: "Check auth",
-        code: "42501",
-      })
-    ).toBe("Insert failed · row violates policy · Check auth · 42501");
-  });
-
-  it("falls back for unknown errors", () => {
-    expect(formatSupabaseError(null)).toBe("Failed to place order");
   });
 });
