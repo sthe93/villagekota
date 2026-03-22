@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseAddressSuggestions } from "./maps";
+import { normalizeSouthAfricaAddressQuery, parseAddressSuggestions } from "./maps";
 
 describe("parseAddressSuggestions", () => {
   it("returns normalized address suggestions with lat/lng", () => {
@@ -35,5 +35,14 @@ describe("parseAddressSuggestions", () => {
 
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]?.id).toBe("ok");
+  });
+});
+
+
+describe("normalizeSouthAfricaAddressQuery", () => {
+  it("collapses whitespace and newlines before geocoding", () => {
+    expect(normalizeSouthAfricaAddressQuery("37547 Pekwa Crescent\nProtea Glen  ")).toBe(
+      "37547 Pekwa Crescent Protea Glen"
+    );
   });
 });

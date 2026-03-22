@@ -36,3 +36,16 @@ export function isSchemaCompatibilityError(error: unknown) {
     combined.includes("unexpected key")
   );
 }
+
+
+export function formatSupabaseError(error: unknown) {
+  if (typeof error !== "object" || error === null) {
+    return error instanceof Error ? error.message : "Failed to place order";
+  }
+
+  const record = error as Record<string, unknown>;
+  const parts = [record.message, record.details, record.hint, record.code]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  return parts.length > 0 ? parts.join(" · ") : "Failed to place order";
+}

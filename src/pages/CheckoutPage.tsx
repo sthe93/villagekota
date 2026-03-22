@@ -3,7 +3,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { generateDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
-import { isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
+import { formatSupabaseError, isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
 import { toast } from "@/components/ui/sonner";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -585,8 +585,7 @@ export default function CheckoutPage() {
       let orderResult = await supabase
         .from("orders")
         .insert(orderPayloadCandidates[0])
-        .select("id")
-        .single();
+        .select("id");
 
       for (let index = 1; index < orderPayloadCandidates.length; index += 1) {
         if (!orderResult.error || !isSchemaCompatibilityError(orderResult.error)) {
@@ -596,8 +595,7 @@ export default function CheckoutPage() {
         orderResult = await supabase
           .from("orders")
           .insert(orderPayloadCandidates[index])
-          .select("id")
-          .single();
+          .select("id");
       }
 
       const { data: insertedOrders, error: orderError } = orderResult;
