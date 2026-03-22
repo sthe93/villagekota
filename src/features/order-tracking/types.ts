@@ -44,6 +44,8 @@ export interface OrderRecord {
   started_delivery_at: string | null;
   arrived_at: string | null;
   delivered_at: string | null;
+  delivery_confirmation_code: string | null;
+  delivery_confirmation_verified_at: string | null;
   cash_collected: boolean | null;
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
