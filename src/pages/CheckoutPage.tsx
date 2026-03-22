@@ -71,18 +71,6 @@ function getPhoneDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
-function formatSupabaseError(error: unknown) {
-  if (typeof error !== "object" || error === null) {
-    return error instanceof Error ? error.message : "Failed to place order";
-  }
-
-  const record = error as Record<string, unknown>;
-  const parts = [record.message, record.details, record.hint, record.code]
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-
-  return parts.length > 0 ? parts.join(" · ") : "Failed to place order";
-}
-
 export default function CheckoutPage() {
   const {
     items,
@@ -597,7 +585,8 @@ export default function CheckoutPage() {
       let orderResult = await supabase
         .from("orders")
         .insert(orderPayloadCandidates[0])
-        .select("id");
+        .select("id")
+        .single();
 
       for (let index = 1; index < orderPayloadCandidates.length; index += 1) {
         if (!orderResult.error || !isSchemaCompatibilityError(orderResult.error)) {
@@ -607,7 +596,8 @@ export default function CheckoutPage() {
         orderResult = await supabase
           .from("orders")
           .insert(orderPayloadCandidates[index])
-          .select("id");
+          .select("id")
+          .single();
       }
 
       const { data: insertedOrders, error: orderError } = orderResult;
