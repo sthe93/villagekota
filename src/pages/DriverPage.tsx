@@ -77,6 +77,8 @@ interface DriverOrder {
   cash_collected: boolean | null;
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
+  delivery_confirmation_code: string | null;
+  delivery_confirmation_verified_at: string | null;
 }
 
 function normalizeValue(value?: string | null) {
@@ -291,7 +293,9 @@ export default function DriverPage() {
         delivered_at,
         cash_collected,
         cash_collected_amount,
-        cash_collected_at
+        cash_collected_at,
+        delivery_confirmation_code,
+        delivery_confirmation_verified_at
       `)
       .in("status", ["ready_for_delivery", "on_the_way", "arrived"])
       .order("created_at", { ascending: false });
@@ -532,7 +536,6 @@ export default function DriverPage() {
 
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
-    const currentOrder = orders.find((order) => order.id === orderId);
     const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
     const expectedCode = deriveDeliveryConfirmationCode(orderId);
 
@@ -548,51 +551,11 @@ export default function DriverPage() {
 
     setActionOrderId(orderId);
 
-    const { data: latestOrder, error: latestOrderError } = await supabase
-      .from("orders")
-      .select("status, payment_method, cash_collected")
-      .eq("id", orderId)
-      .maybeSingle();
-
-    if (!latestOrderError && latestOrder) {
-      const latestPaymentMethod = normalizeValue(latestOrder.payment_method);
-      const latestCashCollected = !!latestOrder.cash_collected;
-
-      if (normalizeValue(latestOrder.status) !== "arrived") {
-        toast.error("This delivery is no longer in the arrival step.");
-        setActionOrderId(null);
-        await loadDriverAndOrders();
-        return;
-      }
-
-      if (latestPaymentMethod === "cash" && !latestCashCollected) {
-        toast.error("Collect cash before completing this delivery.");
-        setActionOrderId(null);
-        await loadDriverAndOrders();
-        return;
-      }
-    }
-
-    const runCompleteDelivery = () =>
-      supabase.rpc("complete_delivery_order", {
-        p_order_id: orderId,
-        p_driver_id: driver.id,
-      });
-
-    let { data, error } = await runCompleteDelivery();
-
-    if (!error && !data) {
-      await loadDriverAndOrders();
-
-      const shouldRetry =
-        currentOrder?.status === "arrived" &&
-        (!isCashPaymentMethod(currentOrder?.payment_method) || currentOrder?.cash_collected);
-
-      if (shouldRetry) {
-        await new Promise((resolve) => window.setTimeout(resolve, 250));
-        ({ data, error } = await runCompleteDelivery());
-      }
-    }
+    const { data, error } = await supabase.rpc("complete_delivery_order_with_code", {
+      p_order_id: orderId,
+      p_driver_id: driver.id,
+      p_confirmation_code: confirmationCode,
+    });
 
     if (error) {
       toast.error(error.message || "Failed to complete delivery");
@@ -1024,6 +987,41 @@ export default function DriverPage() {
                                 </p>
                                 <p className="mt-1 text-sm text-foreground">
                                   Ask the customer for their 4-digit PIN now to complete the handoff.
+                                </p>
+                              </div>
+
+                              <div className="rounded-2xl border border-border bg-background p-3">
+                                <InputOTP
+                                  maxLength={DELIVERY_CONFIRMATION_CODE_LENGTH}
+                                  value={deliveryCodeValue}
+                                  onChange={(value) =>
+                                    setDeliveryCodes((prev) => ({
+                                      ...prev,
+                                      [order.id]: normalizeDeliveryConfirmationCode(value),
+                                    }))
+                                  }
+                                  containerClassName="justify-center"
+                                >
+                                  <InputOTPGroup>
+                                    {Array.from({ length: DELIVERY_CONFIRMATION_CODE_LENGTH }, (_, index) => (
+                                      <InputOTPSlot key={index} index={index} />
+                                    ))}
+                                  </InputOTPGroup>
+                                </InputOTP>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {order.status === "arrived" && (
+                          <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-4">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                                  Delivery confirmation
+                                </p>
+                                <p className="mt-1 text-sm text-foreground">
+                                  Ask the customer for their 4-digit PIN before completing the handoff.
                                 </p>
                               </div>
 
