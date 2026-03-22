@@ -59,6 +59,10 @@ import {
   normalize,
   normalizeOrderStatus,
 } from "@/features/order-tracking/utils";
+import {
+  deriveDeliveryConfirmationCode,
+  formatDeliveryConfirmationCode,
+} from "@/lib/deliveryConfirmation";
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
@@ -101,6 +105,13 @@ export default function OrderTrackingPage() {
   const isEftPayment = EFT_PAYMENT_METHODS.includes(paymentMethod);
   const cashCollected = !!order?.cash_collected;
   const hasAssignedDriver = !!order?.driver_id && !!driver;
+  const deliveryConfirmationCode = useMemo(
+    () => formatDeliveryConfirmationCode(deriveDeliveryConfirmationCode(order?.id)),
+    [order?.id]
+  );
+  const deliveryConfirmationReady = useMemo(() => {
+    return !!deliveryConfirmationCode && ["on_the_way", "arrived", "delivered"].includes(orderStatus);
+  }, [deliveryConfirmationCode, orderStatus]);
 
   const totalItems = useMemo(
     () => items.reduce((sum, item) => sum + item.quantity, 0),
@@ -575,6 +586,34 @@ export default function OrderTrackingPage() {
                     {statusSummary}
                   </p>
                 </div>
+
+                {deliveryConfirmationCode && !isOrderCancelled && (
+                  <div className="mt-4 rounded-[24px] border border-primary/20 bg-primary/5 p-5 shadow-sm">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+                          Delivery confirmation PIN
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-foreground">
+                          {isDelivered
+                            ? "This PIN was used to confirm handoff."
+                            : deliveryConfirmationReady
+                              ? "Share this PIN with your driver when they hand over the order."
+                              : "Your PIN is already prepared and will be needed once the driver is close."}
+                        </p>
+                      </div>
+
+                      <div className="rounded-[20px] border border-primary/20 bg-background px-5 py-4 text-center">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          PIN
+                        </p>
+                        <p className="mt-2 font-mono text-3xl font-semibold tracking-[0.35em] text-primary sm:text-4xl">
+                          {deliveryConfirmationCode}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:min-w-[420px]">
