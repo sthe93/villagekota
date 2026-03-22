@@ -525,6 +525,11 @@ export default function DriverPage() {
     }
 
     toast.success("Cash marked as collected");
+    setDeliveryCodes((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
     setActionOrderId(null);
     await loadDriverAndOrders();
   };
@@ -969,7 +974,42 @@ export default function DriverPage() {
 
                         {order.status === "arrived" && isCashPaymentMethod(order.payment_method) && !order.cash_collected && (
                           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                            This is a cash order. Collect payment before completing delivery.
+                            This is a cash order. Collect payment first, then enter the delivery PIN on the final completion step.
+                          </div>
+                        )}
+
+                        {canComplete && (
+                          <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-4">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                                  Delivery confirmation
+                                </p>
+                                <p className="mt-1 text-sm text-foreground">
+                                  Ask the customer for their 4-digit PIN now to complete the handoff.
+                                </p>
+                              </div>
+
+                              <div className="rounded-2xl border border-border bg-background p-3">
+                                <InputOTP
+                                  maxLength={DELIVERY_CONFIRMATION_CODE_LENGTH}
+                                  value={deliveryCodeValue}
+                                  onChange={(value) =>
+                                    setDeliveryCodes((prev) => ({
+                                      ...prev,
+                                      [order.id]: normalizeDeliveryConfirmationCode(value),
+                                    }))
+                                  }
+                                  containerClassName="justify-center"
+                                >
+                                  <InputOTPGroup>
+                                    {Array.from({ length: DELIVERY_CONFIRMATION_CODE_LENGTH }, (_, index) => (
+                                      <InputOTPSlot key={index} index={index} />
+                                    ))}
+                                  </InputOTPGroup>
+                                </InputOTP>
+                              </div>
+                            </div>
                           </div>
                         )}
 
