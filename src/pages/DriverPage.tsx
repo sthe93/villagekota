@@ -30,7 +30,6 @@ import {
   getSouthAfricaDrivingRouteMeta,
 } from "@/lib/maps";
 import {
-  deriveDeliveryConfirmationCode,
   DELIVERY_CONFIRMATION_CODE_LENGTH,
   isDeliveryConfirmationCodeComplete,
   normalizeDeliveryConfirmationCode,
@@ -77,6 +76,8 @@ interface DriverOrder {
   cash_collected: boolean | null;
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
+  delivery_confirmation_code: string | null;
+  delivery_confirmation_verified_at: string | null;
 }
 
 function normalizeValue(value?: string | null) {
@@ -291,7 +292,9 @@ export default function DriverPage() {
         delivered_at,
         cash_collected,
         cash_collected_amount,
-        cash_collected_at
+        cash_collected_at,
+        delivery_confirmation_code,
+        delivery_confirmation_verified_at
       `)
       .in("status", ["ready_for_delivery", "on_the_way", "arrived"])
       .order("created_at", { ascending: false });
@@ -528,23 +531,18 @@ export default function DriverPage() {
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
     const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
-    const expectedCode = deriveDeliveryConfirmationCode(orderId);
 
     if (!isDeliveryConfirmationCodeComplete(confirmationCode)) {
       toast.error("Enter the 4-digit delivery PIN from the customer.");
       return;
     }
 
-    if (confirmationCode !== expectedCode) {
-      toast.error("That PIN does not match this order.");
-      return;
-    }
-
     setActionOrderId(orderId);
 
-    const { data, error } = await supabase.rpc("complete_delivery_order", {
+    const { data, error } = await supabase.rpc("complete_delivery_order_with_code", {
       p_order_id: orderId,
       p_driver_id: driver.id,
+      p_confirmation_code: confirmationCode,
     });
 
     if (error) {
@@ -978,6 +976,11 @@ export default function DriverPage() {
                                 <p className="mt-1 text-sm text-foreground">
                                   Ask the customer for their 4-digit PIN before completing the handoff.
                                 </p>
+                                {order.delivery_confirmation_verified_at ? (
+                                  <p className="mt-2 text-xs text-muted-foreground">
+                                    Verified at {formatDateTime(order.delivery_confirmation_verified_at)}
+                                  </p>
+                                ) : null}
                               </div>
 
                               <div className="rounded-2xl border border-border bg-background p-3">

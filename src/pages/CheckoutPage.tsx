@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { generateDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
 import { toast } from "@/components/ui/sonner";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -496,6 +497,8 @@ export default function CheckoutPage() {
         .filter(Boolean)
         .join("\n\n");
 
+      const deliveryConfirmationCode = generateDeliveryConfirmationCode();
+
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
@@ -510,6 +513,7 @@ export default function CheckoutPage() {
           payment_method: form.payment,
           payment_provider: paymentProvider,
           payment_status: paymentStatus,
+          delivery_confirmation_code: deliveryConfirmationCode,
           subtotal,
           delivery_fee: deliveryFee,
           discount_amount: discountAmount,
