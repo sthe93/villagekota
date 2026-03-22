@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CartProvider } from "@/context/CartContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import PushNotificationManager from "@/components/PushNotificationManager";
 import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import CartFAB from "@/components/CartFAB";
@@ -73,6 +74,7 @@ const App = () => (
     <TooltipProvider>
       <Sonner />
       <AuthProvider>
+        <PushNotificationManager />
         <CartProvider>
           <BrowserRouter basename={import.meta.env.DEV ? "/" : "/villagekota"}>
             <Navbar />
