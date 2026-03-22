@@ -28,15 +28,20 @@ function getMapTilerKey() {
   return import.meta.env.VITE_MAPTILER_KEY?.trim() || "";
 }
 
+export function normalizeSouthAfricaAddressQuery(query: string) {
+  return query.replace(/\s+/g, " ").trim();
+}
+
 function buildMapTilerUrl(query: string, limit: number) {
   const key = getMapTilerKey();
+  const normalizedQuery = normalizeSouthAfricaAddressQuery(query);
 
-  if (!key) {
+  if (!key || !normalizedQuery) {
     return null;
   }
 
   return `https://api.maptiler.com/geocoding/${encodeURIComponent(
-    query
+    normalizedQuery
   )}.json?limit=${limit}&country=za&key=${key}`;
 }
 
@@ -72,6 +77,8 @@ export async function searchSouthAfricaAddresses(
   if (!url) return [];
 
   const response = await fetch(url, { signal });
+  if (!response.ok) return [];
+
   const payload: unknown = await response.json();
   return parseAddressSuggestions(payload);
 }
@@ -84,6 +91,8 @@ export async function geocodeSouthAfricaAddress(
   if (!url) return null;
 
   const response = await fetch(url, { signal });
+  if (!response.ok) return null;
+
   const payload: unknown = await response.json();
   const [first] = parseAddressSuggestions(payload);
 
