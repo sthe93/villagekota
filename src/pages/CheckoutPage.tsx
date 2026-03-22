@@ -45,6 +45,8 @@ interface InsertedOrderItemRow {
 }
 
 type ExtendedPaymentMethod = PaymentMethod | "voucher";
+type OrderInsertPayload = Record<string, string | number | null>;
+type OrderItemInsertPayload = Record<string, string | number | null>;
 
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
@@ -65,6 +67,27 @@ const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
 
 function getPhoneDigits(value: string) {
   return value.replace(/\D/g, "");
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return "";
+}
+
+function isSchemaCompatibilityError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+
+  return (
+    message.includes("schema cache") ||
+    message.includes("could not find the") ||
+    message.includes("column") && message.includes("does not exist") ||
+    message.includes("pgrst204") ||
+    message.includes("pgrst205")
+  );
 }
 
 export default function CheckoutPage() {
@@ -483,11 +506,20 @@ export default function CheckoutPage() {
             : null;
 
       const itemNotes = items
-        .filter((item) => item.note?.trim())
-        .map(
-          (item) =>
-            `- ${item.product.name}${item.quantity > 1 ? ` x${item.quantity}` : ""}: ${item.note?.trim()}`
-        );
+        .map((item) => {
+          const optionSummary = item.selectedOptions?.length
+            ? `Options: ${item.selectedOptions
+                .map((option) => `${option.groupName} - ${option.itemName}`)
+                .join(", ")}`
+            : "";
+          const noteSummary = item.note?.trim() ? `Note: ${item.note.trim()}` : "";
+          const detailSummary = [optionSummary, noteSummary].filter(Boolean).join(" · ");
+
+          if (!detailSummary) return "";
+
+          return `- ${item.product.name}${item.quantity > 1 ? ` x${item.quantity}` : ""}: ${detailSummary}`;
+        })
+        .filter(Boolean);
 
       const combinedNotes = [
         form.notes.trim(),
@@ -496,40 +528,95 @@ export default function CheckoutPage() {
         .filter(Boolean)
         .join("\n\n");
 
-      const { data: order, error: orderError } = await supabase
+      const fullOrderPayload: OrderInsertPayload = {
+        user_id: user.id,
+        customer_name: form.name.trim(),
+        customer_phone: customerPhone,
+        customer_email: customerEmail || null,
+        delivery_address: form.address.trim(),
+        destination_lat: destination?.lat ?? null,
+        destination_lng: destination?.lng ?? null,
+        notes: combinedNotes || null,
+        payment_method: form.payment,
+        payment_provider: paymentProvider,
+        payment_status: paymentStatus,
+        subtotal,
+        delivery_fee: deliveryFee,
+        discount_amount: discountAmount,
+        voucher_code: voucherInfo?.code || null,
+        total: adjustedTotal,
+      };
+
+      const legacyOrderPayload: OrderInsertPayload = {
+        user_id: user.id,
+        customer_name: form.name.trim(),
+        customer_phone: customerPhone,
+        customer_email: customerEmail || null,
+        delivery_address: form.address.trim(),
+        notes: combinedNotes || null,
+        payment_method: form.payment,
+        subtotal,
+        delivery_fee: deliveryFee,
+        total: adjustedTotal,
+      };
+
+      let orderResult = await supabase
         .from("orders")
-        .insert({
-          user_id: user.id,
-          customer_name: form.name.trim(),
-          customer_phone: customerPhone,
-          customer_email: customerEmail || null,
-          delivery_address: form.address.trim(),
-          destination_lat: destination?.lat ?? null,
-          destination_lng: destination?.lng ?? null,
-          notes: combinedNotes || null,
-          payment_method: form.payment,
-          payment_provider: paymentProvider,
-          payment_status: paymentStatus,
-          subtotal,
-          delivery_fee: deliveryFee,
-          discount_amount: discountAmount,
-          voucher_code: voucherInfo?.code || null,
-          total: adjustedTotal,
-        })
+        .insert(fullOrderPayload)
         .select("id")
         .single();
 
+      if (orderResult.error && isSchemaCompatibilityError(orderResult.error)) {
+        orderResult = await supabase
+          .from("orders")
+          .insert(legacyOrderPayload)
+          .select("id")
+          .single();
+      }
+
+      const { data: order, error: orderError } = orderResult;
+
       if (orderError) throw orderError;
 
-      const { data: insertedOrderItemsData, error: itemsError } = await supabase
-        .from("order_items")
-        .insert(
-          orderItems.map((item) => ({
+      const fullOrderItemsPayload = orderItems.map((item, index) => {
+        const cartItem = items[index];
+        const selectedOptionLabels = cartItem.selectedOptions?.length
+          ? ` (${cartItem.selectedOptions
+              .map((option) => `${option.groupName}: ${option.itemName}`)
+              .join(", ")})`
+          : "";
+
+        const legacyProductName = `${item.product_name}${selectedOptionLabels}`.trim();
+
+        return {
+          full: {
             order_id: order.id,
             ...item,
-          }))
-        )
+          } satisfies OrderItemInsertPayload,
+          legacy: {
+            order_id: order.id,
+            product_id: item.product_id,
+            product_name: legacyProductName,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            total_price: item.total_price,
+          } satisfies OrderItemInsertPayload,
+        };
+      });
+
+      let insertedOrderItemsResult = await supabase
+        .from("order_items")
+        .insert(fullOrderItemsPayload.map((item) => item.full))
         .select("id");
+
+      if (insertedOrderItemsResult.error && isSchemaCompatibilityError(insertedOrderItemsResult.error)) {
+        insertedOrderItemsResult = await supabase
+          .from("order_items")
+          .insert(fullOrderItemsPayload.map((item) => item.legacy))
+          .select("id");
+      }
+
+      const { data: insertedOrderItemsData, error: itemsError } = insertedOrderItemsResult;
 
       if (itemsError) throw itemsError;
       const insertedOrderItems = (insertedOrderItemsData || []) as InsertedOrderItemRow[];
@@ -551,7 +638,9 @@ export default function CheckoutPage() {
           .from("order_item_options")
           .insert(optionRows);
 
-        if (optionInsertError) throw optionInsertError;
+        if (optionInsertError && !isSchemaCompatibilityError(optionInsertError)) {
+          throw optionInsertError;
+        }
       }
 
       if (voucherInfo?.source === "local" && voucherInfo.id) {
