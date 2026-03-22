@@ -16,6 +16,11 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "@/components/ui/sonner";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 import Footer from "@/components/Footer";
 import DeliveryProgressTracker, {
   type DeliveryStatus,
@@ -24,6 +29,11 @@ import {
   geocodeSouthAfricaAddress,
   getSouthAfricaDrivingRouteMeta,
 } from "@/lib/maps";
+import {
+  DELIVERY_CONFIRMATION_CODE_LENGTH,
+  isDeliveryConfirmationCodeComplete,
+  normalizeDeliveryConfirmationCode,
+} from "@/lib/deliveryConfirmation";
 
 type OrderStatus =
   | "pending"
@@ -66,6 +76,8 @@ interface DriverOrder {
   cash_collected: boolean | null;
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
+  delivery_confirmation_code: string | null;
+  delivery_confirmation_verified_at: string | null;
 }
 
 function normalizeValue(value?: string | null) {
@@ -154,6 +166,7 @@ export default function DriverPage() {
   const [watchId, setWatchId] = useState<number | null>(null);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
   const [newOrderIds, setNewOrderIds] = useState<string[]>([]);
+  const [deliveryCodes, setDeliveryCodes] = useState<Record<string, string>>({});
   const audioUnlockedRef = useRef(false);
 
   const playNotificationSound = () => {
@@ -279,7 +292,9 @@ export default function DriverPage() {
         delivered_at,
         cash_collected,
         cash_collected_amount,
-        cash_collected_at
+        cash_collected_at,
+        delivery_confirmation_code,
+        delivery_confirmation_verified_at
       `)
       .in("status", ["ready_for_delivery", "on_the_way", "arrived"])
       .order("created_at", { ascending: false });
@@ -515,12 +530,19 @@ export default function DriverPage() {
 
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
+    const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
+
+    if (!isDeliveryConfirmationCodeComplete(confirmationCode)) {
+      toast.error("Enter the 4-digit delivery PIN from the customer.");
+      return;
+    }
 
     setActionOrderId(orderId);
 
-    const { data, error } = await supabase.rpc("complete_delivery_order", {
+    const { data, error } = await supabase.rpc("complete_delivery_order_with_code", {
       p_order_id: orderId,
       p_driver_id: driver.id,
+      p_confirmation_code: confirmationCode,
     });
 
     if (error) {
@@ -541,6 +563,11 @@ export default function DriverPage() {
     }
 
     toast.success("Delivery completed");
+    setDeliveryCodes((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
     setActionOrderId(null);
     await loadDriverAndOrders();
   };
@@ -834,6 +861,7 @@ export default function DriverPage() {
                   const canComplete =
                     order.status === "arrived" &&
                     (isCardPaymentMethod(order.payment_method) || order.cash_collected);
+                  const deliveryCodeValue = deliveryCodes[order.id] || "";
 
                   return (
                     <div key={order.id} className="rounded-lg border border-border bg-background p-4">
@@ -938,6 +966,46 @@ export default function DriverPage() {
                           </div>
                         )}
 
+                        {order.status === "arrived" && (
+                          <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-4">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                                  Delivery confirmation
+                                </p>
+                                <p className="mt-1 text-sm text-foreground">
+                                  Ask the customer for their 4-digit PIN before completing the handoff.
+                                </p>
+                                {order.delivery_confirmation_verified_at ? (
+                                  <p className="mt-2 text-xs text-muted-foreground">
+                                    Verified at {formatDateTime(order.delivery_confirmation_verified_at)}
+                                  </p>
+                                ) : null}
+                              </div>
+
+                              <div className="rounded-2xl border border-border bg-background p-3">
+                                <InputOTP
+                                  maxLength={DELIVERY_CONFIRMATION_CODE_LENGTH}
+                                  value={deliveryCodeValue}
+                                  onChange={(value) =>
+                                    setDeliveryCodes((prev) => ({
+                                      ...prev,
+                                      [order.id]: normalizeDeliveryConfirmationCode(value),
+                                    }))
+                                  }
+                                  containerClassName="justify-center"
+                                >
+                                  <InputOTPGroup>
+                                    {Array.from({ length: DELIVERY_CONFIRMATION_CODE_LENGTH }, (_, index) => (
+                                      <InputOTPSlot key={index} index={index} />
+                                    ))}
+                                  </InputOTPGroup>
+                                </InputOTP>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {isCardPaymentMethod(order.payment_method) && (
                           <div className="mt-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
                             Card payment already handled online. No cash collection needed.
@@ -1019,7 +1087,7 @@ export default function DriverPage() {
                           <button
                             type="button"
                             onClick={() => completeDelivery(order.id)}
-                            disabled={actionOrderId === order.id}
+                            disabled={actionOrderId === order.id || !isDeliveryConfirmationCodeComplete(deliveryCodeValue)}
                             className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                           >
                             {actionOrderId === order.id ? (
