@@ -600,9 +600,15 @@ export default function CheckoutPage() {
           .single();
       }
 
-      const { data: order, error: orderError } = orderResult;
+      const { data: insertedOrders, error: orderError } = orderResult;
 
       if (orderError) throw orderError;
+
+      const order = insertedOrders?.[0];
+
+      if (!order?.id) {
+        throw new Error("Order insert completed but no order id was returned.");
+      }
 
       const fullOrderItemsPayload = orderItems.map((item, index) => {
         const cartItem = items[index];
@@ -785,7 +791,7 @@ export default function CheckoutPage() {
       toast.success("Order placed successfully.");
       navigate(`/order-tracking/${order.id}`);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to place order");
+      toast.error(formatSupabaseError(err));
     } finally {
       setSubmitting(false);
     }
