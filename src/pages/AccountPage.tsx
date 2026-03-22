@@ -15,8 +15,19 @@ import {
   Clock3,
   MapPin,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
 import Footer from "@/components/Footer";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { fetchOrderTrackingSnapshot } from "@/features/order-tracking/api";
+import type { OrderItemRecord, OrderRecord } from "@/features/order-tracking/types";
+import { formatCurrency } from "@/features/order-tracking/utils";
 import {
   getAccountOrderStatusClass,
   getOrderStatusSummary,
@@ -29,6 +40,8 @@ interface Order {
   total: number;
   created_at: string;
   customer_name: string;
+  payment_method: string | null;
+  payment_status: string | null;
 }
 
 interface Favorite {
@@ -45,6 +58,7 @@ interface DriverProfile {
 }
 
 type AccountTab = "profile" | "orders" | "favorites" | "driver";
+type OrderFilter = "all" | "delivered" | "cancelled";
 
 const inputClassName =
   "w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body";
@@ -66,6 +80,12 @@ export default function AccountPage() {
   });
 
   const [saving, setSaving] = useState(false);
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
+  const [orderSearch, setOrderSearch] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<OrderRecord | null>(null);
+  const [selectedOrderItems, setSelectedOrderItems] = useState<OrderItemRecord[]>([]);
+  const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -118,7 +138,7 @@ export default function AccountPage() {
     if (tab === "orders") {
       supabase
         .from("orders")
-        .select("id, status, total, created_at, customer_name")
+        .select("id, status, total, created_at, customer_name, payment_method, payment_status")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .then(({ data }) => setOrders(data || []));
@@ -129,7 +149,7 @@ export default function AccountPage() {
         .from("favorites")
         .select("id, product_id, products:product_id(name, price, image_url)")
         .eq("user_id", user.id)
-        .then(({ data }) => setFavorites((data as any) || []));
+        .then(({ data }) => setFavorites((data as Favorite[]) || []));
     }
   }, [tab, user]);
 
@@ -175,8 +195,74 @@ export default function AccountPage() {
         ["pending", "confirmed", "preparing", "ready_for_delivery", "on_the_way", "arrived"].includes(o.status)
       ).length,
       delivered: orders.filter((o) => o.status === "delivered").length,
+      cancelled: orders.filter((o) => o.status === "cancelled").length,
     };
   }, [orders]);
+
+  const activeOrders = useMemo(
+    () =>
+      orders.filter((o) =>
+        ["pending", "confirmed", "preparing", "ready_for_delivery", "on_the_way", "arrived"].includes(o.status)
+      ),
+    [orders]
+  );
+
+  const historyOrders = useMemo(
+    () => orders.filter((o) => !activeOrders.some((activeOrder) => activeOrder.id === o.id)),
+    [orders, activeOrders]
+  );
+
+  const filteredOrders = useMemo(() => {
+    const filteredByStatus =
+      orderFilter === "all"
+        ? historyOrders
+        : orderFilter === "delivered"
+          ? historyOrders.filter((o) => o.status === "delivered")
+          : historyOrders.filter((o) => o.status === "cancelled");
+
+    const query = orderSearch.trim().toLowerCase();
+    if (!query) return filteredByStatus;
+
+    return filteredByStatus.filter((o) => {
+      const shortId = o.id.slice(0, 8).toLowerCase();
+      return (
+        o.customer_name.toLowerCase().includes(query) ||
+        shortId.includes(query) ||
+        o.status.toLowerCase().includes(query)
+      );
+    });
+  }, [historyOrders, orderFilter, orderSearch]);
+
+  const handleOpenOrderDetails = async (orderId: string) => {
+    setSelectedOrderId(orderId);
+    setLoadingOrderDetails(true);
+
+    try {
+      const snapshot = await fetchOrderTrackingSnapshot(orderId);
+      setSelectedOrder(snapshot.order);
+      setSelectedOrderItems(snapshot.items);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load order details");
+      setSelectedOrderId(null);
+      setSelectedOrder(null);
+      setSelectedOrderItems([]);
+    } finally {
+      setLoadingOrderDetails(false);
+    }
+  };
+
+  const closeOrderDetails = () => {
+    setSelectedOrderId(null);
+    setSelectedOrder(null);
+    setSelectedOrderItems([]);
+    setLoadingOrderDetails(false);
+  };
+
+  const orderFilters: Array<{ key: OrderFilter; label: string; count: number }> = [
+    { key: "all", label: "History", count: historyOrders.length },
+    { key: "delivered", label: "Delivered", count: recentOrdersStats.delivered },
+    { key: "cancelled", label: "Cancelled", count: recentOrdersStats.cancelled },
+  ];
 
   if (!user) return null;
 
@@ -378,63 +464,169 @@ export default function AccountPage() {
               </div>
             </div>
 
-            {orders.length === 0 ? (
-              <div className="py-16 text-center">
-                <Package className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
-                <p className="font-medium text-muted-foreground">No orders yet</p>
-              </div>
-            ) : (
-              orders.map((o) => (
-                <div
-                  key={o.id}
-                  onClick={() => navigate(`/order-tracking/${o.id}`)}
-                  className="cursor-pointer rounded-2xl border border-border bg-card p-5 transition-colors hover:border-primary/30"
+            <div className="flex flex-wrap gap-2">
+              {orderFilters.map((filter) => (
+                <button
+                  key={filter.key}
+                  onClick={() => setOrderFilter(filter.key)}
+                  className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                    orderFilter === filter.key
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-foreground hover:bg-muted"
+                  }`}
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <p className="text-base font-semibold text-foreground">
-                          {o.customer_name}
-                        </p>
-                        <span
-                          className={`rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${getAccountOrderStatusClass(
-                            o.status
-                          )}`}
-                        >
-                          {formatStatusLabel(o.status)}
-                        </span>
-                      </div>
+                  {filter.label} ({filter.count})
+                </button>
+              ))}
+            </div>
 
-                      <p className="text-xs text-muted-foreground">
-                        #{o.id.slice(0, 8).toUpperCase()} ·{" "}
-                        {new Date(o.created_at).toLocaleDateString("en-ZA", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </p>
+            <div className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">Active orders</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Orders still in progress stay here for quick live tracking.
+                  </p>
+                </div>
 
-                      <div className="mt-3 inline-flex items-start gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-                        <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{getOrderStatusSummary(o.status)}</span>
+                <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                  {activeOrders.length} active
+                </div>
+              </div>
+
+              {activeOrders.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-background px-4 py-8 text-center text-sm text-muted-foreground">
+                  No active orders right now.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {activeOrders.map((o) => (
+                    <div
+                      key={o.id}
+                      className="rounded-2xl border border-border bg-background p-4"
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold text-foreground">
+                              #{o.id.slice(0, 8).toUpperCase()}
+                            </p>
+                            <span
+                              className={`rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${getAccountOrderStatusClass(
+                                o.status
+                              )}`}
+                            >
+                              {formatStatusLabel(o.status)}
+                            </span>
+                          </div>
+
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            {getOrderStatusSummary(o.status)}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium text-primary">{formatCurrency(o.total)}</p>
+                          <button
+                            onClick={() => navigate(`/order-tracking/${o.id}`)}
+                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                          >
+                            Track Live
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-                    <div className="flex items-center justify-between gap-4 lg:justify-end">
-                      <div className="text-right">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Total</p>
-                        <p className="font-display text-2xl text-primary">R{o.total}</p>
+            <div className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-3">
+                <h3 className="text-lg font-semibold text-foreground">Order history</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Delivered and cancelled orders live here for receipt-style review.
+                </p>
+              </div>
+
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <input
+                  type="search"
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                  placeholder="Search by order ID, name, or status"
+                  className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary sm:max-w-sm"
+                />
+
+                <p className="text-sm text-muted-foreground">
+                  {filteredOrders.length} result{filteredOrders.length === 1 ? "" : "s"}
+                </p>
+              </div>
+
+            {filteredOrders.length === 0 ? (
+              <div className="py-12 text-center">
+                <Package className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" />
+                <p className="font-medium text-muted-foreground">No history orders match this filter</p>
+              </div>
+            ) : (
+              filteredOrders.map((o) => {
+                return (
+                  <div
+                    key={o.id}
+                    className="rounded-2xl border border-border bg-card p-5 transition-colors hover:border-primary/30"
+                  >
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <p className="text-base font-semibold text-foreground">
+                            {o.customer_name}
+                          </p>
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${getAccountOrderStatusClass(
+                              o.status
+                            )}`}
+                          >
+                            {formatStatusLabel(o.status)}
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-muted-foreground">
+                          #{o.id.slice(0, 8).toUpperCase()} ·{" "}
+                          {new Date(o.created_at).toLocaleDateString("en-ZA", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </p>
+
+                        <div className="mt-3 inline-flex items-start gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+                          <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>{getOrderStatusSummary(o.status)}</span>
+                        </div>
                       </div>
 
-                      <div className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2.5 text-sm font-medium text-primary">
-                        Track Order
-                        <ChevronRight className="h-4 w-4" />
+                      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between lg:justify-end">
+                        <div className="text-right">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Total</p>
+                          <p className="font-display text-2xl text-primary">{formatCurrency(o.total)}</p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => void handleOpenOrderDetails(o.id)}
+                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                          >
+                            View Details
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
+            </div>
           </div>
         )}
 
@@ -518,6 +710,161 @@ export default function AccountPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={!!selectedOrderId} onOpenChange={(open) => !open && closeOrderDetails()}>
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] max-w-2xl overflow-hidden rounded-2xl p-0 sm:w-full sm:rounded-3xl">
+          <div className="max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle>Order details</DialogTitle>
+              <DialogDescription>
+                Review this order separately from the live tracker, and jump back into tracking only when it is active.
+              </DialogDescription>
+            </DialogHeader>
+
+            {loadingOrderDetails ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="ml-3 text-sm">Loading order details...</span>
+              </div>
+            ) : selectedOrder ? (
+              <div className="space-y-5">
+              <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Order #{selectedOrder.id.slice(0, 8).toUpperCase()}
+                  </p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{selectedOrder.customer_name}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {new Date(selectedOrder.created_at).toLocaleString("en-ZA")}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <span
+                    className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${getAccountOrderStatusClass(
+                      selectedOrder.status || ""
+                    )}`}
+                  >
+                    {formatStatusLabel(selectedOrder.status || "pending")}
+                  </span>
+
+                  {selectedOrder.status &&
+                    ["pending", "confirmed", "preparing", "ready_for_delivery", "on_the_way", "arrived"].includes(
+                      selectedOrder.status
+                    ) && (
+                      <button
+                        onClick={() => navigate(`/order-tracking/${selectedOrder.id}`)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                      >
+                        Track Live
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    )}
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Payment</p>
+                  <p className="mt-2 font-medium text-foreground">
+                    {selectedOrder.payment_method || "Unknown method"}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Status: {selectedOrder.payment_status || "Unknown"}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Reference: {selectedOrder.payment_reference || "Not available"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Delivery</p>
+                  <p className="mt-2 font-medium text-foreground">
+                    {selectedOrder.delivery_address || "No address provided"}
+                  </p>
+                  {selectedOrder.customer_phone && (
+                    <p className="mt-1 text-sm text-muted-foreground">Phone: {selectedOrder.customer_phone}</p>
+                  )}
+                </div>
+              </div>
+
+              {selectedOrder.notes && (
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Notes</p>
+                  <p className="mt-2 whitespace-pre-line text-sm text-foreground">{selectedOrder.notes}</p>
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="mb-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Items</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">Order breakdown</p>
+                  </div>
+
+                  <p className="text-lg font-semibold text-primary">{formatCurrency(selectedOrder.total)}</p>
+                </div>
+
+                <div className="space-y-3">
+                  {selectedOrderItems.map((item) => (
+                    <div key={item.id} className="rounded-2xl border border-border bg-background p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-medium text-foreground">
+                            {item.quantity}× {item.product_name}
+                          </p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Unit price {formatCurrency(item.final_unit_price || item.unit_price)}
+                          </p>
+                        </div>
+
+                        <p className="font-medium text-foreground">{formatCurrency(item.total_price)}</p>
+                      </div>
+
+                      {item.selectedOptions.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {item.selectedOptions.map((option) => (
+                            <span
+                              key={option.id}
+                              className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-foreground"
+                            >
+                              {option.option_group_name}: {option.option_item_name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {item.item_note && (
+                        <p className="mt-3 text-sm text-muted-foreground">Note: {item.item_note}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="font-medium text-foreground">{formatCurrency(selectedOrder.subtotal)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-muted-foreground">Delivery fee</span>
+                    <span className="font-medium text-foreground">{formatCurrency(selectedOrder.delivery_fee)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-muted-foreground">Discount</span>
+                    <span className="font-medium text-foreground">-{formatCurrency(selectedOrder.discount_amount)}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+                    <span className="font-semibold text-foreground">Total</span>
+                    <span className="text-lg font-semibold text-primary">{formatCurrency(selectedOrder.total)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Footer />
     </div>
