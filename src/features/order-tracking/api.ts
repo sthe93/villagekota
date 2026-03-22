@@ -7,6 +7,7 @@ import type {
   TrackingSnapshotState,
 } from "./types";
 import { normalize, normalizeOrderStatus, toNumberOrNull } from "./utils";
+import { isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
 
 const ORDER_TRACKING_SELECT = `
   id,
@@ -132,27 +133,6 @@ interface OrderItemOptionRow {
   option_group_name: string;
   option_item_name: string;
   price_delta: number | null;
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error !== null && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string") return message;
-  }
-  return "";
-}
-
-function isSchemaCompatibilityError(error: unknown) {
-  const message = getErrorMessage(error).toLowerCase();
-
-  return (
-    message.includes("schema cache") ||
-    message.includes("could not find the") ||
-    (message.includes("column") && message.includes("does not exist")) ||
-    message.includes("pgrst204") ||
-    message.includes("pgrst205")
-  );
 }
 
 function normalizeOrder(row: OrderRow): OrderRecord {
