@@ -16,6 +16,8 @@ import {
   MapPin,
   ChevronRight,
   Loader2,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import {
@@ -33,6 +35,11 @@ import {
   getOrderStatusSummary,
   formatStatusLabel,
 } from "@/lib/orderMeta";
+import {
+  disablePushNotifications,
+  getPushNotificationPermissionState,
+  requestPushNotificationPermission,
+} from "@/lib/pushNotifications";
 
 interface Order {
   id: string;
@@ -85,6 +92,8 @@ export default function AccountPage() {
   const [selectedOrder, setSelectedOrder] = useState<OrderRecord | null>(null);
   const [selectedOrderItems, setSelectedOrderItems] = useState<OrderItemRecord[]>([]);
   const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
+  const [notificationsState, setNotificationsState] = useState(() => getPushNotificationPermissionState());
+  const [notificationsSaving, setNotificationsSaving] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -100,6 +109,18 @@ export default function AccountPage() {
       });
     }
   }, [user, profile, navigate]);
+
+
+  useEffect(() => {
+    setNotificationsState(getPushNotificationPermissionState());
+
+    const onFocus = () => setNotificationsState(getPushNotificationPermissionState());
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
 
   useEffect(() => {
     const loadDriverProfile = async () => {
@@ -170,6 +191,32 @@ export default function AccountPage() {
     }
 
     setSaving(false);
+  };
+
+
+  const handleEnableNotifications = async () => {
+    setNotificationsSaving(true);
+
+    try {
+      const nextState = await requestPushNotificationPermission();
+      setNotificationsState(nextState);
+
+      if (!nextState.supported) {
+        toast.error("This browser does not support push notifications.");
+      } else if (nextState.permission === "granted") {
+        toast.success("Push notifications enabled for this device.");
+      } else if (nextState.permission === "denied") {
+        toast.error("Browser notifications are blocked. Update your browser settings to enable them.");
+      }
+    } finally {
+      setNotificationsSaving(false);
+    }
+  };
+
+  const handleDisableNotifications = () => {
+    disablePushNotifications();
+    setNotificationsState(getPushNotificationPermissionState());
+    toast.success("Push notifications disabled for this device.");
   };
 
   const handleSignOut = async () => {
@@ -325,6 +372,52 @@ export default function AccountPage() {
                 rows={2}
                 className="w-full resize-none rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
               />
+            </div>
+
+            <div className="rounded-lg border border-border bg-background p-4">
+              <div className="mb-3 flex items-center gap-2">
+                {notificationsState.enabled ? (
+                  <Bell className="h-4 w-4 text-primary" />
+                ) : (
+                  <BellOff className="h-4 w-4 text-muted-foreground" />
+                )}
+                <div>
+                  <p className="text-sm font-medium text-foreground">Push Notifications</p>
+                  <p className="text-xs text-muted-foreground">
+                    Get browser alerts for order updates, driver dispatches, and admin order activity on this device.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
+                {!notificationsState.supported
+                  ? "This browser does not support web push notifications."
+                  : notificationsState.permission === "denied"
+                    ? "Notifications are blocked in the browser. Re-enable them in site settings, then come back here."
+                    : notificationsState.enabled
+                      ? "Notifications are enabled. We'll alert you when important order events happen."
+                      : "Notifications are currently off for this device."}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  onClick={() => void handleEnableNotifications()}
+                  disabled={notificationsSaving || !notificationsState.supported || notificationsState.enabled}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  <Bell className="h-4 w-4" />
+                  {notificationsSaving ? "Updating..." : notificationsState.enabled ? "Enabled" : "Enable Notifications"}
+                </button>
+
+                <button
+                  onClick={handleDisableNotifications}
+                  disabled={!notificationsState.supported || !notificationsState.enabled}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                >
+                  <BellOff className="h-4 w-4" />
+                  Turn Off
+                </button>
+              </div>
             </div>
 
             {isDriver && driverProfile && (

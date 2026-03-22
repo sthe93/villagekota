@@ -77,6 +77,12 @@ If Supabase shows `Unsupported provider: missing OAuth secret`, the Google
 provider is enabled but the **Client Secret has not been saved correctly** in
 the Supabase dashboard yet.
 
+### Browser push notifications
+
+The app now includes browser push-notification support for signed-in users. End users can enable notifications from **My Account → Push Notifications**. Once enabled, the frontend registers a service worker and listens for realtime Supabase order events to surface browser notifications for customer order updates, driver dispatch events, and new admin orders.
+
+> Note: this is a web-notification implementation powered by the browser Notification API plus Supabase realtime. It does not yet send vendor push messages to devices when the app is completely offline and disconnected from realtime.
+
 ### Supabase Edge Functions
 
 This repository includes Supabase Edge Functions under `supabase/functions/`, including:
