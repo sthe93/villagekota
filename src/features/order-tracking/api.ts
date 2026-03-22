@@ -106,6 +106,8 @@ interface OrderRow {
   started_delivery_at: string | null;
   arrived_at: string | null;
   delivered_at: string | null;
+  delivery_confirmation_code: string | null;
+  delivery_confirmation_verified_at: string | null;
   cash_collected: boolean | null;
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
@@ -182,6 +184,8 @@ function normalizeOrder(row: OrderRow): OrderRecord {
     started_delivery_at: row.started_delivery_at ?? null,
     arrived_at: row.arrived_at ?? null,
     delivered_at: row.delivered_at ?? null,
+    delivery_confirmation_code: row.delivery_confirmation_code ?? null,
+    delivery_confirmation_verified_at: row.delivery_confirmation_verified_at ?? null,
     cash_collected: row.cash_collected ?? null,
     cash_collected_amount: toNumberOrNull(row.cash_collected_amount),
     cash_collected_at: row.cash_collected_at ?? null,
