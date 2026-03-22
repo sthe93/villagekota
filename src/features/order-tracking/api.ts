@@ -211,42 +211,7 @@ function normalizeOrderItems(rows: OrderItemRow[]): OrderItemRecord[] {
 export async function fetchOrderTrackingSnapshot(orderId: string) {
   let orderResult = await supabase
     .from("orders")
-    .select(`
-      id,
-      user_id,
-      customer_name,
-      customer_phone,
-      customer_email,
-      delivery_address,
-      notes,
-      payment_method,
-      payment_provider,
-      payment_reference,
-      payment_status,
-      status,
-      subtotal,
-      delivery_fee,
-      discount_amount,
-      total,
-      created_at,
-      estimated_delivery_time,
-      driver_distance_km,
-      driver_lat,
-      driver_lng,
-      driver_last_updated,
-      driver_id,
-      accepted_at,
-      started_delivery_at,
-      arrived_at,
-      delivered_at,
-      delivery_confirmation_code,
-      delivery_confirmation_verified_at,
-      cash_collected,
-      cash_collected_amount,
-      cash_collected_at,
-      destination_lat,
-      destination_lng
-    `)
+    .select(ORDER_TRACKING_SELECT)
     .eq("id", orderId)
     .single();
 
