@@ -77,6 +77,8 @@ interface DriverOrder {
   cash_collected: boolean | null;
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
+  delivery_confirmation_code: string | null;
+  delivery_confirmation_verified_at: string | null;
 }
 
 function normalizeValue(value?: string | null) {
@@ -296,7 +298,9 @@ export default function DriverPage() {
         delivered_at,
         cash_collected,
         cash_collected_amount,
-        cash_collected_at
+        cash_collected_at,
+        delivery_confirmation_code,
+        delivery_confirmation_verified_at
       `)
       .in("status", ["ready_for_delivery", "on_the_way", "arrived"])
       .order("created_at", { ascending: false });
