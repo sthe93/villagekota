@@ -1141,6 +1141,77 @@ export default function DriverPage() {
                           </button>
                         )}
                       </div>
+
+                      <Dialog
+                        open={confirmingOrderId === order.id}
+                        onOpenChange={(open) => {
+                          if (!open) {
+                            setConfirmingOrderId((current) => (current === order.id ? null : current));
+                          }
+                        }}
+                      >
+                        <DialogContent className="sm:max-w-md">
+                          <DialogHeader>
+                            <DialogTitle>Confirm delivery handoff</DialogTitle>
+                            <DialogDescription>
+                              Ask the customer for their 4-digit PIN, then confirm the order handoff.
+                            </DialogDescription>
+                          </DialogHeader>
+
+                          <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                              Delivery confirmation
+                            </p>
+                            <p className="mt-2 text-sm text-foreground">
+                              Enter the customer PIN only when you are ready to complete this delivery.
+                            </p>
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-background p-4">
+                            <InputOTP
+                              maxLength={DELIVERY_CONFIRMATION_CODE_LENGTH}
+                              value={deliveryCodeValue}
+                              onChange={(value) =>
+                                setDeliveryCodes((prev) => ({
+                                  ...prev,
+                                  [order.id]: normalizeDeliveryConfirmationCode(value),
+                                }))
+                              }
+                              containerClassName="justify-center"
+                            >
+                              <InputOTPGroup>
+                                {Array.from({ length: DELIVERY_CONFIRMATION_CODE_LENGTH }, (_, index) => (
+                                  <InputOTPSlot key={index} index={index} />
+                                ))}
+                              </InputOTPGroup>
+                            </InputOTP>
+                          </div>
+
+                          <div className="flex justify-end gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingOrderId(null)}
+                              className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            >
+                              Cancel
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => completeDelivery(order.id)}
+                              disabled={actionOrderId === order.id || !isDeliveryConfirmationCodeComplete(deliveryCodeValue)}
+                              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                            >
+                              {actionOrderId === order.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4" />
+                              )}
+                              Confirm Delivery
+                            </button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   );
                 })
