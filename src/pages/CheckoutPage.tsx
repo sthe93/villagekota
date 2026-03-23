@@ -9,7 +9,6 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   Tag,
   Loader2,
-  MapPin,
   CreditCard,
   Banknote,
   Landmark,
@@ -22,6 +21,8 @@ import {
   Trash2,
 } from "lucide-react";
 import Footer from "@/components/Footer";
+import AddressAutocompleteField from "@/components/AddressAutocompleteField";
+import { geocodeSouthAfricaAddress } from "@/lib/maps";
 import {
   geocodeSouthAfricaAddress,
   searchSouthAfricaAddresses,
@@ -127,7 +128,6 @@ export default function CheckoutPage() {
     lng: null,
   });
 
-  const addressBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setForm((prev) => ({
@@ -261,59 +261,144 @@ export default function CheckoutPage() {
     return `Place Order — ${priceFormatter.format(adjustedTotal)}`;
   }, [submitting, form.payment, adjustedTotal, voucherCoversFullOrder, voucherProviderLabel]);
 
-  const searchAddresses = async (query: string, signal?: AbortSignal) => {
-    if (query.trim().length < 3) {
-      setAddressSuggestions([]);
+  const handleSaveCurrentAddress = async () => {
+    if (!user) {
+      toast.error("Please sign in to save addresses.");
       return;
     }
 
-    setAddressLoading(true);
+    const label = normalizeSavedAddressLabel(newSavedAddressLabel);
+    const addressText = normalizeSavedAddressText(form.address);
+
+    if (!label || !addressText) {
+      toast.error("Add a label and a delivery address before saving.");
+      return;
+    }
+
+    if (findDuplicateSavedAddress(savedAddresses, addressText)) {
+      toast.error("That delivery address is already saved.");
+      return;
+    }
+
+    setSavingCurrentAddress(true);
 
     try {
-      const suggestions = await searchSouthAfricaAddresses(query, signal);
-      setAddressSuggestions(suggestions);
-      setShowSuggestions(true);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return;
+      let destination = selectedDestination;
+
+      if (destination.lat == null || destination.lng == null) {
+        destination = await geocodeSouthAfricaAddress(addressText);
       }
-      setAddressSuggestions([]);
+
+      const existingDefault = savedAddresses.find((address) => address.is_default);
+      const shouldSetDefault = !existingDefault;
+
+      const { error } = await supabase.from("saved_addresses").insert({
+        user_id: user.id,
+        label,
+        address_text: addressText,
+        destination_lat: destination?.lat ?? null,
+        destination_lng: destination?.lng ?? null,
+        is_default: shouldSetDefault,
+      });
+
+      if (error) throw error;
+
+      if (shouldSetDefault) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ default_address: addressText })
+          .eq("user_id", user.id);
+
+        if (profileError) throw profileError;
+      }
+
+      setSelectedDestination({
+        lat: destination?.lat ?? null,
+        lng: destination?.lng ?? null,
+      });
+      setNewSavedAddressLabel("");
+      await refreshSavedAddresses();
+      toast.success("Address saved for faster checkout.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save this address");
     } finally {
-      setAddressLoading(false);
+      setSavingCurrentAddress(false);
     }
   };
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      if (
-        form.address.trim().length >= 3 &&
-        selectedDestination.lat == null &&
-        selectedDestination.lng == null
-      ) {
-        void searchAddresses(form.address, controller.signal);
-      } else if (form.address.trim().length < 3) {
-        setAddressSuggestions([]);
-        setShowSuggestions(false);
+  const handleDeleteSavedAddress = async (address: SavedAddressRecord) => {
+    if (!user) return;
+
+    setDeletingSavedAddressId(address.id);
+
+    try {
+      const { error } = await supabase
+        .from("saved_addresses")
+        .delete()
+        .eq("id", address.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      if (address.is_default) {
+        const nextDefaultAddress = getNextDefaultSavedAddress(savedAddresses, address.id);
+
+        if (nextDefaultAddress) {
+          const { error: nextDefaultError } = await supabase
+            .from("saved_addresses")
+            .update({ is_default: true })
+            .eq("id", nextDefaultAddress.id)
+            .eq("user_id", user.id);
+
+          if (nextDefaultError) throw nextDefaultError;
+        }
+
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ default_address: nextDefaultAddress?.address_text || "" })
+          .eq("user_id", user.id);
+
+        if (profileError) throw profileError;
       }
-    }, 350);
 
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [form.address, selectedDestination.lat, selectedDestination.lng]);
+      await refreshSavedAddresses();
+      toast.success("Saved address removed.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to remove address");
+    } finally {
+      setDeletingSavedAddressId(null);
+    }
+  };
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (addressBoxRef.current && !addressBoxRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
+  const handleSetDefaultSavedAddress = async (address: SavedAddressRecord) => {
+    if (!user) return;
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    setDefaultingSavedAddressId(address.id);
+
+    try {
+      const { error } = await supabase
+        .from("saved_addresses")
+        .update({ is_default: true })
+        .eq("id", address.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ default_address: address.address_text })
+        .eq("user_id", user.id);
+
+      if (profileError) throw profileError;
+
+      await refreshSavedAddresses();
+      toast.success(`${address.label} is now your default checkout address.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update default address");
+    } finally {
+      setDefaultingSavedAddressId(null);
+    }
+  };
 
   const handleSaveCurrentAddress = async () => {
     if (!user) {
@@ -1186,63 +1271,132 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="space-y-4">
-                  <div ref={addressBoxRef} className="relative">
-                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                      Delivery Address *
-                    </label>
+                  <AddressAutocompleteField
+                    label="Delivery Address"
+                    value={form.address}
+                    onValueChange={(value) => update("address", value)}
+                    onSuggestionSelect={(suggestion) => {
+                      setSelectedDestination({
+                        lat: suggestion.lat,
+                        lng: suggestion.lng,
+                      });
+                    }}
+                    rows={3}
+                    required
+                    selected={selectedDestination.lat != null && selectedDestination.lng != null}
+                    selectedMessage="Address suggestion selected"
+                  />
 
-                    <textarea
-                      value={form.address}
-                      onChange={(e) => update("address", e.target.value)}
-                      onFocus={() => {
-                        if (addressSuggestions.length > 0) setShowSuggestions(true);
-                      }}
-                      rows={3}
-                      className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
-                      required
-                    />
+                  {user && (
+                    <div className="rounded-2xl border border-border bg-background p-4">
+                      <div className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">Saved addresses</p>
+                            <p className="text-xs text-muted-foreground">
+                              Tap one to autofill checkout or save the address you entered above.
+                            </p>
+                          </div>
 
-                    {addressLoading && (
-                      <div className="absolute right-3 top-11 text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <input
+                              type="text"
+                              value={newSavedAddressLabel}
+                              onChange={(e) => setNewSavedAddressLabel(e.target.value)}
+                              placeholder="Save as Home"
+                              className="rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveCurrentAddress()}
+                              disabled={savingCurrentAddress}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                            >
+                              {savingCurrentAddress ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <BookmarkPlus className="h-4 w-4" />
+                              )}
+                              Save current address
+                            </button>
+                          </div>
+                        </div>
+
+                        {loadingSavedAddresses ? (
+                          <div className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading saved addresses...
+                          </div>
+                        ) : savedAddresses.length === 0 ? (
+                          <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                            Save an address here to use it in one tap next time.
+                          </div>
+                        ) : (
+                          <div className="grid gap-3">
+                            {savedAddresses.map((address) => (
+                              <div
+                                key={address.id}
+                                className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => applySavedAddress(address)}
+                                  className="min-w-0 flex-1 text-left"
+                                >
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="font-medium text-foreground">{address.label}</p>
+                                    {address.is_default && (
+                                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                                        Default
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
+                                </button>
+
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => applySavedAddress(address)}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                                  >
+                                    <Home className="h-4 w-4" />
+                                    Use
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSetDefaultSavedAddress(address)}
+                                    disabled={address.is_default || defaultingSavedAddressId === address.id}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                                  >
+                                    <Home className="h-4 w-4" />
+                                    {address.is_default
+                                      ? "Default"
+                                      : defaultingSavedAddressId === address.id
+                                        ? "Updating..."
+                                        : "Set Default"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDeleteSavedAddress(address)}
+                                    disabled={deletingSavedAddressId === address.id}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                                  >
+                                    {deletingSavedAddressId === address.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-
-                    {selectedDestination.lat != null && selectedDestination.lng != null && (
-                      <p className="mt-2 inline-flex items-center gap-1 text-xs text-success">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Address suggestion selected
-                      </p>
-                    )}
-
-                    {showSuggestions && addressSuggestions.length > 0 && (
-                      <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-border bg-card shadow-card">
-                        {addressSuggestions.map((suggestion) => (
-                          <button
-                            key={suggestion.id}
-                            type="button"
-                            onClick={() => {
-                              update("address", suggestion.place_name);
-                              setSelectedDestination({
-                                lat: suggestion.lat,
-                                lng: suggestion.lng,
-                              });
-                              setAddressSuggestions([]);
-                              setShowSuggestions(false);
-                            }}
-                            className="w-full border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted last:border-b-0"
-                          >
-                            <div className="flex items-start gap-2">
-                              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                              <span className="text-sm text-foreground">
-                                {suggestion.place_name}
-                              </span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {user && (
                     <div className="rounded-2xl border border-border bg-background p-4">

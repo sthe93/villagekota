@@ -90,6 +90,7 @@ This repository includes Supabase Edge Functions under `supabase/functions/`, in
 - `create-payfast-checkout` for starting PayFast card payments
 - `create-checkout` for the legacy Stripe checkout flow
 - `send-order-receipt` for emailing a thank-you receipt to the customer once an order is completed
+- `complete-driver-delivery` for securely completing driver handoff with the customer PIN and then triggering the receipt workflow
 
 ### PayFast configuration
 
@@ -108,6 +109,7 @@ The checkout function uses the incoming request origin first and only falls back
 
 ### Receipt email configuration
 
+The `send-order-receipt` and `complete-driver-delivery` functions require these environment variables:
 The `send-order-receipt` function requires these environment variables:
 
 - `SUPABASE_URL`
@@ -115,6 +117,8 @@ The `send-order-receipt` function requires these environment variables:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `RESEND_API_KEY`
 - `ORDER_RECEIPT_FROM_EMAIL` (must be a sender/domain verified in Resend)
+
+The `complete-driver-delivery` function also expects an authenticated Supabase user JWT and calls the `complete_delivery_order_with_code` database function created by the delivery-confirmation migration.
 
 ## Database
 
