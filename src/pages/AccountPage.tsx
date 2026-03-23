@@ -24,6 +24,8 @@ import {
   Plus,
   RotateCcw,
   Trash2,
+  Pencil,
+  X,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import {
@@ -48,6 +50,7 @@ import {
   getPushNotificationPermissionState,
   requestPushNotificationPermission,
 } from "@/lib/pushNotifications";
+import { geocodeSouthAfricaAddress } from "@/lib/maps";
 import { buildReorderPlan } from "@/lib/reorder";
 import {
   findDuplicateSavedAddress,
@@ -103,6 +106,7 @@ export default function AccountPage() {
   const [savingAddress, setSavingAddress] = useState(false);
   const [removingAddressId, setRemovingAddressId] = useState<string | null>(null);
   const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -124,6 +128,10 @@ export default function AccountPage() {
     label: "",
     address_text: "",
     is_default: false,
+  });
+  const [editingAddressForm, setEditingAddressForm] = useState({
+    label: "",
+    address_text: "",
   });
 
   useEffect(() => {
@@ -287,10 +295,13 @@ export default function AccountPage() {
     setSavingAddress(true);
 
     try {
+      const destination = await geocodeSouthAfricaAddress(addressText);
       const payload = {
         user_id: user.id,
         label,
         address_text: addressText,
+        destination_lat: destination?.lat ?? null,
+        destination_lng: destination?.lng ?? null,
         is_default: newAddressForm.is_default,
       };
 
@@ -311,6 +322,74 @@ export default function AccountPage() {
       toast.success("Saved address added.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save address");
+    } finally {
+      setSavingAddress(false);
+    }
+  };
+
+  const beginEditSavedAddress = (address: SavedAddressRecord) => {
+    setEditingAddressId(address.id);
+    setEditingAddressForm({
+      label: address.label,
+      address_text: address.address_text,
+    });
+  };
+
+  const cancelEditSavedAddress = () => {
+    setEditingAddressId(null);
+    setEditingAddressForm({
+      label: "",
+      address_text: "",
+    });
+  };
+
+  const handleUpdateSavedAddress = async (address: SavedAddressRecord) => {
+    if (!user) return;
+
+    const label = normalizeSavedAddressLabel(editingAddressForm.label);
+    const addressText = normalizeSavedAddressText(editingAddressForm.address_text);
+
+    if (!label || !addressText) {
+      toast.error("Add both a label and an address.");
+      return;
+    }
+
+    if (findDuplicateSavedAddress(savedAddresses, addressText, address.id)) {
+      toast.error("That delivery address is already saved.");
+      return;
+    }
+
+    setSavingAddress(true);
+
+    try {
+      const destination = await geocodeSouthAfricaAddress(addressText);
+      const { error } = await supabase
+        .from("saved_addresses")
+        .update({
+          label,
+          address_text: addressText,
+          destination_lat: destination?.lat ?? null,
+          destination_lng: destination?.lng ?? null,
+        })
+        .eq("id", address.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      if (address.is_default) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ default_address: addressText })
+          .eq("user_id", user.id);
+
+        if (profileError) throw profileError;
+      }
+
+      await Promise.all([refreshSavedAddresses(), refreshProfile()]);
+      cancelEditSavedAddress();
+      toast.success("Saved address updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update saved address");
     } finally {
       setSavingAddress(false);
     }
@@ -683,6 +762,90 @@ export default function AccountPage() {
                       key={address.id}
                       className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 md:flex-row md:items-start md:justify-between"
                     >
+                      {editingAddressId === address.id ? (
+                        <>
+                          <div className="min-w-0 flex-1 space-y-3">
+                            <input
+                              type="text"
+                              value={editingAddressForm.label}
+                              onChange={(e) =>
+                                setEditingAddressForm((prev) => ({ ...prev, label: e.target.value }))
+                              }
+                              placeholder="Address label"
+                              className={inputClassName}
+                            />
+                            <textarea
+                              value={editingAddressForm.address_text}
+                              onChange={(e) =>
+                                setEditingAddressForm((prev) => ({
+                                  ...prev,
+                                  address_text: e.target.value,
+                                }))
+                              }
+                              rows={2}
+                              className="w-full resize-none rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void handleUpdateSavedAddress(address)}
+                              disabled={savingAddress}
+                              className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              {savingAddress ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              onClick={cancelEditSavedAddress}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            >
+                              <X className="h-4 w-4" />
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-medium text-foreground">{address.label}</p>
+                              {address.is_default && (
+                                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void handleSetDefaultAddress(address)}
+                              disabled={address.is_default}
+                              className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                            >
+                              <Home className="h-4 w-4" />
+                              {address.is_default ? "Default" : "Make Default"}
+                            </button>
+                            <button
+                              onClick={() => beginEditSavedAddress(address)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => void handleDeleteSavedAddress(address)}
+                              disabled={removingAddressId === address.id}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              {removingAddressId === address.id ? "Removing..." : "Delete"}
+                            </button>
+                          </div>
+                        </>
+                      )}
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-medium text-foreground">{address.label}</p>

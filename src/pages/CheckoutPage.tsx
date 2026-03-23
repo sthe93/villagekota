@@ -117,6 +117,7 @@ export default function CheckoutPage() {
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
   const [savingCurrentAddress, setSavingCurrentAddress] = useState(false);
   const [deletingSavedAddressId, setDeletingSavedAddressId] = useState<string | null>(null);
+  const [defaultingSavedAddressId, setDefaultingSavedAddressId] = useState<string | null>(null);
   const [newSavedAddressLabel, setNewSavedAddressLabel] = useState("");
   const [selectedDestination, setSelectedDestination] = useState<{
     lat: number | null;
@@ -420,6 +421,36 @@ export default function CheckoutPage() {
       toast.error(error instanceof Error ? error.message : "Failed to remove address");
     } finally {
       setDeletingSavedAddressId(null);
+    }
+  };
+
+  const handleSetDefaultSavedAddress = async (address: SavedAddressRecord) => {
+    if (!user) return;
+
+    setDefaultingSavedAddressId(address.id);
+
+    try {
+      const { error } = await supabase
+        .from("saved_addresses")
+        .update({ is_default: true })
+        .eq("id", address.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ default_address: address.address_text })
+        .eq("user_id", user.id);
+
+      if (profileError) throw profileError;
+
+      await refreshSavedAddresses();
+      toast.success(`${address.label} is now your default checkout address.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update default address");
+    } finally {
+      setDefaultingSavedAddressId(null);
     }
   };
 
@@ -1288,6 +1319,19 @@ export default function CheckoutPage() {
                                   >
                                     <Home className="h-4 w-4" />
                                     Use
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSetDefaultSavedAddress(address)}
+                                    disabled={address.is_default || defaultingSavedAddressId === address.id}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                                  >
+                                    <Home className="h-4 w-4" />
+                                    {address.is_default
+                                      ? "Default"
+                                      : defaultingSavedAddressId === address.id
+                                        ? "Updating..."
+                                        : "Set Default"}
                                   </button>
                                   <button
                                     type="button"

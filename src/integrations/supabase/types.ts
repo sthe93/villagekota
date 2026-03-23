@@ -236,6 +236,8 @@ export type Database = {
           payment_provider: string | null
           payment_reference: string | null
           payment_status: string | null
+          receipt_email_error: string | null
+          receipt_emailed_at: string | null
           started_delivery_at: string | null
           status: string
           stripe_session_id: string | null
@@ -275,6 +277,8 @@ export type Database = {
           payment_provider?: string | null
           payment_reference?: string | null
           payment_status?: string | null
+          receipt_email_error?: string | null
+          receipt_emailed_at?: string | null
           started_delivery_at?: string | null
           status?: string
           stripe_session_id?: string | null
@@ -314,6 +318,8 @@ export type Database = {
           payment_provider?: string | null
           payment_reference?: string | null
           payment_status?: string | null
+          receipt_email_error?: string | null
+          receipt_emailed_at?: string | null
           started_delivery_at?: string | null
           status?: string
           stripe_session_id?: string | null
