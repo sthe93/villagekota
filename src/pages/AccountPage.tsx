@@ -860,6 +860,166 @@ export default function AccountPage() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Saved Addresses</p>
+                  <p className="text-xs text-muted-foreground">
+                    Keep multiple delivery spots ready for faster checkout.
+                  </p>
+                </div>
+                <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                  {savedAddresses.length} saved
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[0.9fr_1.6fr_auto]">
+                <input
+                  type="text"
+                  value={newAddressForm.label}
+                  onChange={(e) =>
+                    setNewAddressForm((prev) => ({ ...prev, label: e.target.value }))
+                  }
+                  placeholder="e.g. Home, Work"
+                  className={inputClassName}
+                />
+                <textarea
+                  value={newAddressForm.address_text}
+                  onChange={(e) =>
+                    setNewAddressForm((prev) => ({ ...prev, address_text: e.target.value }))
+                  }
+                  placeholder="Street, suburb, landmarks"
+                  rows={2}
+                  className="w-full resize-none rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
+                />
+                <div className="flex flex-col gap-3">
+                  <label className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={newAddressForm.is_default}
+                      onChange={(e) =>
+                        setNewAddressForm((prev) => ({ ...prev, is_default: e.target.checked }))
+                      }
+                    />
+                    Default
+                  </label>
+                  <button
+                    onClick={() => void handleAddSavedAddress()}
+                    disabled={savingAddress}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    {savingAddress ? "Saving..." : "Add"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {loadingSavedAddresses ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading saved addresses...
+                  </div>
+                ) : savedAddresses.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                    You have not saved any delivery addresses yet.
+                  </div>
+                ) : (
+                  savedAddresses.map((address) => (
+                    <div
+                      key={address.id}
+                      className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 md:flex-row md:items-start md:justify-between"
+                    >
+                      {editingAddressId === address.id ? (
+                        <>
+                          <div className="min-w-0 flex-1 space-y-3">
+                            <input
+                              type="text"
+                              value={editingAddressForm.label}
+                              onChange={(e) =>
+                                setEditingAddressForm((prev) => ({ ...prev, label: e.target.value }))
+                              }
+                              placeholder="Address label"
+                              className={inputClassName}
+                            />
+                            <textarea
+                              value={editingAddressForm.address_text}
+                              onChange={(e) =>
+                                setEditingAddressForm((prev) => ({
+                                  ...prev,
+                                  address_text: e.target.value,
+                                }))
+                              }
+                              rows={2}
+                              className="w-full resize-none rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void handleUpdateSavedAddress(address)}
+                              disabled={savingAddress}
+                              className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              {savingAddress ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              onClick={cancelEditSavedAddress}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            >
+                              <X className="h-4 w-4" />
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-medium text-foreground">{address.label}</p>
+                              {address.is_default && (
+                                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void handleSetDefaultAddress(address)}
+                              disabled={address.is_default}
+                              className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                            >
+                              <Home className="h-4 w-4" />
+                              {address.is_default ? "Default" : "Make Default"}
+                            </button>
+                            <button
+                              onClick={() => beginEditSavedAddress(address)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => void handleDeleteSavedAddress(address)}
+                              disabled={removingAddressId === address.id}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              {removingAddressId === address.id ? "Removing..." : "Delete"}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div className="rounded-lg border border-border bg-background p-4">
               <div className="mb-3 flex items-center gap-2">
                 {notificationsState.enabled ? (

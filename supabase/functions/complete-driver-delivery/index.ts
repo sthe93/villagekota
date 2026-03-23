@@ -1,10 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders, sendOrderReceiptForOrder } from "./orderReceipt.ts";
+import { corsHeaders, sendOrderReceiptForOrder } from "../_shared/orderReceipt.ts";
 
 type CompleteDeliveryRequest = {
   orderId?: string;
-  confirmationCode?: string;
 };
 
 function getEnv(name: string) {
@@ -55,17 +54,9 @@ Deno.serve(async (req) => {
 
     const body = (await req.json().catch(() => ({}))) as CompleteDeliveryRequest;
     const orderId = body.orderId?.trim();
-    const confirmationCode = (body.confirmationCode || "").replace(/\D/g, "").slice(0, 4);
 
     if (!orderId) {
       return new Response(JSON.stringify({ error: "orderId is required" }), {
-        status: 400,
-        headers: corsHeaders,
-      });
-    }
-
-    if (confirmationCode.length !== 4) {
-      return new Response(JSON.stringify({ error: "A valid 4-digit confirmation code is required" }), {
         status: 400,
         headers: corsHeaders,
       });
@@ -81,7 +72,7 @@ Deno.serve(async (req) => {
         .maybeSingle(),
       supabaseAdmin
         .from("orders")
-        .select("id, driver_id, status, payment_method, cash_collected, delivery_confirmation_code")
+        .select("id, driver_id, status, payment_method, cash_collected")
         .eq("id", orderId)
         .maybeSingle(),
     ]);
@@ -128,17 +119,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (order.delivery_confirmation_code !== confirmationCode) {
-      return new Response(JSON.stringify({ error: "That PIN does not match this order." }), {
-        status: 409,
-        headers: corsHeaders,
-      });
-    }
-
-    const { data: completed, error: completeError } = await supabase.rpc("complete_delivery_order_with_code", {
+    const { data: completed, error: completeError } = await supabase.rpc("complete_delivery_order", {
       p_order_id: orderId,
       p_driver_id: driver.id,
-      p_confirmation_code: confirmationCode,
     });
 
     if (completeError) {

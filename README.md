@@ -110,6 +110,7 @@ The checkout function uses the incoming request origin first and only falls back
 ### Receipt email configuration
 
 The `send-order-receipt` and `complete-driver-delivery` functions require these environment variables:
+The `send-order-receipt` function requires these environment variables:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
