@@ -539,6 +539,35 @@ export default function DriverPage() {
     await loadDriverAndOrders();
   };
 
+  const sendCustomerReceipt = async (orderId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("send-order-receipt", {
+        body: { orderId },
+      });
+
+      if (error) throw error;
+
+      if (data?.skipped && data?.reason === "missing_customer_email") {
+        toast.message("Order completed", {
+          description: "No receipt email was sent because the customer did not provide an email address.",
+        });
+        return;
+      }
+
+      if (!data?.success && !data?.skipped) {
+        throw new Error("Receipt email could not be sent.");
+      }
+
+      toast.success("Receipt emailed", {
+        description: "A thank-you receipt was sent to the customer email.",
+      });
+    } catch (error) {
+      toast.error("Order completed, but the receipt email failed.", {
+        description: error instanceof Error ? error.message : "Unexpected receipt email error.",
+      });
+    }
+  };
+
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
     const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
@@ -611,26 +640,7 @@ export default function DriverPage() {
     setConfirmingOrderId(null);
     setActionOrderId(null);
     await loadDriverAndOrders();
-
-    if (data.receipt?.status === "missing_customer_email") {
-      toast.message("Order completed", {
-        description: "No receipt email was sent because the customer did not provide an email address.",
-      });
-      return;
-    }
-
-    if (data.receipt?.status === "sent") {
-      toast.success("Receipt emailed", {
-        description: "A thank-you receipt was sent to the customer email.",
-      });
-      return;
-    }
-
-    if (data.receipt?.status === "failed") {
-      toast.error("Order completed, but the receipt email failed.", {
-        description: data.receipt.error || "Unexpected receipt email error.",
-      });
-    }
+    await sendCustomerReceipt(orderId);
   };
 
   useEffect(() => {
