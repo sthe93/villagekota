@@ -11,8 +11,8 @@ export default function PaymentSuccessPage() {
   return (
     <PaymentResultCard
       icon={<CheckCircle className="h-16 w-16 text-green-600" />}
-      title="Payment Successful"
-      description="Thank you. Your payment was completed successfully."
+      title="Payment Submitted"
+      description="We received your return from PayFast and will confirm the payment on your order shortly."
       orderId={orderId}
       primaryAction={
         orderId

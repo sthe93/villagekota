@@ -475,10 +475,6 @@ export default function OrderTrackingPage() {
       const { data, error } = await supabase.functions.invoke("create-payfast-checkout", {
         body: {
           orderId: order.id,
-          total: order.total || 0,
-          customerName: order.customer_name,
-          customerEmail,
-          itemName: `Village Eats Order #${order.id.slice(0, 8).toUpperCase()}`,
         },
       });
 
