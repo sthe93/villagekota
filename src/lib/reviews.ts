@@ -133,56 +133,121 @@ export async function fetchOrderReviewData({
   return { products, productReviews, driverReview };
 }
 
-export async function saveOrderReviewData({
+async function saveProductReviews({
   order,
   userId,
   products,
   productRatings,
-  driver,
-  driverRating,
+  existingProductReviews,
 }: {
   order: OrderRecord;
   userId: string;
   products: ReviewableProduct[];
   productRatings: Record<string, { rating: number; comment: string }>;
-  driver: Pick<DriverInfo, "id"> | null;
-  driverRating: { rating: number; comment: string };
+  existingProductReviews: ProductReviewRecord[];
 }) {
-  const reviewPayload = products
-    .map((product) => {
-      const input = productRatings[product.productId];
-      if (!input || input.rating < 1) return null;
+  for (const product of products) {
+    const input = productRatings[product.productId];
+    if (!input || input.rating < 1) continue;
 
-      return {
-        user_id: userId,
-        order_id: order.id,
-        product_id: product.productId,
-        rating: input.rating,
-        comment: input.comment.trim() || null,
-      };
-    })
-    .filter(Boolean);
+    const payload = {
+      rating: input.rating,
+      comment: input.comment.trim() || null,
+    };
 
-  if (reviewPayload.length > 0) {
-    const { error } = await supabase
-      .from("reviews")
-      .upsert(reviewPayload, { onConflict: "user_id,order_id,product_id" });
-
-    if (error) throw error;
-  }
-
-  if (driver?.id && driverRating.rating > 0) {
-    const { error } = await supabase.from("driver_reviews").upsert(
-      {
-        order_id: order.id,
-        driver_id: driver.id,
-        user_id: userId,
-        rating: driverRating.rating,
-        comment: driverRating.comment.trim() || null,
-      },
-      { onConflict: "order_id,user_id" }
+    const existingReview = existingProductReviews.find(
+      (review) => review.product_id === product.productId && review.order_id === order.id
     );
 
+    if (existingReview) {
+      const { error } = await supabase.from("reviews").update(payload).eq("id", existingReview.id);
+      if (error) throw error;
+      continue;
+    }
+
+    const { error } = await supabase.from("reviews").insert({
+      user_id: userId,
+      order_id: order.id,
+      product_id: product.productId,
+      ...payload,
+    });
+
     if (error) throw error;
   }
+}
+
+async function saveDriverReview({
+  order,
+  userId,
+  driver,
+  driverRating,
+  existingDriverReview,
+}: {
+  order: OrderRecord;
+  userId: string;
+  driver: Pick<DriverInfo, "id"> | null;
+  driverRating: { rating: number; comment: string };
+  existingDriverReview: DriverReviewRecord | null;
+}) {
+  if (!driver?.id || driverRating.rating < 1) return;
+
+  const payload = {
+    rating: driverRating.rating,
+    comment: driverRating.comment.trim() || null,
+  };
+
+  if (existingDriverReview) {
+    const { error } = await supabase
+      .from("driver_reviews")
+      .update(payload)
+      .eq("id", existingDriverReview.id);
+
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await supabase.from("driver_reviews").insert({
+    order_id: order.id,
+    driver_id: driver.id,
+    user_id: userId,
+    ...payload,
+  });
+
+  if (error) throw error;
+}
+
+export async function saveOrderReviewData({
+  order,
+  userId,
+  products,
+  productRatings,
+  existingProductReviews,
+  driver,
+  driverRating,
+  existingDriverReview,
+}: {
+  order: OrderRecord;
+  userId: string;
+  products: ReviewableProduct[];
+  productRatings: Record<string, { rating: number; comment: string }>;
+  existingProductReviews: ProductReviewRecord[];
+  driver: Pick<DriverInfo, "id"> | null;
+  driverRating: { rating: number; comment: string };
+  existingDriverReview: DriverReviewRecord | null;
+}) {
+  await saveProductReviews({
+    order,
+    userId,
+    products,
+    productRatings,
+    existingProductReviews,
+  });
+
+  await saveDriverReview({
+    order,
+    userId,
+    driver,
+    driverRating,
+    existingDriverReview,
+  });
 }

@@ -420,6 +420,42 @@ export type Database = {
         }
         Relationships: []
       }
+      saved_addresses: {
+        Row: {
+          address_text: string
+          created_at: string
+          destination_lat: number | null
+          destination_lng: number | null
+          id: string
+          is_default: boolean
+          label: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address_text: string
+          created_at?: string
+          destination_lat?: number | null
+          destination_lng?: number | null
+          id?: string
+          is_default?: boolean
+          label: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address_text?: string
+          created_at?: string
+          destination_lat?: number | null
+          destination_lng?: number | null
+          id?: string
+          is_default?: boolean
+          label?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       reviews: {
         Row: {
           comment: string | null
