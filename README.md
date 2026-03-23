@@ -87,7 +87,10 @@ The app now includes browser push-notification support for signed-in users. End 
 
 This repository includes Supabase Edge Functions under `supabase/functions/`, including:
 
+- `create-order` for server-side order validation, pricing, and order creation
 - `create-payfast-checkout` for starting PayFast card payments
+- `payfast-notify` for verifying PayFast ITN/webhook callbacks and updating payment state server-side
+- `update-order-status` for admin-controlled order status transitions
 - `create-checkout` for the legacy Stripe checkout flow
 - `send-order-receipt` for emailing a thank-you receipt to the customer once an order is completed
 - `complete-driver-delivery` for securely completing driver handoff with the customer PIN and then triggering the receipt workflow
