@@ -7,10 +7,17 @@ import DriverNavbarBadge from "@/components/DriverNavbarBadge";
 import { useState } from "react";
 
 export default function Navbar() {
-  const { toggleCart, itemCount } = useCart();
+  const { toggleCart, itemCount, total } = useCart();
   const { user, isAdmin } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const priceFormatter = new Intl.NumberFormat("en-ZA", {
+    style: "currency",
+    currency: "ZAR",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
 
   const links = [
     { to: "/", label: "Home" },
@@ -68,15 +75,25 @@ export default function Navbar() {
 
           <button
             onClick={toggleCart}
-            className="relative rounded-lg p-2 transition-colors hover:bg-muted"
+            className="rounded-lg px-2 py-2 transition-colors hover:bg-muted"
             aria-label="Open cart"
           >
-            <ShoppingBag className="h-5 w-5 text-foreground" />
-            {itemCount > 0 && (
-              <span className="animate-scale-in absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                {itemCount}
+            <span className="flex items-center gap-2">
+              <span className="relative">
+                <ShoppingBag className="h-5 w-5 text-foreground" />
+                {itemCount > 0 && (
+                  <span className="animate-scale-in absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                    {itemCount}
+                  </span>
+                )}
               </span>
-            )}
+
+              {itemCount > 0 && (
+                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                  {priceFormatter.format(total)}
+                </span>
+              )}
+            </span>
           </button>
 
           <button
