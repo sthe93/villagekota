@@ -18,6 +18,7 @@ import {
   Loader2,
   Bell,
   BellOff,
+  Star,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import {
@@ -28,7 +29,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { fetchOrderTrackingSnapshot } from "@/features/order-tracking/api";
-import type { OrderItemRecord, OrderRecord } from "@/features/order-tracking/types";
+import OrderReviewDialog from "@/components/OrderReviewDialog";
+import type { DriverInfo, OrderItemRecord, OrderRecord } from "@/features/order-tracking/types";
 import { formatCurrency } from "@/features/order-tracking/utils";
 import {
   getAccountOrderStatusClass,
@@ -91,9 +93,11 @@ export default function AccountPage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<OrderRecord | null>(null);
   const [selectedOrderItems, setSelectedOrderItems] = useState<OrderItemRecord[]>([]);
+  const [selectedOrderDriver, setSelectedOrderDriver] = useState<DriverInfo | null>(null);
   const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
   const [notificationsState, setNotificationsState] = useState(() => getPushNotificationPermissionState());
   const [notificationsSaving, setNotificationsSaving] = useState(false);
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -269,11 +273,13 @@ export default function AccountPage() {
       const snapshot = await fetchOrderTrackingSnapshot(orderId);
       setSelectedOrder(snapshot.order);
       setSelectedOrderItems(snapshot.items);
+      setSelectedOrderDriver(snapshot.driver);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to load order details");
       setSelectedOrderId(null);
       setSelectedOrder(null);
       setSelectedOrderItems([]);
+      setSelectedOrderDriver(null);
     } finally {
       setLoadingOrderDetails(false);
     }
@@ -283,7 +289,9 @@ export default function AccountPage() {
     setSelectedOrderId(null);
     setSelectedOrder(null);
     setSelectedOrderItems([]);
+    setSelectedOrderDriver(null);
     setLoadingOrderDetails(false);
+    setReviewDialogOpen(false);
   };
 
   const orderFilters: Array<{ key: OrderFilter; label: string; count: number }> = [
@@ -613,6 +621,16 @@ export default function AccountPage() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
+                          {o.status === "delivered" && (
+                            <button
+                              onClick={() => void handleOpenOrderDetails(o.id)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 px-4 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50"
+                            >
+                              <Star className="h-4 w-4" />
+                              Rate order
+                            </button>
+                          )}
+
                           {isActiveOrder && (
                             <button
                               onClick={() => navigate(`/order-tracking/${o.id}`)}
@@ -748,6 +766,16 @@ export default function AccountPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  {selectedOrder.status === "delivered" && (
+                    <button
+                      onClick={() => setReviewDialogOpen(true)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50"
+                    >
+                      <Star className="h-4 w-4" />
+                      Rate order
+                    </button>
+                  )}
+
                   <span
                     className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${getAccountOrderStatusClass(
                       selectedOrder.status || ""
@@ -872,6 +900,15 @@ export default function AccountPage() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <OrderReviewDialog
+        open={reviewDialogOpen}
+        onOpenChange={setReviewDialogOpen}
+        order={selectedOrder}
+        items={selectedOrderItems}
+        driver={selectedOrderDriver}
+        userId={user?.id ?? null}
+      />
 
       <Footer />
     </div>
