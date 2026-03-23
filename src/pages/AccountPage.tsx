@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useCart } from "@/context/CartContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
@@ -18,6 +19,11 @@ import {
   Loader2,
   Bell,
   BellOff,
+  Star,
+  Home,
+  Plus,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import {
@@ -28,8 +34,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { fetchOrderTrackingSnapshot } from "@/features/order-tracking/api";
-import type { OrderItemRecord, OrderRecord } from "@/features/order-tracking/types";
+import OrderReviewDialog from "@/components/OrderReviewDialog";
+import type { DriverInfo, OrderItemRecord, OrderRecord } from "@/features/order-tracking/types";
 import { formatCurrency } from "@/features/order-tracking/utils";
+import { useProducts } from "@/hooks/use-products";
 import {
   getAccountOrderStatusClass,
   getOrderStatusSummary,
@@ -64,6 +72,15 @@ interface DriverProfile {
   is_active: boolean;
 }
 
+interface SavedAddress {
+  id: string;
+  label: string;
+  address_text: string;
+  destination_lat: number | null;
+  destination_lng: number | null;
+  is_default: boolean;
+}
+
 type AccountTab = "profile" | "orders" | "favorites" | "driver";
 type OrderFilter = "all" | "active" | "completed" | "cancelled";
 
@@ -72,13 +89,20 @@ const inputClassName =
 
 export default function AccountPage() {
   const { user, profile, signOut, refreshProfile, isAdmin } = useAuth();
+  const { addItem, setOpen } = useCart();
   const navigate = useNavigate();
+  const { data: products = [], isLoading: loadingProducts } = useProducts();
 
   const [tab, setTab] = useState<AccountTab>("profile");
   const [orders, setOrders] = useState<Order[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [checkingDriver, setCheckingDriver] = useState(true);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [removingAddressId, setRemovingAddressId] = useState<string | null>(null);
+  const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
 
   const [editForm, setEditForm] = useState({
     display_name: "",
@@ -91,9 +115,16 @@ export default function AccountPage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<OrderRecord | null>(null);
   const [selectedOrderItems, setSelectedOrderItems] = useState<OrderItemRecord[]>([]);
+  const [selectedOrderDriver, setSelectedOrderDriver] = useState<DriverInfo | null>(null);
   const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
   const [notificationsState, setNotificationsState] = useState(() => getPushNotificationPermissionState());
   const [notificationsSaving, setNotificationsSaving] = useState(false);
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [newAddressForm, setNewAddressForm] = useState({
+    label: "",
+    address_text: "",
+    is_default: false,
+  });
 
   useEffect(() => {
     if (!user) {
@@ -153,6 +184,36 @@ export default function AccountPage() {
   }, [user]);
 
   useEffect(() => {
+    const loadSavedAddresses = async () => {
+      if (!user) {
+        setSavedAddresses([]);
+        setLoadingSavedAddresses(false);
+        return;
+      }
+
+      setLoadingSavedAddresses(true);
+
+      const { data, error } = await supabase
+        .from("saved_addresses")
+        .select("id, label, address_text, destination_lat, destination_lng, is_default")
+        .eq("user_id", user.id)
+        .order("is_default", { ascending: false })
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        toast.error(error.message || "Failed to load saved addresses");
+        setSavedAddresses([]);
+      } else {
+        setSavedAddresses((data as SavedAddress[]) || []);
+      }
+
+      setLoadingSavedAddresses(false);
+    };
+
+    void loadSavedAddresses();
+  }, [user]);
+
+  useEffect(() => {
     if (!user) return;
 
     if (tab === "orders") {
@@ -191,6 +252,199 @@ export default function AccountPage() {
     }
 
     setSaving(false);
+  };
+
+  const refreshSavedAddresses = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("saved_addresses")
+      .select("id, label, address_text, destination_lat, destination_lng, is_default")
+      .eq("user_id", user.id)
+      .order("is_default", { ascending: false })
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    setSavedAddresses((data as SavedAddress[]) || []);
+  };
+
+  const handleAddSavedAddress = async () => {
+    if (!user) return;
+
+    const label = newAddressForm.label.trim();
+    const addressText = newAddressForm.address_text.trim();
+
+    if (!label || !addressText) {
+      toast.error("Add both a label and an address.");
+      return;
+    }
+
+    setSavingAddress(true);
+
+    try {
+      const payload = {
+        user_id: user.id,
+        label,
+        address_text: addressText,
+        is_default: newAddressForm.is_default,
+      };
+
+      const { error } = await supabase.from("saved_addresses").insert(payload);
+      if (error) throw error;
+
+      if (newAddressForm.is_default) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ default_address: addressText })
+          .eq("user_id", user.id);
+
+        if (profileError) throw profileError;
+      }
+
+      setNewAddressForm({ label: "", address_text: "", is_default: false });
+      await Promise.all([refreshSavedAddresses(), refreshProfile()]);
+      toast.success("Saved address added.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save address");
+    } finally {
+      setSavingAddress(false);
+    }
+  };
+
+  const handleSetDefaultAddress = async (address: SavedAddress) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from("saved_addresses")
+        .update({ is_default: true })
+        .eq("id", address.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ default_address: address.address_text })
+        .eq("user_id", user.id);
+
+      if (profileError) throw profileError;
+
+      await Promise.all([refreshSavedAddresses(), refreshProfile()]);
+      toast.success(`${address.label} is now your default address.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update default address");
+    }
+  };
+
+  const handleDeleteSavedAddress = async (address: SavedAddress) => {
+    if (!user) return;
+
+    setRemovingAddressId(address.id);
+
+    try {
+      const { error } = await supabase
+        .from("saved_addresses")
+        .delete()
+        .eq("id", address.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      const remainingAddresses = savedAddresses.filter((item) => item.id !== address.id);
+      const nextDefaultAddress = remainingAddresses.find((item) => item.is_default) || remainingAddresses[0] || null;
+
+      if (address.is_default) {
+        if (nextDefaultAddress) {
+          const { error: nextDefaultError } = await supabase
+            .from("saved_addresses")
+            .update({ is_default: true })
+            .eq("id", nextDefaultAddress.id)
+            .eq("user_id", user.id);
+
+          if (nextDefaultError) throw nextDefaultError;
+        }
+
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ default_address: nextDefaultAddress?.address_text || "" })
+          .eq("user_id", user.id);
+
+        if (profileError) throw profileError;
+      }
+
+      await Promise.all([refreshSavedAddresses(), refreshProfile()]);
+      toast.success("Saved address removed.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to remove saved address");
+    } finally {
+      setRemovingAddressId(null);
+    }
+  };
+
+  const handleReorder = async (orderId: string) => {
+    if (loadingProducts) {
+      toast.error("Menu items are still loading. Please try reorder again in a moment.");
+      return;
+    }
+
+    setReorderingOrderId(orderId);
+
+    try {
+      const snapshot = await fetchOrderTrackingSnapshot(orderId);
+      const availableProductsById = new Map(products.map((product) => [product.id, product]));
+      const availableProductsByName = new Map(
+        products.map((product) => [product.name.trim().toLowerCase(), product])
+      );
+
+      let restoredCount = 0;
+      let skippedCount = 0;
+
+      snapshot.items.forEach((item) => {
+        const matchedProduct =
+          (item.product_id ? availableProductsById.get(item.product_id) : undefined) ||
+          availableProductsByName.get(item.product_name.trim().toLowerCase());
+
+        if (!matchedProduct || !matchedProduct.inStock) {
+          skippedCount += item.quantity;
+          return;
+        }
+
+        addItem(matchedProduct, {
+          quantity: item.quantity,
+          note: item.item_note || undefined,
+          selectedOptions: item.selectedOptions.map((option) => ({
+            groupId: option.option_group_name,
+            groupName: option.option_group_name,
+            itemId: option.id,
+            itemName: option.option_item_name,
+            priceDelta: option.price_delta,
+          })),
+          optionsTotal: item.options_total,
+          finalUnitPrice: item.final_unit_price || item.unit_price,
+        });
+
+        restoredCount += item.quantity;
+      });
+
+      if (restoredCount === 0) {
+        toast.error("None of the items from this order are currently available.");
+        return;
+      }
+
+      setOpen(true);
+      navigate("/checkout");
+
+      if (skippedCount > 0) {
+        toast.success(`Added ${restoredCount} item(s) to your cart. ${skippedCount} item(s) were unavailable.`);
+      } else {
+        toast.success(`Added ${restoredCount} item(s) back to your cart.`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to reorder this order");
+    } finally {
+      setReorderingOrderId(null);
+    }
   };
 
 
@@ -269,11 +523,13 @@ export default function AccountPage() {
       const snapshot = await fetchOrderTrackingSnapshot(orderId);
       setSelectedOrder(snapshot.order);
       setSelectedOrderItems(snapshot.items);
+      setSelectedOrderDriver(snapshot.driver);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to load order details");
       setSelectedOrderId(null);
       setSelectedOrder(null);
       setSelectedOrderItems([]);
+      setSelectedOrderDriver(null);
     } finally {
       setLoadingOrderDetails(false);
     }
@@ -283,7 +539,9 @@ export default function AccountPage() {
     setSelectedOrderId(null);
     setSelectedOrder(null);
     setSelectedOrderItems([]);
+    setSelectedOrderDriver(null);
     setLoadingOrderDetails(false);
+    setReviewDialogOpen(false);
   };
 
   const orderFilters: Array<{ key: OrderFilter; label: string; count: number }> = [
@@ -372,6 +630,112 @@ export default function AccountPage() {
                 rows={2}
                 className="w-full resize-none rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
               />
+            </div>
+
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Saved Addresses</p>
+                  <p className="text-xs text-muted-foreground">
+                    Keep multiple delivery spots ready for faster checkout.
+                  </p>
+                </div>
+                <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                  {savedAddresses.length} saved
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[0.9fr_1.6fr_auto]">
+                <input
+                  type="text"
+                  value={newAddressForm.label}
+                  onChange={(e) =>
+                    setNewAddressForm((prev) => ({ ...prev, label: e.target.value }))
+                  }
+                  placeholder="e.g. Home, Work"
+                  className={inputClassName}
+                />
+                <textarea
+                  value={newAddressForm.address_text}
+                  onChange={(e) =>
+                    setNewAddressForm((prev) => ({ ...prev, address_text: e.target.value }))
+                  }
+                  placeholder="Street, suburb, landmarks"
+                  rows={2}
+                  className="w-full resize-none rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 font-body"
+                />
+                <div className="flex flex-col gap-3">
+                  <label className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={newAddressForm.is_default}
+                      onChange={(e) =>
+                        setNewAddressForm((prev) => ({ ...prev, is_default: e.target.checked }))
+                      }
+                    />
+                    Default
+                  </label>
+                  <button
+                    onClick={() => void handleAddSavedAddress()}
+                    disabled={savingAddress}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    {savingAddress ? "Saving..." : "Add"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {loadingSavedAddresses ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading saved addresses...
+                  </div>
+                ) : savedAddresses.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                    You have not saved any delivery addresses yet.
+                  </div>
+                ) : (
+                  savedAddresses.map((address) => (
+                    <div
+                      key={address.id}
+                      className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 md:flex-row md:items-start md:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-foreground">{address.label}</p>
+                          {address.is_default && (
+                            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => void handleSetDefaultAddress(address)}
+                          disabled={address.is_default}
+                          className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                        >
+                          <Home className="h-4 w-4" />
+                          {address.is_default ? "Default" : "Make Default"}
+                        </button>
+                        <button
+                          onClick={() => void handleDeleteSavedAddress(address)}
+                          disabled={removingAddressId === address.id}
+                          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          {removingAddressId === address.id ? "Removing..." : "Delete"}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
             <div className="rounded-lg border border-border bg-background p-4">
@@ -613,6 +977,31 @@ export default function AccountPage() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
+                          {o.status === "delivered" && (
+                            <>
+                              <button
+                                onClick={() => void handleReorder(o.id)}
+                                disabled={reorderingOrderId === o.id || loadingProducts}
+                                className="inline-flex items-center gap-2 rounded-lg border border-primary px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                              >
+                                {reorderingOrderId === o.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="h-4 w-4" />
+                                )}
+                                Order Again
+                              </button>
+
+                              <button
+                                onClick={() => void handleOpenOrderDetails(o.id)}
+                                className="inline-flex items-center gap-2 rounded-lg border border-amber-300 px-4 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50"
+                              >
+                                <Star className="h-4 w-4" />
+                                Rate order
+                              </button>
+                            </>
+                          )}
+
                           {isActiveOrder && (
                             <button
                               onClick={() => navigate(`/order-tracking/${o.id}`)}
@@ -748,6 +1137,31 @@ export default function AccountPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  {selectedOrder.status === "delivered" && (
+                    <>
+                      <button
+                        onClick={() => void handleReorder(selectedOrder.id)}
+                        disabled={reorderingOrderId === selectedOrder.id || loadingProducts}
+                        className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                      >
+                        {reorderingOrderId === selectedOrder.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-4 w-4" />
+                        )}
+                        Order again
+                      </button>
+
+                      <button
+                        onClick={() => setReviewDialogOpen(true)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50"
+                      >
+                        <Star className="h-4 w-4" />
+                        Rate order
+                      </button>
+                    </>
+                  )}
+
                   <span
                     className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${getAccountOrderStatusClass(
                       selectedOrder.status || ""
@@ -872,6 +1286,15 @@ export default function AccountPage() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <OrderReviewDialog
+        open={reviewDialogOpen}
+        onOpenChange={setReviewDialogOpen}
+        order={selectedOrder}
+        items={selectedOrderItems}
+        driver={selectedOrderDriver}
+        userId={user?.id ?? null}
+      />
 
       <Footer />
     </div>
