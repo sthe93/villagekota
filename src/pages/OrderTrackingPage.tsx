@@ -62,10 +62,7 @@ import {
   normalize,
   normalizeOrderStatus,
 } from "@/features/order-tracking/utils";
-import {
-  deriveDeliveryConfirmationCode,
-  formatDeliveryConfirmationCode,
-} from "@/lib/deliveryConfirmation";
+import { formatDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
@@ -111,8 +108,8 @@ export default function OrderTrackingPage() {
   const cashCollected = !!order?.cash_collected;
   const hasAssignedDriver = !!order?.driver_id && !!driver;
   const deliveryConfirmationCode = useMemo(
-    () => formatDeliveryConfirmationCode(deriveDeliveryConfirmationCode(order?.id)),
-    [order?.id]
+    () => formatDeliveryConfirmationCode(order?.delivery_confirmation_code),
+    [order?.delivery_confirmation_code]
   );
   const deliveryConfirmationReady = useMemo(() => {
     return !!deliveryConfirmationCode && ["on_the_way", "arrived", "delivered"].includes(orderStatus);

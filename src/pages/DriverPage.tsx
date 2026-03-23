@@ -30,7 +30,6 @@ import {
   getSouthAfricaDrivingRouteMeta,
 } from "@/lib/maps";
 import {
-  deriveDeliveryConfirmationCode,
   DELIVERY_CONFIRMATION_CODE_LENGTH,
   isDeliveryConfirmationCodeComplete,
   normalizeDeliveryConfirmationCode,
@@ -571,7 +570,9 @@ export default function DriverPage() {
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
     const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
-    const expectedCode = deriveDeliveryConfirmationCode(orderId);
+    const expectedCode = normalizeDeliveryConfirmationCode(
+      orders.find((order) => order.id === orderId)?.delivery_confirmation_code
+    );
 
     if (!isDeliveryConfirmationCodeComplete(confirmationCode)) {
       toast.error("Enter the 4-digit delivery PIN from the customer.");
