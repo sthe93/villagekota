@@ -38,6 +38,87 @@ export type Database = {
         }
         Relationships: []
       }
+      driver_reviews: {
+        Row: {
+          comment: string | null
+          created_at: string
+          driver_id: string
+          id: string
+          order_id: string
+          rating: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          driver_id: string
+          id?: string
+          order_id: string
+          rating: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          driver_id?: string
+          id?: string
+          order_id?: string
+          rating?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_reviews_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_reviews_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drivers: {
+        Row: {
+          auth_user_id: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          phone: string | null
+          rating: number
+          review_count: number
+        }
+        Insert: {
+          auth_user_id?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          phone?: string | null
+          rating?: number
+          review_count?: number
+        }
+        Update: {
+          auth_user_id?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          phone?: string | null
+          rating?: number
+          review_count?: number
+        }
+        Relationships: []
+      }
       favorites: {
         Row: {
           created_at: string
@@ -70,7 +151,10 @@ export type Database = {
       order_items: {
         Row: {
           created_at: string
+          final_unit_price: number
           id: string
+          item_note: string | null
+          options_total: number
           order_id: string
           product_id: string | null
           product_name: string
@@ -80,7 +164,10 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          final_unit_price?: number
           id?: string
+          item_note?: string | null
+          options_total?: number
           order_id: string
           product_id?: string | null
           product_name: string
@@ -90,7 +177,10 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          final_unit_price?: number
           id?: string
+          item_note?: string | null
+          options_total?: number
           order_id?: string
           product_id?: string | null
           product_name?: string
@@ -117,6 +207,11 @@ export type Database = {
       }
       orders: {
         Row: {
+          accepted_at: string | null
+          arrived_at: string | null
+          cash_collected: boolean | null
+          cash_collected_amount: number | null
+          cash_collected_at: string | null
           created_at: string
           customer_email: string | null
           customer_name: string
@@ -124,11 +219,24 @@ export type Database = {
           delivery_address: string
           delivery_confirmation_code: string
           delivery_confirmation_verified_at: string | null
+          delivered_at: string | null
           delivery_fee: number
+          destination_lat: number | null
+          destination_lng: number | null
           discount_amount: number | null
+          driver_distance_km: number | null
+          driver_id: string | null
+          driver_last_updated: string | null
+          driver_lat: number | null
+          driver_lng: number | null
+          estimated_delivery_time: string | null
           id: string
           notes: string | null
           payment_method: string
+          payment_provider: string | null
+          payment_reference: string | null
+          payment_status: string | null
+          started_delivery_at: string | null
           status: string
           stripe_session_id: string | null
           subtotal: number
@@ -138,6 +246,11 @@ export type Database = {
           voucher_code: string | null
         }
         Insert: {
+          accepted_at?: string | null
+          arrived_at?: string | null
+          cash_collected?: boolean | null
+          cash_collected_amount?: number | null
+          cash_collected_at?: string | null
           created_at?: string
           customer_email?: string | null
           customer_name: string
@@ -145,11 +258,24 @@ export type Database = {
           delivery_address: string
           delivery_confirmation_code?: string
           delivery_confirmation_verified_at?: string | null
+          delivered_at?: string | null
           delivery_fee?: number
+          destination_lat?: number | null
+          destination_lng?: number | null
           discount_amount?: number | null
+          driver_distance_km?: number | null
+          driver_id?: string | null
+          driver_last_updated?: string | null
+          driver_lat?: number | null
+          driver_lng?: number | null
+          estimated_delivery_time?: string | null
           id?: string
           notes?: string | null
           payment_method?: string
+          payment_provider?: string | null
+          payment_reference?: string | null
+          payment_status?: string | null
+          started_delivery_at?: string | null
           status?: string
           stripe_session_id?: string | null
           subtotal: number
@@ -159,6 +285,11 @@ export type Database = {
           voucher_code?: string | null
         }
         Update: {
+          accepted_at?: string | null
+          arrived_at?: string | null
+          cash_collected?: boolean | null
+          cash_collected_amount?: number | null
+          cash_collected_at?: string | null
           created_at?: string
           customer_email?: string | null
           customer_name?: string
@@ -166,11 +297,24 @@ export type Database = {
           delivery_address?: string
           delivery_confirmation_code?: string
           delivery_confirmation_verified_at?: string | null
+          delivered_at?: string | null
           delivery_fee?: number
+          destination_lat?: number | null
+          destination_lng?: number | null
           discount_amount?: number | null
+          driver_distance_km?: number | null
+          driver_id?: string | null
+          driver_last_updated?: string | null
+          driver_lat?: number | null
+          driver_lng?: number | null
+          estimated_delivery_time?: string | null
           id?: string
           notes?: string | null
           payment_method?: string
+          payment_provider?: string | null
+          payment_reference?: string | null
+          payment_status?: string | null
+          started_delivery_at?: string | null
           status?: string
           stripe_session_id?: string | null
           subtotal?: number
@@ -281,6 +425,7 @@ export type Database = {
           comment: string | null
           created_at: string
           id: string
+          order_id: string | null
           product_id: string
           rating: number
           user_id: string
@@ -289,6 +434,7 @@ export type Database = {
           comment?: string | null
           created_at?: string
           id?: string
+          order_id?: string | null
           product_id: string
           rating: number
           user_id: string
@@ -297,11 +443,19 @@ export type Database = {
           comment?: string | null
           created_at?: string
           id?: string
+          order_id?: string | null
           product_id?: string
           rating?: number
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "reviews_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "reviews_product_id_fkey"
             columns: ["product_id"]
