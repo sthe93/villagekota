@@ -570,7 +570,6 @@ export default function DriverPage() {
 
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
-    const currentOrder = orders.find((order) => order.id === orderId);
     const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
     const expectedCode = deriveDeliveryConfirmationCode(orderId);
 
@@ -611,26 +610,9 @@ export default function DriverPage() {
       }
     }
 
-    const runCompleteDelivery = () =>
-      supabase.rpc("complete_delivery_order", {
-        p_order_id: orderId,
-        p_driver_id: driver.id,
-      });
-
-    let { data, error } = await runCompleteDelivery();
-
-    if (!error && !data) {
-      await loadDriverAndOrders();
-
-      const shouldRetry =
-        currentOrder?.status === "arrived" &&
-        (!isCashPaymentMethod(currentOrder?.payment_method) || currentOrder?.cash_collected);
-
-      if (shouldRetry) {
-        await new Promise((resolve) => window.setTimeout(resolve, 250));
-        ({ data, error } = await runCompleteDelivery());
-      }
-    }
+    const { data, error } = await supabase.functions.invoke("complete-driver-delivery", {
+      body: { orderId },
+    });
 
     if (error) {
       toast.error(error.message || "Failed to complete delivery");
@@ -638,8 +620,8 @@ export default function DriverPage() {
       return;
     }
 
-    if (!data) {
-      toast.error("This delivery cannot be completed yet.");
+    if (!data?.success) {
+      toast.error(data?.error || "This delivery cannot be completed yet.");
       setActionOrderId(null);
       await loadDriverAndOrders();
       return;

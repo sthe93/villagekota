@@ -846,36 +846,6 @@ export default function AccountPage() {
                           </div>
                         </>
                       )}
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium text-foreground">{address.label}</p>
-                          {address.is_default && (
-                            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                              Default
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => void handleSetDefaultAddress(address)}
-                          disabled={address.is_default}
-                          className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
-                        >
-                          <Home className="h-4 w-4" />
-                          {address.is_default ? "Default" : "Make Default"}
-                        </button>
-                        <button
-                          onClick={() => void handleDeleteSavedAddress(address)}
-                          disabled={removingAddressId === address.id}
-                          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          {removingAddressId === address.id ? "Removing..." : "Delete"}
-                        </button>
-                      </div>
                     </div>
                   ))
                 )}
