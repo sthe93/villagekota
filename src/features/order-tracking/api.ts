@@ -62,6 +62,7 @@ const ORDER_TRACKING_LEGACY_SELECT = `
 
 const ORDER_ITEMS_SELECT = `
   id,
+  product_id,
   product_name,
   quantity,
   unit_price,
@@ -73,6 +74,7 @@ const ORDER_ITEMS_SELECT = `
 
 const ORDER_ITEMS_LEGACY_SELECT = `
   id,
+  product_id,
   product_name,
   quantity,
   unit_price,
@@ -118,6 +120,7 @@ interface OrderRow {
 
 interface OrderItemRow {
   id: string;
+  product_id: string | null;
   product_name: string;
   quantity: number | null;
   unit_price: number | null;
@@ -177,6 +180,7 @@ function normalizeOrder(row: OrderRow): OrderRecord {
 function normalizeOrderItems(rows: OrderItemRow[]): OrderItemRecord[] {
   return rows.map((item) => ({
     id: String(item.id),
+    product_id: item.product_id ?? null,
     product_name: item.product_name,
     quantity: Number(item.quantity ?? 1),
     unit_price: Number(item.unit_price ?? 0),
@@ -271,7 +275,7 @@ export async function fetchOrderTrackingSnapshot(orderId: string) {
   if (order.driver_id) {
     const { data: driverData, error: driverError } = await supabase
       .from("drivers")
-      .select("id, name, phone")
+      .select("id, name, phone, rating, review_count")
       .eq("id", order.driver_id)
       .maybeSingle();
 
