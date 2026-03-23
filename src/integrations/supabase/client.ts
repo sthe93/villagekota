@@ -2,16 +2,31 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const FALLBACK_SUPABASE_PROJECT_ID = 'mjkcztedhfpavmdmzakj';
+const FALLBACK_SUPABASE_URL = `https://${FALLBACK_SUPABASE_PROJECT_ID}.supabase.co`;
+const FALLBACK_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_kkwlHj0pHqPPCY4YHeVe6A_hG9Esjy5';
+
+const configuredProjectId = import.meta.env.VITE_SUPABASE_PROJECT_ID?.trim();
+const configuredUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const configuredPublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+
+const SUPABASE_URL =
+  configuredUrl ||
+  (configuredProjectId ? `https://${configuredProjectId}.supabase.co` : FALLBACK_SUPABASE_URL);
+const SUPABASE_PUBLISHABLE_KEY = configuredPublishableKey || FALLBACK_SUPABASE_PUBLISHABLE_KEY;
+
+const authStorage =
+  typeof window !== 'undefined' && window.sessionStorage
+    ? window.sessionStorage
+    : undefined;
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage,
+    storage: authStorage,
     persistSession: true,
     autoRefreshToken: true,
-  }
+  },
 });
