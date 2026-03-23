@@ -1,7 +1,4 @@
 project_id = "pthtzqagdmsmryvttbme"
 
 [functions.send-order-receipt]
-verify_jwt = true
-
-[functions.complete-driver-delivery]
-verify_jwt = true
+verify_jwt = false
