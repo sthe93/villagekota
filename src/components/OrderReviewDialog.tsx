@@ -10,7 +10,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { fetchOrderReviewData, saveOrderReviewData, type ReviewableProduct } from "@/lib/reviews";
+import {
+  fetchOrderReviewData,
+  saveOrderReviewData,
+  type DriverReviewRecord,
+  type ProductReviewRecord,
+  type ReviewableProduct,
+} from "@/lib/reviews";
 import { cn } from "@/lib/utils";
 
 interface RatingInput {
