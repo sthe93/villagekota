@@ -101,7 +101,7 @@ function ReviewSection({
             <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
           </div>
 
-          <RatingStars label={title} rating={value.rating} onChange={(nextRating) => onChange({ ...value, rating: nextRating })} />
+          <RatingStars label={title} rating={value.rating} onChange={(rating) => onChange({ ...value, rating })} />
 
           <div>
             <p className="mb-2 text-sm font-medium text-foreground">Comment</p>
@@ -131,8 +131,6 @@ export default function OrderReviewDialog({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reviewableProducts, setReviewableProducts] = useState<ReviewableProduct[]>([]);
-  const [existingProductReviews, setExistingProductReviews] = useState<ProductReviewRecord[]>([]);
-  const [existingDriverReview, setExistingDriverReview] = useState<DriverReviewRecord | null>(null);
   const [productInputs, setProductInputs] = useState<Record<string, RatingInput>>({});
   const [driverInput, setDriverInput] = useState<RatingInput>({ rating: 0, comment: "" });
 
@@ -159,8 +157,6 @@ export default function OrderReviewDialog({
         if (!active) return;
 
         setReviewableProducts(data.products);
-        setExistingProductReviews(data.productReviews);
-        setExistingDriverReview(data.driverReview);
 
         const nextProductInputs = data.products.reduce<Record<string, RatingInput>>((acc, product) => {
           const existing = data.productReviews.find((review) => review.product_id === product.productId);
@@ -211,10 +207,8 @@ export default function OrderReviewDialog({
         userId,
         products: reviewableProducts,
         productRatings: productInputs,
-        existingProductReviews,
         driver,
         driverRating: driverInput,
-        existingDriverReview,
       });
 
       toast.success("Thanks for sharing your feedback.");
