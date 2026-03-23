@@ -27,6 +27,14 @@ import {
   searchSouthAfricaAddresses,
   type AddressSuggestion,
 } from "@/lib/maps";
+import {
+  findDuplicateSavedAddress,
+  getNextDefaultSavedAddress,
+  normalizeSavedAddressLabel,
+  normalizeSavedAddressText,
+  sortSavedAddresses,
+  type SavedAddressRecord,
+} from "@/lib/savedAddresses";
 
 type PaymentMethod = "cash" | "card" | "eft";
 type VoucherProvider = "one_voucher" | "ott_voucher" | "blu_voucher" | "instant_money";
@@ -47,15 +55,6 @@ interface VoucherInfo {
 
 interface InsertedOrderItemRow {
   id: string;
-}
-
-interface SavedAddress {
-  id: string;
-  label: string;
-  address_text: string;
-  destination_lat: number | null;
-  destination_lng: number | null;
-  is_default: boolean;
 }
 
 type ExtendedPaymentMethod = PaymentMethod | "voucher";
@@ -114,7 +113,7 @@ export default function CheckoutPage() {
   const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
   const [addressLoading, setAddressLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddressRecord[]>([]);
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
   const [savingCurrentAddress, setSavingCurrentAddress] = useState(false);
   const [deletingSavedAddressId, setDeletingSavedAddressId] = useState<string | null>(null);
@@ -154,7 +153,7 @@ export default function CheckoutPage() {
       .order("created_at", { ascending: true });
 
     if (error) throw error;
-    setSavedAddresses((data as SavedAddress[]) || []);
+    setSavedAddresses(sortSavedAddresses((data as SavedAddressRecord[]) || []));
   }, [user]);
 
   useEffect(() => {
@@ -192,7 +191,7 @@ export default function CheckoutPage() {
     }
   };
 
-  const applySavedAddress = (address: SavedAddress) => {
+  const applySavedAddress = (address: SavedAddressRecord) => {
     update("address", address.address_text);
     setSelectedDestination({
       lat: address.destination_lat,
@@ -321,11 +320,16 @@ export default function CheckoutPage() {
       return;
     }
 
-    const label = newSavedAddressLabel.trim();
-    const addressText = form.address.trim();
+    const label = normalizeSavedAddressLabel(newSavedAddressLabel);
+    const addressText = normalizeSavedAddressText(form.address);
 
     if (!label || !addressText) {
       toast.error("Add a label and a delivery address before saving.");
+      return;
+    }
+
+    if (findDuplicateSavedAddress(savedAddresses, addressText)) {
+      toast.error("That delivery address is already saved.");
       return;
     }
 
@@ -375,7 +379,7 @@ export default function CheckoutPage() {
     }
   };
 
-  const handleDeleteSavedAddress = async (address: SavedAddress) => {
+  const handleDeleteSavedAddress = async (address: SavedAddressRecord) => {
     if (!user) return;
 
     setDeletingSavedAddressId(address.id);
@@ -390,8 +394,7 @@ export default function CheckoutPage() {
       if (error) throw error;
 
       if (address.is_default) {
-        const remainingAddresses = savedAddresses.filter((item) => item.id !== address.id);
-        const nextDefaultAddress = remainingAddresses[0] || null;
+        const nextDefaultAddress = getNextDefaultSavedAddress(savedAddresses, address.id);
 
         if (nextDefaultAddress) {
           const { error: nextDefaultError } = await supabase

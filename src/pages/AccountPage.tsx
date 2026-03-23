@@ -48,6 +48,15 @@ import {
   getPushNotificationPermissionState,
   requestPushNotificationPermission,
 } from "@/lib/pushNotifications";
+import { buildReorderPlan } from "@/lib/reorder";
+import {
+  findDuplicateSavedAddress,
+  getNextDefaultSavedAddress,
+  normalizeSavedAddressLabel,
+  normalizeSavedAddressText,
+  sortSavedAddresses,
+  type SavedAddressRecord,
+} from "@/lib/savedAddresses";
 
 interface Order {
   id: string;
@@ -72,15 +81,6 @@ interface DriverProfile {
   is_active: boolean;
 }
 
-interface SavedAddress {
-  id: string;
-  label: string;
-  address_text: string;
-  destination_lat: number | null;
-  destination_lng: number | null;
-  is_default: boolean;
-}
-
 type AccountTab = "profile" | "orders" | "favorites" | "driver";
 type OrderFilter = "all" | "active" | "completed" | "cancelled";
 
@@ -98,7 +98,7 @@ export default function AccountPage() {
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [checkingDriver, setCheckingDriver] = useState(true);
-  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddressRecord[]>([]);
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
   const [savingAddress, setSavingAddress] = useState(false);
   const [removingAddressId, setRemovingAddressId] = useState<string | null>(null);
@@ -204,7 +204,7 @@ export default function AccountPage() {
         toast.error(error.message || "Failed to load saved addresses");
         setSavedAddresses([]);
       } else {
-        setSavedAddresses((data as SavedAddress[]) || []);
+        setSavedAddresses(sortSavedAddresses((data as SavedAddressRecord[]) || []));
       }
 
       setLoadingSavedAddresses(false);
@@ -265,17 +265,22 @@ export default function AccountPage() {
       .order("created_at", { ascending: true });
 
     if (error) throw error;
-    setSavedAddresses((data as SavedAddress[]) || []);
+    setSavedAddresses(sortSavedAddresses((data as SavedAddressRecord[]) || []));
   };
 
   const handleAddSavedAddress = async () => {
     if (!user) return;
 
-    const label = newAddressForm.label.trim();
-    const addressText = newAddressForm.address_text.trim();
+    const label = normalizeSavedAddressLabel(newAddressForm.label);
+    const addressText = normalizeSavedAddressText(newAddressForm.address_text);
 
     if (!label || !addressText) {
       toast.error("Add both a label and an address.");
+      return;
+    }
+
+    if (findDuplicateSavedAddress(savedAddresses, addressText)) {
+      toast.error("That delivery address is already saved.");
       return;
     }
 
@@ -311,7 +316,7 @@ export default function AccountPage() {
     }
   };
 
-  const handleSetDefaultAddress = async (address: SavedAddress) => {
+  const handleSetDefaultAddress = async (address: SavedAddressRecord) => {
     if (!user) return;
 
     try {
@@ -337,7 +342,7 @@ export default function AccountPage() {
     }
   };
 
-  const handleDeleteSavedAddress = async (address: SavedAddress) => {
+  const handleDeleteSavedAddress = async (address: SavedAddressRecord) => {
     if (!user) return;
 
     setRemovingAddressId(address.id);
@@ -351,8 +356,7 @@ export default function AccountPage() {
 
       if (error) throw error;
 
-      const remainingAddresses = savedAddresses.filter((item) => item.id !== address.id);
-      const nextDefaultAddress = remainingAddresses.find((item) => item.is_default) || remainingAddresses[0] || null;
+      const nextDefaultAddress = getNextDefaultSavedAddress(savedAddresses, address.id);
 
       if (address.is_default) {
         if (nextDefaultAddress) {
@@ -392,39 +396,16 @@ export default function AccountPage() {
 
     try {
       const snapshot = await fetchOrderTrackingSnapshot(orderId);
-      const availableProductsById = new Map(products.map((product) => [product.id, product]));
-      const availableProductsByName = new Map(
-        products.map((product) => [product.name.trim().toLowerCase(), product])
-      );
+      const { lines, restoredCount, skippedCount } = buildReorderPlan(snapshot.items, products);
 
-      let restoredCount = 0;
-      let skippedCount = 0;
-
-      snapshot.items.forEach((item) => {
-        const matchedProduct =
-          (item.product_id ? availableProductsById.get(item.product_id) : undefined) ||
-          availableProductsByName.get(item.product_name.trim().toLowerCase());
-
-        if (!matchedProduct || !matchedProduct.inStock) {
-          skippedCount += item.quantity;
-          return;
-        }
-
-        addItem(matchedProduct, {
-          quantity: item.quantity,
-          note: item.item_note || undefined,
-          selectedOptions: item.selectedOptions.map((option) => ({
-            groupId: option.option_group_name,
-            groupName: option.option_group_name,
-            itemId: option.id,
-            itemName: option.option_item_name,
-            priceDelta: option.price_delta,
-          })),
-          optionsTotal: item.options_total,
-          finalUnitPrice: item.final_unit_price || item.unit_price,
+      lines.forEach((line) => {
+        addItem(line.product, {
+          quantity: line.quantity,
+          note: line.note,
+          selectedOptions: line.selectedOptions,
+          optionsTotal: line.optionsTotal,
+          finalUnitPrice: line.finalUnitPrice,
         });
-
-        restoredCount += item.quantity;
       });
 
       if (restoredCount === 0) {
