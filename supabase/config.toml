@@ -1,1 +1,4 @@
 project_id = "pthtzqagdmsmryvttbme"
+
+[functions.send-order-receipt]
+verify_jwt = false
