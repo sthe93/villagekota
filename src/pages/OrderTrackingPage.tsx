@@ -11,9 +11,11 @@ import {
   ShieldCheck,
   Truck,
   UserRound,
+  Star,
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import {
   Accordion,
@@ -22,6 +24,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import Footer from "@/components/Footer";
+import OrderReviewDialog from "@/components/OrderReviewDialog";
 import DeliveryProgressTracker from "@/components/DeliveryProgressTracker";
 import {
   fetchOrderTrackingSnapshot,
@@ -67,6 +70,7 @@ import {
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [items, setItems] = useState<OrderItemRecord[]>([]);
@@ -75,6 +79,7 @@ export default function OrderTrackingPage() {
   const [retryingPayment, setRetryingPayment] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -537,6 +542,10 @@ export default function OrderTrackingPage() {
         ? "Driver and delivery status for this order."
         : "Dispatch and delivery updates will appear here as your order progresses.";
 
+  const driverRatingLabel = driver?.review_count && driver.review_count > 0
+    ? `${Number(driver.rating ?? 0).toFixed(1)} (${driver.review_count})`
+    : "No reviews yet";
+
   const driverCardDescription = hasAssignedDriver
     ? order.accepted_at
       ? `Accepted ${formatTime(order.accepted_at)}`
@@ -586,6 +595,29 @@ export default function OrderTrackingPage() {
                     {statusSummary}
                   </p>
                 </div>
+
+                {isDelivered && user && (
+                  <div className="mt-4 rounded-[24px] border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                          Ratings & reviews
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-foreground">
+                          Rate the food and your delivery person to help improve service quality and build trust for future customers.
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => setReviewDialogOpen(true)}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-background px-4 py-3 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100/60"
+                      >
+                        <Star className="h-4 w-4" />
+                        Rate this order
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {deliveryConfirmationCode && !isOrderCancelled && (
                   <div className="mt-4 rounded-[24px] border border-primary/20 bg-primary/5 p-5 shadow-sm">
@@ -734,7 +766,7 @@ export default function OrderTrackingPage() {
                   <InfoTile
                     label="Driver"
                     value={hasAssignedDriver ? driver?.name || "Assigned driver" : "Waiting for assignment"}
-                    subValue={driverCardDescription}
+                    subValue={hasAssignedDriver ? `${driverCardDescription} · ${driverRatingLabel}` : driverCardDescription}
                     icon={UserRound}
                   />
 
@@ -748,6 +780,19 @@ export default function OrderTrackingPage() {
                         {order.delivery_address || "No address provided"}
                       </p>
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      Driver rating
+                    </p>
+                    <div className="mt-2 flex items-center gap-2 text-base font-semibold text-foreground">
+                      <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                      <span>{driverRatingLabel}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Ratings from completed deliveries.
+                    </p>
                   </div>
 
                   <div className="rounded-2xl border border-border bg-background p-4">
@@ -1032,6 +1077,16 @@ export default function OrderTrackingPage() {
           </div>
         </div>
       </div>
+
+      <OrderReviewDialog
+        open={reviewDialogOpen}
+        onOpenChange={setReviewDialogOpen}
+        order={order}
+        items={items}
+        driver={driver}
+        userId={user?.id ?? null}
+        onSubmitted={() => fetchOrder({ background: true })}
+      />
 
       <Footer />
     </div>
