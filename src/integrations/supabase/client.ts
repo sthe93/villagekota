@@ -20,6 +20,11 @@ const authStorage =
     ? window.sessionStorage
     : undefined;
 
+const authStorage =
+  typeof window !== "undefined" && window.sessionStorage
+    ? window.sessionStorage
+    : undefined;
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
@@ -28,5 +33,5 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: authStorage,
     persistSession: true,
     autoRefreshToken: true,
-  },
+  }
 });
