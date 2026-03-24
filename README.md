@@ -1,38 +1,87 @@
 # Village Kota
 
-Village Kota is a React + Vite food ordering app backed by Supabase. Customers can browse the menu, customise items, place delivery orders, and track orders, while admins and drivers can manage fulfilment workflows. The current payment flow uses PayFast for card payments and supports EFT and cash on delivery paths in the UI.
+Village Kota is a React + Vite food-ordering platform backed by Supabase.
+
+It supports three core user experiences in one app:
+- **Customers** place and track food-delivery orders.
+- **Admins** manage incoming orders and operational status updates.
+- **Drivers** accept/fulfil deliveries with a secure handoff flow.
+
+Card checkout is powered by **PayFast** (with webhook verification), and the platform also supports EFT, cash, and voucher-based order flows.
+
+---
+
+## Core functionality
+
+### Customer app
+- Browse menu and product catalog.
+- Customize products with option groups/items.
+- Build cart and place delivery orders.
+- Use voucher discounts (local vouchers and provider flow for 1Voucher).
+- Pay by card (PayFast), EFT, cash, or voucher.
+- Track order status in real time.
+- View order/payment updates via in-browser notifications (when enabled).
+- Manage profile and saved delivery addresses.
+- Delete account from My Account.
+
+### Admin app
+- Access protected admin routes.
+- View and manage order queue and status transitions.
+- Receive order notifications (browser notifications when enabled).
+
+### Driver app
+- Access protected driver routes.
+- Receive dispatch notifications for ready deliveries.
+- Complete delivery using a **customer confirmation PIN**.
+- Enforce cash-collected guardrails for cash orders.
+
+### Payments and auditability
+- PayFast checkout URL is created server-side from DB-backed order totals.
+- PayFast webhook (`payfast-notify`) verifies signature, merchant, and server confirmation.
+- Webhook validates paid amount against DB order total.
+- Payment audit records are written to `payment_logs`.
+
+---
 
 ## Tech stack
 
-- React
-- TypeScript
-- Vite
-- Tailwind CSS
-- shadcn/ui
-- Supabase
-- Vitest
+- **Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn/ui
+- **State/data:** TanStack Query, Supabase JS client
+- **Backend:** Supabase (Postgres, Auth, Edge Functions, Realtime)
+- **Testing:** Vitest
+- **Mobile wrapper readiness:** Capacitor dependencies + config scaffold
+
+---
+
+## Project structure (high level)
+
+- `src/` — frontend pages/components/hooks/lib
+- `supabase/functions/` — edge functions (order creation, payments, status updates, account deletion, etc.)
+- `supabase/migrations/` — database schema migrations
+- `android/` and `ios/` — placeholders for generated Capacitor native projects
+
+---
 
 ## Getting started
 
 ### Prerequisites
-
 - Node.js 20+
 - npm
-- A Supabase project with the required tables, functions, and environment variables configured
+- A Supabase project with required tables/functions/migrations applied
 
-### Install dependencies
+### Install
 
 ```sh
 npm install
 ```
 
-### Start the development server
+### Run locally
 
 ```sh
 npm run dev
 ```
 
-### Other useful commands
+### Quality checks
 
 ```sh
 npm run build
@@ -40,131 +89,120 @@ npm run lint
 npm run test
 ```
 
-## Environment and services
+---
 
-### Frontend
+## NPM scripts
 
-The frontend expects the standard Vite/Supabase environment configuration needed to connect to your Supabase project.
+- `npm run dev` — run Vite dev server
+- `npm run build` — production web build
+- `npm run build:dev` — development-mode build
+- `npm run lint` — ESLint with `--max-warnings=0`
+- `npm run test` — run Vitest once
+- `npm run test:watch` — run Vitest watch mode
+- `npm run lint:ci` — CI lint entrypoint
+- `npm run build:mobile` — build with `VITE_ROUTER_BASENAME=/` for native shell
+- `npm run cap:add:android` / `npm run cap:add:ios` — generate native Capacitor projects
+- `npm run cap:sync` — sync web assets/plugins into native projects
+- `npm run cap:open:android` / `npm run cap:open:ios` — open native IDE projects
+- `npm run cap:copy` — copy web assets into native projects
 
-### Supabase Auth providers
+---
 
-Google OAuth is the active sign-in method on the auth page right now.
+## Environment configuration
 
-To make Google login work, configure **three** places:
+### Frontend `.env`
+Use `.env.example` as a template.
 
-1. **Supabase Dashboard → Authentication → Providers → Google**
-   - enable the provider
-   - paste your Google **Client ID**
-   - paste your Google **Client Secret**
-2. **Google Cloud → OAuth client**
-   - add your app origins under **Authorized JavaScript origins**
-   - add your Supabase callback URL under **Authorized redirect URIs**
-3. **Supabase Dashboard → Authentication → URL Configuration**
-   - set your app URL(s) so Supabase is allowed to redirect the browser back to your frontend after login
+Expected values:
+- `VITE_SUPABASE_PROJECT_ID`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_SUPABASE_URL`
+- `VITE_MAPTILER_KEY`
 
-Use these values:
+Do **not** commit production `.env` secrets.
 
-- **Authorized JavaScript origins** in Google Cloud:
-  - `http://localhost:8080`
-  - `https://sthe93.github.io`
-- **Authorized redirect URI** in Google Cloud:
-  - `https://<your-project-ref>.supabase.co/auth/v1/callback`
-- **Supabase Site URL / additional redirect URLs**:
-  - `http://localhost:8080/auth?provider=google`
-  - `https://sthe93.github.io/villagekota/auth?provider=google`
+### Supabase Auth
+Google OAuth is currently active in the auth UI. Configure provider values in:
+1. Supabase Dashboard (Auth Provider settings)
+2. Google Cloud OAuth client
+3. Supabase URL Configuration (site/redirect URLs)
 
-If Supabase shows `Unsupported provider: missing OAuth secret`, the Google
-provider is enabled but the **Client Secret has not been saved correctly** in
-the Supabase dashboard yet.
+---
 
-### Browser push notifications
+## Edge functions included
 
-The app now includes browser push-notification support for signed-in users. End users can enable notifications from **My Account → Push Notifications**. Once enabled, the frontend registers a service worker and listens for realtime Supabase order events to surface browser notifications for customer order updates, driver dispatch events, and new admin orders.
+Located under `supabase/functions/`:
 
-> Note: this is a web-notification implementation powered by the browser Notification API plus Supabase realtime. It does not yet send vendor push messages to devices when the app is completely offline and disconnected from realtime.
+- `create-order`
+  - Authenticates user
+  - Validates cart items/options against DB
+  - Calculates subtotal/delivery/discount/total server-side
+  - Applies voucher logic and writes order records
+- `create-payfast-checkout`
+  - Authenticates user
+  - Ownership/admin check for order access
+  - Generates PayFast payment URL from DB order total
+  - Writes pending payment metadata + payment log
+- `payfast-notify`
+  - Validates ITN/webhook signature/merchant
+  - Confirms payload with PayFast endpoint
+  - Checks amount against DB order total
+  - Updates payment status + writes payment log
+- `update-order-status`
+  - Handles controlled order lifecycle status updates
+- `complete-driver-delivery`
+  - Authenticates driver
+  - Validates driver assignment + PIN confirmation
+  - Completes delivery and triggers receipt flow
+- `send-order-receipt`
+  - Sends receipt email after completion
+- `delete-account`
+  - Authenticates user
+  - Performs account cleanup + auth user deletion
+- `onevoucher-voucher`
+  - Integrates 1Voucher validation/redeem operations used by order flow
+- `create-checkout`
+  - Legacy Stripe flow retained in repo
 
-### Supabase Edge Functions
+---
 
-This repository includes Supabase Edge Functions under `supabase/functions/`, including:
+## Realtime and notifications
 
-- `create-order` for server-side order validation, pricing, and order creation
-- `create-payfast-checkout` for starting PayFast card payments
-- `payfast-notify` for verifying PayFast ITN/webhook callbacks and updating payment state server-side
-- `update-order-status` for admin-controlled order status transitions
-- `create-checkout` for the legacy Stripe checkout flow
-- `send-order-receipt` for emailing a thank-you receipt to the customer once an order is completed
-- `complete-driver-delivery` for securely completing driver handoff with the customer PIN and then triggering the receipt workflow
+The app includes **browser notification** support:
+- Service worker registration (`public/notifications-sw.js`)
+- Role-aware order/payment notifications via Supabase Realtime
+- User opt-in controls under **My Account**
 
-### PayFast configuration
+> Note: This is browser-based notification behavior and is not yet full APNs/FCM vendor push delivery for offline mobile app states.
 
-The `create-payfast-checkout` function requires these environment variables:
+---
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `PAYFAST_MERCHANT_ID`
-- `PAYFAST_MERCHANT_KEY`
-- `PAYFAST_PASSPHRASE` (optional if your PayFast account uses one)
-- `PAYFAST_SANDBOX` (`true` for sandbox, otherwise production)
-- `APP_BASE_URL` (optional fallback if the incoming request origin is unavailable)
-- `PAYFAST_MERCHANT_EMAIL` (recommended for sandbox validation so the checkout function can reject same-account test payments early)
+## Legal/compliance pages
 
-The checkout function uses the incoming request origin first and only falls back to `APP_BASE_URL` when needed, which helps keep PayFast return and cancel URLs aligned with the actual frontend domain.
-
-### Receipt email configuration
-
-The `send-order-receipt` and `complete-driver-delivery` functions require these environment variables:
-The `send-order-receipt` function requires these environment variables:
-
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `RESEND_API_KEY`
-- `ORDER_RECEIPT_FROM_EMAIL` (must be a sender/domain verified in Resend)
-
-The `complete-driver-delivery` function also expects an authenticated Supabase user JWT and calls the `complete_delivery_order_with_code` database function created by the delivery-confirmation migration.
-
-## Database
-
-Supabase SQL migrations live in `supabase/migrations/`. The schema includes:
-
-- catalogue tables such as `products`, `categories`, and product option tables
-- customer/account tables such as `profiles` and `favorites`
-- order flow tables such as `orders`, `order_items`, `order_item_options`, and `payment_logs`
-- operational tables such as `drivers`, `user_roles`, and vouchers
-
-## Testing
-
-Vitest is configured for unit tests. Add or update tests under `src/` using the `*.test.ts` or `*.test.tsx` naming convention, then run:
-
-```sh
-npm run test
-```
-
-## Notes
-
-- Card checkout currently uses PayFast from the checkout page.
-- In PayFast sandbox mode, test with a buyer account/email that is different from the merchant account or PayFast will reject the payment as a same-account transaction.
-- There is still a legacy Stripe edge function in the repo; keep documentation and deployment configuration aligned with the payment providers you actually use.
-
-
-### Release architecture decision
-
-Current release target is **PWA-first (web)**. Native App Store / Play Store packaging is currently out of scope until a dedicated native wrapper strategy (e.g. Capacitor) is approved.
-
-### Legal/compliance pages
-
-The app exposes legal/compliance routes:
+The app exposes:
 - `/privacy-policy`
 - `/terms-of-service`
 - `/data-disclosure`
 
-### Account deletion flow
+Support details are also available in the app footer and terms page.
 
-Signed-in users can delete their account from **My Account**. The flow calls the `delete-account` edge function, which requires authentication and then:
-- clears profile contact fields,
-- removes saved addresses,
-- deletes the auth user via Supabase Admin API.
+---
 
-### Payment logging
+## Mobile/store readiness status
 
-Payment audit records are written to `payment_logs` and are now backed by a migration in `supabase/migrations/`.
+The repository is **Capacitor-ready**, but native store submission work is still required:
+- Generate actual native projects (`cap:add:android`, `cap:add:ios`)
+- Implement production native push (APNs + FCM) for store builds
+- Prepare store assets (icons/screenshots)
+- Complete App Store Connect / Play Console metadata
+- Execute signed test releases on real devices
+
+See `CAPACITOR_DEPLOYMENT.md` for step-by-step guidance.
+
+---
+
+## Notes
+
+- Card payments currently run through PayFast.
+- In PayFast sandbox mode, customer email must differ from merchant email.
+- A legacy Stripe function remains in the repository; keep deployment/docs aligned with active provider usage.
