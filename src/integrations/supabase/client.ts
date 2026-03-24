@@ -2,8 +2,12 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const DEFAULT_TEST_SUPABASE_URL = "https://example.supabase.co";
+const DEFAULT_TEST_SUPABASE_KEY = "test-anon-key";
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || DEFAULT_TEST_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || DEFAULT_TEST_SUPABASE_KEY;
 
 const authStorage =
   typeof window !== "undefined" && window.sessionStorage

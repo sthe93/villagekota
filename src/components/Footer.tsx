@@ -47,8 +47,9 @@ export default function Footer() {
           <div className="space-y-2 text-sm text-secondary-foreground/85">
             <a href="/menu" className="block hover:text-accent transition-colors">Full Menu</a>
             <a href="/checkout" className="block hover:text-accent transition-colors">Checkout</a>
-            <a href="#" className="block hover:text-accent transition-colors">Terms & Conditions</a>
-            <a href="#" className="block hover:text-accent transition-colors">Privacy Policy</a>
+            <a href="/terms-of-service" className="block hover:text-accent transition-colors">Terms of Service</a>
+            <a href="/privacy-policy" className="block hover:text-accent transition-colors">Privacy Policy</a>
+            <a href="/data-disclosure" className="block hover:text-accent transition-colors">Data Disclosure</a>
           </div>
         </div>
       </div>
