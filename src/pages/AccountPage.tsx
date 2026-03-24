@@ -26,6 +26,7 @@ import {
   Trash2,
   Pencil,
   X,
+  AlertTriangle,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import AddressAutocompleteField from "@/components/AddressAutocompleteField";
@@ -134,6 +135,9 @@ export default function AccountPage() {
     label: "",
     address_text: "",
   });
+
+  const [deleteAccountConfirm, setDeleteAccountConfirm] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -538,6 +542,33 @@ export default function AccountPage() {
     await signOut();
     navigate("/");
     toast.success("Signed out");
+  };
+
+  const DELETE_ACCOUNT_CONFIRM_TEXT = "DELETE";
+
+  const handleDeleteAccount = async () => {
+    if (deleteAccountConfirm.trim().toUpperCase() !== DELETE_ACCOUNT_CONFIRM_TEXT) {
+      toast.error(`Type ${DELETE_ACCOUNT_CONFIRM_TEXT} to confirm account deletion.`);
+      return;
+    }
+
+    setDeletingAccount(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("delete-account", { method: "POST" });
+
+      if (error || !data?.success) {
+        throw new Error(error?.message || data?.error || "Failed to delete account");
+      }
+
+      toast.success("Your account has been deleted.");
+      await signOut();
+      navigate("/");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete account");
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   const isDriver = !!driverProfile;
@@ -1097,6 +1128,37 @@ export default function AccountPage() {
               </div>
             )}
 
+
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+              <div className="mb-3 flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Delete Account</p>
+                  <p className="text-xs text-muted-foreground">
+                    This permanently removes access to your account and clears saved addresses/profile contact fields.
+                    Order records are retained for operational and payment-audit obligations.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <input
+                  type="text"
+                  value={deleteAccountConfirm}
+                  onChange={(e) => setDeleteAccountConfirm(e.target.value)}
+                  placeholder={`Type ${DELETE_ACCOUNT_CONFIRM_TEXT} to confirm`}
+                  className={inputClassName}
+                />
+                <button
+                  onClick={() => void handleDeleteAccount()}
+                  disabled={deletingAccount}
+                  className="inline-flex items-center justify-center rounded-lg border border-destructive px-4 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  {deletingAccount ? "Deleting..." : "Delete Account"}
+                </button>
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={handleSaveProfile}
@@ -1368,6 +1430,37 @@ export default function AccountPage() {
             <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
               Use the driver dashboard to accept deliveries, start trips, update live location,
               mark arrival, collect cash where needed, and complete orders.
+            </div>
+
+
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+              <div className="mb-3 flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Delete Account</p>
+                  <p className="text-xs text-muted-foreground">
+                    This permanently removes access to your account and clears saved addresses/profile contact fields.
+                    Order records are retained for operational and payment-audit obligations.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <input
+                  type="text"
+                  value={deleteAccountConfirm}
+                  onChange={(e) => setDeleteAccountConfirm(e.target.value)}
+                  placeholder={`Type ${DELETE_ACCOUNT_CONFIRM_TEXT} to confirm`}
+                  className={inputClassName}
+                />
+                <button
+                  onClick={() => void handleDeleteAccount()}
+                  disabled={deletingAccount}
+                  className="inline-flex items-center justify-center rounded-lg border border-destructive px-4 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  {deletingAccount ? "Deleting..." : "Delete Account"}
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3">

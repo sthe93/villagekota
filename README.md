@@ -145,3 +145,26 @@ npm run test
 - Card checkout currently uses PayFast from the checkout page.
 - In PayFast sandbox mode, test with a buyer account/email that is different from the merchant account or PayFast will reject the payment as a same-account transaction.
 - There is still a legacy Stripe edge function in the repo; keep documentation and deployment configuration aligned with the payment providers you actually use.
+
+
+### Release architecture decision
+
+Current release target is **PWA-first (web)**. Native App Store / Play Store packaging is currently out of scope until a dedicated native wrapper strategy (e.g. Capacitor) is approved.
+
+### Legal/compliance pages
+
+The app exposes legal/compliance routes:
+- `/privacy-policy`
+- `/terms-of-service`
+- `/data-disclosure`
+
+### Account deletion flow
+
+Signed-in users can delete their account from **My Account**. The flow calls the `delete-account` edge function, which requires authentication and then:
+- clears profile contact fields,
+- removes saved addresses,
+- deletes the auth user via Supabase Admin API.
+
+### Payment logging
+
+Payment audit records are written to `payment_logs` and are now backed by a migration in `supabase/migrations/`.
