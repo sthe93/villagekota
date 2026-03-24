@@ -24,8 +24,20 @@ const AdminOrdersPage = lazy(() => import("@/pages/AdminOrdersPage"));
 const DriverPage = lazy(() => import("@/pages/DriverPage"));
 const PaymentSuccessPage = lazy(() => import("./pages/PaymentSuccessPage"));
 const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
+const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
+const DataDisclosurePage = lazy(() => import("./pages/DataDisclosurePage"));
 
 const queryClient = new QueryClient();
+
+
+const isCapacitorRuntime =
+  typeof window !== "undefined" &&
+  (window.location.protocol === "capacitor:" || window.location.href.startsWith("ionic://"));
+
+const routerBasename =
+  import.meta.env.VITE_ROUTER_BASENAME ||
+  (isCapacitorRuntime ? "/" : import.meta.env.DEV ? "/" : "/villagekota");
 
 function FullScreenLoader({ label = "Loading..." }: { label?: string }) {
   return (
@@ -76,7 +88,7 @@ const App = () => (
       <AuthProvider>
         <PushNotificationManager />
         <CartProvider>
-          <BrowserRouter basename={import.meta.env.DEV ? "/" : "/villagekota"}>
+          <BrowserRouter basename={routerBasename}>
             <Navbar />
             <CartDrawer />
             <CartFAB />
@@ -119,6 +131,9 @@ const App = () => (
                 <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
                 <Route path="/payment/success" element={<PaymentSuccessPage />} />
                 <Route path="/payment/cancel" element={<PaymentCancelPage />} />
+                <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                <Route path="/terms-of-service" element={<TermsPage />} />
+                <Route path="/data-disclosure" element={<DataDisclosurePage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
