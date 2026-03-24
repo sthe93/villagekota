@@ -78,19 +78,14 @@ export default function AuthPage() {
   }, []);
 
   useEffect(() => {
-    const provider = new URLSearchParams(location.search).get("provider");
-
-    if (
-      provider !== "google" ||
-      loading ||
-      !user ||
-      handledGoogleRedirect.current
-    ) {
+    if (loading || !user || handledGoogleRedirect.current) {
       return;
     }
 
     handledGoogleRedirect.current = true;
-    void redirectAfterLogin(user.id, "Signed in with Google");
+    const provider = new URLSearchParams(location.search).get("provider");
+    const successMessage = provider === "google" ? "Signed in with Google" : "Signed in successfully";
+    void redirectAfterLogin(user.id, successMessage);
   }, [loading, location.search, redirectAfterLogin, user]);
 
   const handleGoogleSignIn = async () => {
