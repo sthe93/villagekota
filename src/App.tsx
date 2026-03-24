@@ -30,6 +30,15 @@ const DataDisclosurePage = lazy(() => import("./pages/DataDisclosurePage"));
 
 const queryClient = new QueryClient();
 
+
+const isCapacitorRuntime =
+  typeof window !== "undefined" &&
+  (window.location.protocol === "capacitor:" || window.location.href.startsWith("ionic://"));
+
+const routerBasename =
+  import.meta.env.VITE_ROUTER_BASENAME ||
+  (isCapacitorRuntime ? "/" : import.meta.env.DEV ? "/" : "/villagekota");
+
 function FullScreenLoader({ label = "Loading..." }: { label?: string }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -79,7 +88,7 @@ const App = () => (
       <AuthProvider>
         <PushNotificationManager />
         <CartProvider>
-          <BrowserRouter basename={import.meta.env.DEV ? "/" : "/villagekota"}>
+          <BrowserRouter basename={routerBasename}>
             <Navbar />
             <CartDrawer />
             <CartFAB />
