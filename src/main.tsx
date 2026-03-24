@@ -12,11 +12,19 @@ if (Capacitor.isNativePlatform()) {
   void CapacitorApp.addListener("appUrlOpen", ({ url }) => {
     if (!url) return;
 
+    const authDebugEnabled = import.meta.env.VITE_AUTH_DEBUG_REDIRECT === "true";
+    if (authDebugEnabled) {
+      console.info("[auth] appUrlOpen received", { url });
+    }
+
     const expectedPrefix = `${nativeAuthScheme}://auth`;
     if (!url.startsWith(expectedPrefix)) return;
 
     const callbackUrl = new URL(url);
     const targetUrl = `${window.location.origin}/auth${callbackUrl.search}${callbackUrl.hash}`;
+    if (authDebugEnabled) {
+      console.info("[auth] appUrlOpen targetUrl", { targetUrl });
+    }
 
     void Browser.close();
     window.location.href = targetUrl;
