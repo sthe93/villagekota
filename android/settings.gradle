@@ -1,3 +1,20 @@
+def ensureAndroidSdkConfig() {
+    def localPropertiesFile = new File(rootDir, 'local.properties')
+    if (localPropertiesFile.exists()) {
+        return
+    }
+
+    def sdkDir = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT')
+    if (!sdkDir) {
+        return
+    }
+
+    def escapedPath = sdkDir.replace('\\', '\\\\')
+    localPropertiesFile.text = "sdk.dir=${escapedPath}${System.lineSeparator()}"
+}
+
+ensureAndroidSdkConfig()
+
 include ':app'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')

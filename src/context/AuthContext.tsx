@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const buildAuthRedirectUrl = useCallback((path = "/auth") => {
-    const basePath = import.meta.env.DEV ? "" : "/villagekota";
+    const basePath = import.meta.env.BASE_URL === "/" ? "" : import.meta.env.BASE_URL.replace(/\/$/, "");
     return `${window.location.origin}${basePath}${path}`;
   }, []);
 
