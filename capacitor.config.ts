@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "co.villageeats.app",
-  appName: "Village Eats",
+  appId: 'co.villagekota.app',
+  appName: 'Village Kota',
   webDir: "dist",
   bundledWebRuntime: false,
   server: {
