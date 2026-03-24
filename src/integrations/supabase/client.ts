@@ -2,15 +2,56 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const DEFAULT_TEST_SUPABASE_URL = "https://example.supabase.co";
-const DEFAULT_TEST_SUPABASE_KEY = "test-anon-key";
+const FALLBACK_SUPABASE_PROJECT_ID = 'mjkcztedhfpavmdmzakj';
+const FALLBACK_SUPABASE_URL = `https://${FALLBACK_SUPABASE_PROJECT_ID}.supabase.co`;
+const FALLBACK_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_kkwlHj0pHqPPCY4YHeVe6A_hG9Esjy5';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || DEFAULT_TEST_SUPABASE_URL;
+const PLACEHOLDER_PROJECT_IDS = new Set(['your-project-id', 'example']);
+const PLACEHOLDER_SUPABASE_URLS = new Set([
+  'https://example.supabase.co',
+  'https://your-project-ref.supabase.co',
+]);
+
+function normalize(value: string | undefined) {
+  return value?.trim();
+}
+
+function isPlaceholderProjectId(projectId: string | undefined) {
+  if (!projectId) return true;
+  return PLACEHOLDER_PROJECT_IDS.has(projectId.toLowerCase());
+}
+
+function isPlaceholderSupabaseUrl(url: string | undefined) {
+  if (!url) return true;
+  return PLACEHOLDER_SUPABASE_URLS.has(url.toLowerCase());
+}
+
+function isPlaceholderPublishableKey(key: string | undefined) {
+  if (!key) return true;
+  return key.toLowerCase().startsWith('your-');
+}
+
+const configuredProjectId = normalize(import.meta.env.VITE_SUPABASE_PROJECT_ID);
+const configuredUrl = normalize(import.meta.env.VITE_SUPABASE_URL);
+const configuredPublishableKey = normalize(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+
+const derivedUrlFromProjectId =
+  !isPlaceholderProjectId(configuredProjectId) && configuredProjectId
+    ? `https://${configuredProjectId}.supabase.co`
+    : undefined;
+
+const SUPABASE_URL =
+  !isPlaceholderSupabaseUrl(configuredUrl) && configuredUrl
+    ? configuredUrl
+    : derivedUrlFromProjectId || FALLBACK_SUPABASE_URL;
+
 const SUPABASE_PUBLISHABLE_KEY =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || DEFAULT_TEST_SUPABASE_KEY;
+  !isPlaceholderPublishableKey(configuredPublishableKey) && configuredPublishableKey
+    ? configuredPublishableKey
+    : FALLBACK_SUPABASE_PUBLISHABLE_KEY;
 
 const authStorage =
-  typeof window !== "undefined" && window.sessionStorage
+  typeof window !== 'undefined' && window.sessionStorage
     ? window.sessionStorage
     : undefined;
 
@@ -22,5 +63,5 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: authStorage,
     persistSession: true,
     autoRefreshToken: true,
-  }
+  },
 });
