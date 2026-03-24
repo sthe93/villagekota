@@ -24,6 +24,9 @@ const AdminOrdersPage = lazy(() => import("@/pages/AdminOrdersPage"));
 const DriverPage = lazy(() => import("@/pages/DriverPage"));
 const PaymentSuccessPage = lazy(() => import("./pages/PaymentSuccessPage"));
 const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
+const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
+const DataDisclosurePage = lazy(() => import("./pages/DataDisclosurePage"));
 
 const queryClient = new QueryClient();
 
@@ -119,6 +122,9 @@ const App = () => (
                 <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
                 <Route path="/payment/success" element={<PaymentSuccessPage />} />
                 <Route path="/payment/cancel" element={<PaymentCancelPage />} />
+                <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                <Route path="/terms-of-service" element={<TermsPage />} />
+                <Route path="/data-disclosure" element={<DataDisclosurePage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
