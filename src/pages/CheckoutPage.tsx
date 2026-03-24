@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { generateDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
-import { formatSupabaseError, isSchemaCompatibilityError } from "@/lib/supabaseSchemaCompatibility";
+import { formatSupabaseError } from "@/lib/supabaseSchemaCompatibility";
 import { toast } from "@/components/ui/sonner";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -22,7 +21,6 @@ import {
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import AddressAutocompleteField from "@/components/AddressAutocompleteField";
-import { geocodeSouthAfricaAddress } from "@/lib/maps";
 import {
   geocodeSouthAfricaAddress,
   searchSouthAfricaAddresses,
@@ -54,13 +52,19 @@ interface VoucherInfo {
   discountAmount: number;
 }
 
-interface InsertedOrderItemRow {
-  id: string;
-}
-
 type ExtendedPaymentMethod = PaymentMethod | "voucher";
-type OrderInsertPayload = Record<string, string | number | null>;
-type OrderItemInsertPayload = Record<string, string | number | null>;
+
+interface CreateOrderResponse {
+  orderId: string;
+  subtotal: number;
+  deliveryFee: number;
+  discountAmount: number;
+  total: number;
+  paymentStatus: string | null;
+  paymentProvider: string | null;
+  paymentReference: string | null;
+  voucherCode: string | null;
+}
 
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
@@ -400,145 +404,6 @@ export default function CheckoutPage() {
     }
   };
 
-  const handleSaveCurrentAddress = async () => {
-    if (!user) {
-      toast.error("Please sign in to save addresses.");
-      return;
-    }
-
-    const label = normalizeSavedAddressLabel(newSavedAddressLabel);
-    const addressText = normalizeSavedAddressText(form.address);
-
-    if (!label || !addressText) {
-      toast.error("Add a label and a delivery address before saving.");
-      return;
-    }
-
-    if (findDuplicateSavedAddress(savedAddresses, addressText)) {
-      toast.error("That delivery address is already saved.");
-      return;
-    }
-
-    setSavingCurrentAddress(true);
-
-    try {
-      let destination = selectedDestination;
-
-      if (destination.lat == null || destination.lng == null) {
-        destination = await geocodeSouthAfricaAddress(addressText);
-      }
-
-      const existingDefault = savedAddresses.find((address) => address.is_default);
-      const shouldSetDefault = !existingDefault;
-
-      const { error } = await supabase.from("saved_addresses").insert({
-        user_id: user.id,
-        label,
-        address_text: addressText,
-        destination_lat: destination?.lat ?? null,
-        destination_lng: destination?.lng ?? null,
-        is_default: shouldSetDefault,
-      });
-
-      if (error) throw error;
-
-      if (shouldSetDefault) {
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({ default_address: addressText })
-          .eq("user_id", user.id);
-
-        if (profileError) throw profileError;
-      }
-
-      setSelectedDestination({
-        lat: destination?.lat ?? null,
-        lng: destination?.lng ?? null,
-      });
-      setNewSavedAddressLabel("");
-      await refreshSavedAddresses();
-      toast.success("Address saved for faster checkout.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save this address");
-    } finally {
-      setSavingCurrentAddress(false);
-    }
-  };
-
-  const handleDeleteSavedAddress = async (address: SavedAddressRecord) => {
-    if (!user) return;
-
-    setDeletingSavedAddressId(address.id);
-
-    try {
-      const { error } = await supabase
-        .from("saved_addresses")
-        .delete()
-        .eq("id", address.id)
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-
-      if (address.is_default) {
-        const nextDefaultAddress = getNextDefaultSavedAddress(savedAddresses, address.id);
-
-        if (nextDefaultAddress) {
-          const { error: nextDefaultError } = await supabase
-            .from("saved_addresses")
-            .update({ is_default: true })
-            .eq("id", nextDefaultAddress.id)
-            .eq("user_id", user.id);
-
-          if (nextDefaultError) throw nextDefaultError;
-        }
-
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({ default_address: nextDefaultAddress?.address_text || "" })
-          .eq("user_id", user.id);
-
-        if (profileError) throw profileError;
-      }
-
-      await refreshSavedAddresses();
-      toast.success("Saved address removed.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to remove address");
-    } finally {
-      setDeletingSavedAddressId(null);
-    }
-  };
-
-  const handleSetDefaultSavedAddress = async (address: SavedAddressRecord) => {
-    if (!user) return;
-
-    setDefaultingSavedAddressId(address.id);
-
-    try {
-      const { error } = await supabase
-        .from("saved_addresses")
-        .update({ is_default: true })
-        .eq("id", address.id)
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .update({ default_address: address.address_text })
-        .eq("user_id", user.id);
-
-      if (profileError) throw profileError;
-
-      await refreshSavedAddresses();
-      toast.success(`${address.label} is now your default checkout address.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update default address");
-    } finally {
-      setDefaultingSavedAddressId(null);
-    }
-  };
-
   const handleApplyVoucher = async () => {
     if (!voucherCode.trim()) return;
 
@@ -718,326 +583,49 @@ export default function CheckoutPage() {
     setSubmitting(true);
 
     try {
-      const isUuid = (value: string) =>
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          value
-        );
-
-      const candidateProductIds = items
-        .map((item) => item.product.id)
-        .filter((id): id is string => Boolean(id) && isUuid(id));
-
-      const { data: existingProducts, error: productsCheckError } = await supabase
-        .from("products")
-        .select("id")
-        .in("id", candidateProductIds);
-
-      if (productsCheckError) throw productsCheckError;
-
-      const validProductIds = new Set((existingProducts || []).map((p) => p.id));
-
-      const orderItems = items.map((item) => ({
-        product_id: validProductIds.has(item.product.id) ? item.product.id : null,
-        product_name: item.product.name,
-        quantity: item.quantity,
-        unit_price: item.product.price,
-        options_total: item.optionsTotal || 0,
-        final_unit_price: item.finalUnitPrice || item.product.price,
-        total_price: (item.finalUnitPrice || item.product.price) * item.quantity,
-        item_note: item.note?.trim() || null,
-      }));
-
-      const hasMissingProducts = orderItems.some((item) => item.product_id === null);
-
-      if (hasMissingProducts) {
-        toast.error("Some cart items are outdated. Please clear your cart and add them again.");
-        throw new Error("Cart contains outdated product references");
-      }
-
       const destination =
         selectedDestination.lat != null && selectedDestination.lng != null
           ? selectedDestination
           : await geocodeSouthAfricaAddress(form.address);
 
-      const isProviderVoucherPayment =
-        form.payment === "voucher" &&
-        voucherInfo?.type === "prepaid" &&
-        voucherInfo.source === "provider";
-
-      const paymentProvider =
-        form.payment === "card"
-          ? "payfast"
-          : form.payment === "eft"
-            ? "eft"
-            : form.payment === "voucher"
-              ? voucherInfo?.provider || "voucher"
-              : null;
-
-      const paymentStatus =
-        form.payment === "card" || form.payment === "eft"
-          ? "pending"
-          : isProviderVoucherPayment
-            ? "pending"
-          : form.payment === "voucher"
-            ? "paid"
-            : null;
-
-      const itemNotes = items
-        .map((item) => {
-          const optionSummary = item.selectedOptions?.length
-            ? `Options: ${item.selectedOptions
-                .map((option) => `${option.groupName} - ${option.itemName}`)
-                .join(", ")}`
-            : "";
-          const noteSummary = item.note?.trim() ? `Note: ${item.note.trim()}` : "";
-          const detailSummary = [optionSummary, noteSummary].filter(Boolean).join(" · ");
-
-          if (!detailSummary) return "";
-
-          return `- ${item.product.name}${item.quantity > 1 ? ` x${item.quantity}` : ""}: ${detailSummary}`;
-        })
-        .filter(Boolean);
-
-      const combinedNotes = [
-        form.notes.trim(),
-        itemNotes.length > 0 ? `Item notes:\n${itemNotes.join("\n")}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-
-      const deliveryConfirmationCode = generateDeliveryConfirmationCode();
-
-      const fullOrderPayload: OrderInsertPayload = {
-        user_id: user.id,
-        customer_name: form.name.trim(),
-        customer_phone: customerPhone,
-        customer_email: customerEmail || null,
-        delivery_address: form.address.trim(),
-        destination_lat: destination?.lat ?? null,
-        destination_lng: destination?.lng ?? null,
-        notes: combinedNotes || null,
-        payment_method: form.payment,
-        payment_provider: paymentProvider,
-        payment_status: paymentStatus,
-        subtotal,
-        delivery_fee: deliveryFee,
-        discount_amount: discountAmount,
-        voucher_code: voucherInfo?.code || null,
-        delivery_confirmation_code: deliveryConfirmationCode,
-        total: adjustedTotal,
+      const createOrderPayload = {
+        customerName: form.name.trim(),
+        customerPhone,
+        customerEmail: customerEmail || null,
+        deliveryAddress: form.address.trim(),
+        destinationLat: destination?.lat ?? null,
+        destinationLng: destination?.lng ?? null,
+        notes: form.notes.trim() || null,
+        paymentMethod: form.payment,
+        items: items.map((item) => ({
+          productId: item.product.id,
+          quantity: item.quantity,
+          note: item.note?.trim() || null,
+          selectedOptions: item.selectedOptions.map((option) => ({
+            groupId: option.groupId,
+            itemId: option.itemId,
+          })),
+        })),
+        voucherCode: voucherInfo?.code || null,
+        voucherSource: voucherInfo?.source || null,
+        voucherProvider: voucherInfo?.provider || null,
       };
 
-      const deliveryCompatibleOrderPayload: OrderInsertPayload = {
-        user_id: user.id,
-        customer_name: form.name.trim(),
-        customer_phone: customerPhone,
-        customer_email: customerEmail || null,
-        delivery_address: form.address.trim(),
-        notes: combinedNotes || null,
-        payment_method: form.payment,
-        subtotal,
-        delivery_fee: deliveryFee,
-        discount_amount: discountAmount,
-        voucher_code: voucherInfo?.code || null,
-        delivery_confirmation_code: deliveryConfirmationCode,
-        total: adjustedTotal,
-      };
-
-      const voucherCompatibleOrderPayload: OrderInsertPayload = {
-        user_id: user.id,
-        customer_name: form.name.trim(),
-        customer_phone: customerPhone,
-        customer_email: customerEmail || null,
-        delivery_address: form.address.trim(),
-        notes: combinedNotes || null,
-        payment_method: form.payment,
-        subtotal,
-        delivery_fee: deliveryFee,
-        discount_amount: discountAmount,
-        voucher_code: voucherInfo?.code || null,
-        total: adjustedTotal,
-      };
-
-      const legacyOrderPayload: OrderInsertPayload = {
-        user_id: user.id,
-        customer_name: form.name.trim(),
-        customer_phone: customerPhone,
-        customer_email: customerEmail || null,
-        delivery_address: form.address.trim(),
-        notes: combinedNotes || null,
-        payment_method: form.payment,
-        subtotal,
-        delivery_fee: deliveryFee,
-        total: adjustedTotal,
-      };
-
-      const orderPayloadCandidates = [
-        fullOrderPayload,
-        deliveryCompatibleOrderPayload,
-        voucherCompatibleOrderPayload,
-        legacyOrderPayload,
-      ];
-
-      let orderResult = await supabase
-        .from("orders")
-        .insert(orderPayloadCandidates[0])
-        .select("id");
-
-      for (let index = 1; index < orderPayloadCandidates.length; index += 1) {
-        if (!orderResult.error || !isSchemaCompatibilityError(orderResult.error)) {
-          break;
+      const { data: createdOrder, error: createOrderError } = await supabase.functions.invoke(
+        "create-order",
+        {
+          body: createOrderPayload,
         }
+      );
 
-        orderResult = await supabase
-          .from("orders")
-          .insert(orderPayloadCandidates[index])
-          .select("id");
+      if (createOrderError) {
+        throw new Error(createOrderError.message || "Failed to create order");
       }
 
-      const { data: insertedOrders, error: orderError } = orderResult;
+      const order = createdOrder as CreateOrderResponse | null;
 
-      if (orderError) throw orderError;
-
-      const order = insertedOrders?.[0];
-
-      if (!order?.id) {
-        throw new Error("Order insert completed but no order id was returned.");
-      }
-
-      const fullOrderItemsPayload = orderItems.map((item, index) => {
-        const cartItem = items[index];
-        const selectedOptionLabels = cartItem.selectedOptions?.length
-          ? ` (${cartItem.selectedOptions
-              .map((option) => `${option.groupName}: ${option.itemName}`)
-              .join(", ")})`
-          : "";
-
-        const legacyProductName = `${item.product_name}${selectedOptionLabels}`.trim();
-
-        return {
-          full: {
-            order_id: order.id,
-            ...item,
-          } satisfies OrderItemInsertPayload,
-          legacy: {
-            order_id: order.id,
-            product_id: item.product_id,
-            product_name: legacyProductName,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total_price: item.total_price,
-          } satisfies OrderItemInsertPayload,
-        };
-      });
-
-      let insertedOrderItemsResult = await supabase
-        .from("order_items")
-        .insert(fullOrderItemsPayload.map((item) => item.full))
-        .select("id");
-
-      if (insertedOrderItemsResult.error && isSchemaCompatibilityError(insertedOrderItemsResult.error)) {
-        insertedOrderItemsResult = await supabase
-          .from("order_items")
-          .insert(fullOrderItemsPayload.map((item) => item.legacy))
-          .select("id");
-      }
-
-      const { data: insertedOrderItemsData, error: itemsError } = insertedOrderItemsResult;
-
-      if (itemsError) throw itemsError;
-      const insertedOrderItems = (insertedOrderItemsData || []) as InsertedOrderItemRow[];
-
-      for (let index = 0; index < items.length; index++) {
-        const insertedOrderItemId = insertedOrderItems?.[index]?.id;
-        const cartItem = items[index];
-
-        if (!insertedOrderItemId || !cartItem.selectedOptions?.length) continue;
-
-        const optionRows = cartItem.selectedOptions.map((option) => ({
-          order_item_id: insertedOrderItemId,
-          option_group_name: option.groupName,
-          option_item_name: option.itemName,
-          price_delta: option.priceDelta,
-        }));
-
-        const { error: optionInsertError } = await supabase
-          .from("order_item_options")
-          .insert(optionRows);
-
-        if (optionInsertError && !isSchemaCompatibilityError(optionInsertError)) {
-          throw optionInsertError;
-        }
-      }
-
-      if (voucherInfo?.source === "local" && voucherInfo.id) {
-        const { error: redemptionError } = await supabase.from("voucher_redemptions").insert({
-          voucher_id: voucherInfo.id,
-          order_id: order.id,
-          user_id: user.id,
-          amount: discountAmount,
-        });
-
-        if (redemptionError) throw redemptionError;
-
-        const voucherUpdatePayload: {
-          used_count: number;
-          balance?: number;
-        } = {
-          used_count: voucherInfo.usedCount + 1,
-        };
-
-        if (voucherInfo.type === "prepaid") {
-          voucherUpdatePayload.balance = Math.max(0, voucherInfo.balance - discountAmount);
-        }
-
-        const { error: voucherUpdateError } = await supabase
-          .from("vouchers")
-          .update(voucherUpdatePayload)
-          .eq("id", voucherInfo.id);
-
-        if (voucherUpdateError) throw voucherUpdateError;
-      }
-
-      if (isProviderVoucherPayment && voucherInfo?.provider === "one_voucher") {
-        const { data: redemptionData, error: redemptionError } = await supabase.functions.invoke(
-          "onevoucher-voucher",
-          {
-            body: {
-              action: "redeem",
-              code: voucherInfo.code,
-              amount: discountAmount,
-              orderId: order.id,
-              currency: "ZAR",
-              customerEmail,
-              customerPhone,
-            },
-          }
-        );
-
-        if (redemptionError || !redemptionData?.success) {
-          await supabase
-            .from("orders")
-            .update({
-              payment_status: "failed",
-            })
-            .eq("id", order.id);
-
-          throw new Error(
-            redemptionData?.message || redemptionError?.message || "1Voucher redemption failed"
-          );
-        }
-
-        const { error: orderPaymentUpdateError } = await supabase
-          .from("orders")
-          .update({
-            payment_provider: "one_voucher",
-            payment_status: "paid",
-            payment_reference:
-              redemptionData.providerReference || voucherInfo.providerReference || voucherInfo.code,
-          })
-          .eq("id", order.id);
-
-        if (orderPaymentUpdateError) throw orderPaymentUpdateError;
+      if (!order?.orderId) {
+        throw new Error("Order creation completed but no order id was returned.");
       }
 
       if (form.payment === "card") {
@@ -1045,11 +633,7 @@ export default function CheckoutPage() {
           "create-payfast-checkout",
           {
             body: {
-              orderId: order.id,
-              total: adjustedTotal,
-              customerName: form.name.trim(),
-              customerEmail,
-              itemName: `Village Eats Order #${order.id.slice(0, 8).toUpperCase()}`,
+              orderId: order.orderId,
             },
           }
         );
@@ -1058,7 +642,7 @@ export default function CheckoutPage() {
           toast.error(
             `Failed to start payment: ${payfastError?.message || "No payment URL returned"}`
           );
-          navigate(`/order-tracking/${order.id}`);
+          navigate(`/order-tracking/${order.orderId}`);
           return;
         }
 
@@ -1070,20 +654,20 @@ export default function CheckoutPage() {
       if (form.payment === "eft") {
         clearCart();
         toast.success("Order placed. Please complete your EFT payment and keep your order reference.");
-        navigate(`/order-tracking/${order.id}`);
+        navigate(`/order-tracking/${order.orderId}`);
         return;
       }
 
       if (form.payment === "voucher") {
         clearCart();
         toast.success(`${voucherProviderLabel} accepted. Order placed and marked as paid.`);
-        navigate(`/order-tracking/${order.id}`);
+        navigate(`/order-tracking/${order.orderId}`);
         return;
       }
 
       clearCart();
       toast.success("Order placed successfully.");
-      navigate(`/order-tracking/${order.id}`);
+      navigate(`/order-tracking/${order.orderId}`);
     } catch (err: unknown) {
       toast.error(formatSupabaseError(err));
     } finally {

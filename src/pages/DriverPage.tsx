@@ -76,7 +76,6 @@ interface DriverOrder {
   cash_collected: boolean | null;
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
-  delivery_confirmation_code: string | null;
   delivery_confirmation_verified_at: string | null;
 }
 
@@ -298,7 +297,6 @@ export default function DriverPage() {
         cash_collected,
         cash_collected_amount,
         cash_collected_at,
-        delivery_confirmation_code,
         delivery_confirmation_verified_at
       `)
       .in("status", ["ready_for_delivery", "on_the_way", "arrived"])
@@ -538,81 +536,22 @@ export default function DriverPage() {
     await loadDriverAndOrders();
   };
 
-  const sendCustomerReceipt = async (orderId: string) => {
-    try {
-      const { data, error } = await supabase.functions.invoke("send-order-receipt", {
-        body: { orderId },
-      });
-
-      if (error) throw error;
-
-      if (data?.skipped && data?.reason === "missing_customer_email") {
-        toast.message("Order completed", {
-          description: "No receipt email was sent because the customer did not provide an email address.",
-        });
-        return;
-      }
-
-      if (!data?.success && !data?.skipped) {
-        throw new Error("Receipt email could not be sent.");
-      }
-
-      toast.success("Receipt emailed", {
-        description: "A thank-you receipt was sent to the customer email.",
-      });
-    } catch (error) {
-      toast.error("Order completed, but the receipt email failed.", {
-        description: error instanceof Error ? error.message : "Unexpected receipt email error.",
-      });
-    }
-  };
-
   const completeDelivery = async (orderId: string) => {
     if (!driver) return;
     const confirmationCode = normalizeDeliveryConfirmationCode(deliveryCodes[orderId]);
-    const expectedCode = normalizeDeliveryConfirmationCode(
-      orders.find((order) => order.id === orderId)?.delivery_confirmation_code
-    );
 
     if (!isDeliveryConfirmationCodeComplete(confirmationCode)) {
       toast.error("Enter the 4-digit delivery PIN from the customer.");
       return;
     }
 
-    if (confirmationCode !== expectedCode) {
-      toast.error("That PIN does not match this order.");
-      return;
-    }
-
     setActionOrderId(orderId);
 
-    const { data: latestOrder, error: latestOrderError } = await supabase
-      .from("orders")
-      .select("status, payment_method, cash_collected")
-      .eq("id", orderId)
-      .maybeSingle();
-
-    if (!latestOrderError && latestOrder) {
-      const latestPaymentMethod = normalizeValue(latestOrder.payment_method);
-      const latestCashCollected = !!latestOrder.cash_collected;
-
-      if (normalizeValue(latestOrder.status) !== "arrived") {
-        toast.error("This delivery is no longer in the arrival step.");
-        setActionOrderId(null);
-        await loadDriverAndOrders();
-        return;
-      }
-
-      if (latestPaymentMethod === "cash" && !latestCashCollected) {
-        toast.error("Collect cash before completing this delivery.");
-        setActionOrderId(null);
-        await loadDriverAndOrders();
-        return;
-      }
-    }
-
     const { data, error } = await supabase.functions.invoke("complete-driver-delivery", {
-      body: { orderId },
+      body: {
+        orderId,
+        confirmationCode,
+      },
     });
 
     if (error) {
@@ -641,7 +580,6 @@ export default function DriverPage() {
     setConfirmingOrderId(null);
     setActionOrderId(null);
     await loadDriverAndOrders();
-    await sendCustomerReceipt(orderId);
   };
 
   useEffect(() => {

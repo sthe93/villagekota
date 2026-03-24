@@ -4,6 +4,7 @@ import { corsHeaders, sendOrderReceiptForOrder } from "../_shared/orderReceipt.t
 
 type CompleteDeliveryRequest = {
   orderId?: string;
+  confirmationCode?: string;
 };
 
 function getEnv(name: string) {
@@ -54,9 +55,17 @@ Deno.serve(async (req) => {
 
     const body = (await req.json().catch(() => ({}))) as CompleteDeliveryRequest;
     const orderId = body.orderId?.trim();
+    const confirmationCode = (body.confirmationCode || "").replace(/\D/g, "").slice(0, 4);
 
     if (!orderId) {
       return new Response(JSON.stringify({ error: "orderId is required" }), {
+        status: 400,
+        headers: corsHeaders,
+      });
+    }
+
+    if (confirmationCode.length !== 4) {
+      return new Response(JSON.stringify({ error: "confirmationCode must be 4 digits" }), {
         status: 400,
         headers: corsHeaders,
       });
@@ -119,9 +128,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: completed, error: completeError } = await supabase.rpc("complete_delivery_order", {
+    const { data: completed, error: completeError } = await supabase.rpc("complete_delivery_order_with_code", {
       p_order_id: orderId,
       p_driver_id: driver.id,
+      p_confirmation_code: confirmationCode,
     });
 
     if (completeError) {
