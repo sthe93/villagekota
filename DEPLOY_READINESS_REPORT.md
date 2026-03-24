@@ -7,7 +7,7 @@ Repository: `villagekota`
 
 **CONDITIONAL NO-GO** for Apple App Store and Google Play submission.
 
-The engineering quality gates and core compliance/backend gaps raised in the previous review are now addressed in-repo. Remaining blockers are primarily mobile distribution completion (native shell generation/sync in environment, native push, store assets/metadata, and real-device release evidence).
+The engineering quality gates and core compliance/backend gaps raised in the previous review are now addressed in-repo. Remaining blockers are primarily mobile distribution readiness (native projects, native push, store assets/metadata, and real-device release evidence).
 
 ## Checklist assessment
 
@@ -41,8 +41,8 @@ The engineering quality gates and core compliance/backend gaps raised in the pre
 
 #### Mobile/store readiness
 
-- [x] **Android project scaffold path exists (Capacitor-ready)**
-- [x] **iOS project scaffold path exists (Capacitor-ready)**
+- [ ] **Android project exists**
+- [ ] **iOS project exists**
 - [ ] **Native push implemented**
 - [ ] **App icons/screenshots prepared**
 - [ ] **Store metadata completed**
@@ -62,12 +62,10 @@ The engineering quality gates and core compliance/backend gaps raised in the pre
    - Added authenticated `delete-account` edge function plus My Account UI flow.
 6. **Payment/audit logging**
    - Added `payment_logs` migration and PayFast log writes on checkout creation and webhook processing.
-7. **Capacitor packaging readiness**
-   - Added `capacitor.config.ts`, native-friendly router basename handling, Capacitor scripts, and deployment guide.
 
 ## Remaining work before app-store submission
 
-1. Run `cap add`/`cap sync` in a fully connected dev machine to generate native projects from scaffolding.
+1. Establish native app containers (`android/`, `ios/`) or a finalized wrapper approach.
 2. Implement native mobile push channels (FCM/APNs) for store builds.
 3. Prepare store icon/screenshot sets and complete metadata in Play Console/App Store Connect.
 4. Run and document signed test releases on real Android and iOS devices.

@@ -168,17 +168,3 @@ Signed-in users can delete their account from **My Account**. The flow calls the
 ### Payment logging
 
 Payment audit records are written to `payment_logs` and are now backed by a migration in `supabase/migrations/`.
-
-
-### Capacitor readiness (Apple/Google stores)
-
-This repository includes Capacitor scaffolding so it can be packaged for native iOS/Android shells.
-
-Key files/scripts:
-- `capacitor.config.ts`
-- `npm run build:mobile`
-- `npm run cap:add:android`
-- `npm run cap:add:ios`
-- `npm run cap:sync`
-
-See `CAPACITOR_DEPLOYMENT.md` for end-to-end setup and store release steps.
