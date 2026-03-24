@@ -271,6 +271,25 @@ Deno.serve(async (req) => {
       );
     }
 
+
+    const { error: paymentLogError } = await supabaseAdmin
+      .from("payment_logs")
+      .insert({
+        order_id: body.orderId,
+        provider: "payfast",
+        provider_payment_id: body.orderId,
+        status: "pending",
+        amount: Number(order.total || 0),
+        raw_payload: { event: "checkout_created" },
+      });
+
+    if (paymentLogError) {
+      return new Response(
+        JSON.stringify({ error: paymentLogError.message }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
+
     return new Response(
       JSON.stringify({ url: paymentUrl }),
       { status: 200, headers: corsHeaders }

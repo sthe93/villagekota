@@ -141,6 +141,22 @@ Deno.serve(async (req) => {
       return new Response("Failed to update order", { status: 500, headers: responseHeaders });
     }
 
+
+    const { error: paymentLogError } = await supabaseAdmin
+      .from("payment_logs")
+      .insert({
+        order_id: orderId,
+        provider: "payfast",
+        provider_payment_id: paymentReference,
+        status: nextPaymentStatus,
+        amount: Number(payload.amount_gross || 0),
+        raw_payload: payload,
+      });
+
+    if (paymentLogError) {
+      return new Response("Failed to write payment log", { status: 500, headers: responseHeaders });
+    }
+
     return new Response("OK", { status: 200, headers: responseHeaders });
   } catch {
     return new Response("Unexpected error", { status: 500, headers: responseHeaders });
