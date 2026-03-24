@@ -35,9 +35,11 @@ const isCapacitorRuntime =
   typeof window !== "undefined" &&
   (window.location.protocol === "capacitor:" || window.location.href.startsWith("ionic://"));
 
+const normalizedBaseUrl = import.meta.env.BASE_URL.replace(/\/$/, "") || "/";
+
 const routerBasename =
   import.meta.env.VITE_ROUTER_BASENAME ||
-  (isCapacitorRuntime ? "/" : import.meta.env.DEV ? "/" : "/villagekota");
+  (isCapacitorRuntime ? "/" : normalizedBaseUrl);
 
 function FullScreenLoader({ label = "Loading..." }: { label?: string }) {
   return (

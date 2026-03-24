@@ -12,13 +12,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:ci": "npm run lint",
-    "build:mobile": "VITE_ROUTER_BASENAME=/ vite build",
+    "build:mobile": "VITE_BASE_PATH=/ VITE_ROUTER_BASENAME=/ vite build",
     "cap:sync": "npx cap sync",
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios",
     "cap:add:android": "npx cap add android",
     "cap:add:ios": "npx cap add ios",
-    "cap:copy": "npx cap copy"
+    "cap:copy": "npx cap copy",
+    "build:web": "VITE_BASE_PATH=/villagekota/ VITE_ROUTER_BASENAME=/villagekota vite build"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
