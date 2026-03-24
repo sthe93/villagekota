@@ -9,7 +9,6 @@ import React, {
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 import { Capacitor } from "@capacitor/core";
-import { Browser } from "@capacitor/browser";
 
 interface Profile {
   id: string;
@@ -199,7 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (nativePlatform && data?.url) {
-      await Browser.open({ url: data.url });
+      window.location.href = data.url;
     }
 
     return { error: null };

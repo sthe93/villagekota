@@ -1,7 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
-import { Browser } from "@capacitor/browser";
 import App from "./App.tsx";
 import "./index.css";
 
@@ -26,7 +25,6 @@ if (Capacitor.isNativePlatform()) {
       console.info("[auth] appUrlOpen targetUrl", { targetUrl });
     }
 
-    void Browser.close();
     window.location.href = targetUrl;
   });
 }
