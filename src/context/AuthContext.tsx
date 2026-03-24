@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
 
 interface Profile {
   id: string;
@@ -58,7 +59,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const buildAuthRedirectUrl = useCallback((path = "/auth") => {
-    const basePath = import.meta.env.DEV ? "" : "/villagekota";
+    if (Capacitor.isNativePlatform()) {
+      const nativeScheme =
+        import.meta.env.VITE_NATIVE_AUTH_SCHEME?.trim().replace("://", "") || "co.villagekota.app";
+      const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+      return `${nativeScheme}://${normalizedPath}`;
+    }
+
+    const basePath = import.meta.env.BASE_URL === "/" ? "" : import.meta.env.BASE_URL.replace(/\/$/, "");
     return `${window.location.origin}${basePath}${path}`;
   }, []);
 
@@ -164,7 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: buildAuthRedirectUrl("/auth?provider=google"),
+        redirectTo: buildAuthRedirectUrl("/auth"),
         queryParams: {
           access_type: "offline",
           prompt: "select_account",
