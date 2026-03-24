@@ -37,6 +37,8 @@ const ORDER_TRACKING_SELECT = `
   started_delivery_at,
   arrived_at,
   delivered_at,
+  delivery_confirmation_code,
+  delivery_confirmation_verified_at,
   cash_collected,
   cash_collected_amount,
   cash_collected_at,

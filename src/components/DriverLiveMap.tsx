@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Map, { Marker, NavigationControl, Source, Layer } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { getMapTilerStyleUrl } from "@/lib/maps";
 
 interface DriverLiveMapProps {
   driverLat: number | null;
@@ -11,8 +12,7 @@ interface DriverLiveMapProps {
   routeGeoJson?: GeoJSON.Feature<GeoJSON.LineString> | null;
 }
 
-const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
-const MAP_STYLE = `https://api.maptiler.com/maps/streets/style.json?key=${MAPTILER_KEY}`;
+const MAP_STYLE = getMapTilerStyleUrl();
 
 export default function DriverLiveMap({
   driverLat,

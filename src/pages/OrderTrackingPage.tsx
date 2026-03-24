@@ -63,6 +63,7 @@ import {
   normalizeOrderStatus,
 } from "@/features/order-tracking/utils";
 import { formatDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
+import { getMapTilerStyleUrl } from "@/lib/maps";
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
@@ -371,13 +372,13 @@ export default function OrderTrackingPage() {
         ? ([order.destination_lng, order.destination_lat] as [number, number])
         : null;
 
-    const key = import.meta.env.VITE_MAPTILER_KEY;
-    if (!key) return;
+    const styleUrl = getMapTilerStyleUrl();
+    if (!styleUrl) return;
 
     if (!mapRef.current) {
       mapRef.current = new maplibregl.Map({
         container: mapContainerRef.current,
-        style: `https://api.maptiler.com/maps/streets/style.json?key=${key}`,
+        style: styleUrl,
         center: driverLngLat,
         zoom: isArrived ? 16 : 14,
       });
