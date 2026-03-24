@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
 
 interface Profile {
   id: string;
@@ -58,7 +59,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const buildAuthRedirectUrl = useCallback((path = "/auth") => {
-    const basePath = import.meta.env.DEV ? "" : "/villagekota";
+    if (Capacitor.isNativePlatform()) {
+      const nativeScheme =
+        import.meta.env.VITE_NATIVE_AUTH_SCHEME?.trim().replace("://", "") || "co.villagekota.app";
+      const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+      return `${nativeScheme}://${normalizedPath}`;
+    }
+
+    const basePath = import.meta.env.BASE_URL === "/" ? "" : import.meta.env.BASE_URL.replace(/\/$/, "");
     return `${window.location.origin}${basePath}${path}`;
   }, []);
 
@@ -161,10 +169,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const nativePlatform = Capacitor.isNativePlatform();
+    const redirectTo = buildAuthRedirectUrl("/auth");
+    const authDebugEnabled = import.meta.env.VITE_AUTH_DEBUG_REDIRECT === "true";
+
+    if (authDebugEnabled) {
+      console.info("[auth] signInWithGoogle redirectTo", { nativePlatform, redirectTo });
+    }
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: buildAuthRedirectUrl("/auth?provider=google"),
+        redirectTo,
+        skipBrowserRedirect: nativePlatform,
         queryParams: {
           access_type: "offline",
           prompt: "select_account",
@@ -172,7 +189,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     });
 
-    return { error: error as Error | null };
+    if (error) {
+      return { error: error as Error | null };
+    }
+
+    if (authDebugEnabled) {
+      console.info("[auth] signInWithGoogle oauthUrl", { oauthUrl: data?.url ?? null });
+    }
+
+    if (nativePlatform && data?.url) {
+      window.location.href = data.url;
+    }
+
+    return { error: null };
   }, [buildAuthRedirectUrl]);
 
   const signOut = useCallback(async () => {
