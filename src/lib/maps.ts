@@ -24,8 +24,26 @@ interface OsrmResponse {
   routes?: OsrmRoute[];
 }
 
-function getMapTilerKey() {
-  return import.meta.env.VITE_MAPTILER_KEY?.trim() || "";
+const FALLBACK_MAPTILER_KEY = "DmsSAjl2LMkCsIQLtEEd";
+const PLACEHOLDER_MAPTILER_KEYS = new Set(["your-maptiler-key", "example-maptiler-key"]);
+
+export function getMapTilerKey() {
+  const configuredKey = import.meta.env.VITE_MAPTILER_KEY?.trim();
+
+  if (!configuredKey) {
+    return FALLBACK_MAPTILER_KEY;
+  }
+
+  if (PLACEHOLDER_MAPTILER_KEYS.has(configuredKey.toLowerCase())) {
+    return FALLBACK_MAPTILER_KEY;
+  }
+
+  return configuredKey;
+}
+
+export function getMapTilerStyleUrl() {
+  const key = getMapTilerKey();
+  return key ? `https://api.maptiler.com/maps/streets/style.json?key=${key}` : "";
 }
 
 export function normalizeSouthAfricaAddressQuery(query: string) {
