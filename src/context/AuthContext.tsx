@@ -9,6 +9,7 @@ import React, {
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
 
 interface Profile {
   id: string;
@@ -169,10 +170,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const nativePlatform = Capacitor.isNativePlatform();
+    const redirectTo = buildAuthRedirectUrl("/auth");
+    const authDebugEnabled = import.meta.env.VITE_AUTH_DEBUG_REDIRECT === "true";
+
+    if (authDebugEnabled) {
+      console.info("[auth] signInWithGoogle redirectTo", { nativePlatform, redirectTo });
+    }
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: buildAuthRedirectUrl("/auth"),
+        redirectTo,
+        skipBrowserRedirect: nativePlatform,
         queryParams: {
           access_type: "offline",
           prompt: "select_account",
@@ -180,7 +190,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     });
 
-    return { error: error as Error | null };
+    if (error) {
+      return { error: error as Error | null };
+    }
+
+    if (authDebugEnabled) {
+      console.info("[auth] signInWithGoogle oauthUrl", { oauthUrl: data?.url ?? null });
+    }
+
+    if (nativePlatform && data?.url) {
+      await Browser.open({ url: data.url });
+    }
+
+    return { error: null };
   }, [buildAuthRedirectUrl]);
 
   const signOut = useCallback(async () => {
