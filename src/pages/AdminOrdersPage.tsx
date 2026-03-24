@@ -579,16 +579,21 @@ export default function AdminOrdersPage() {
 
     setSavingId(orderId);
 
-    const { error } = await supabase
-      .from("orders")
-      .update({
+    const { data, error } = await supabase.functions.invoke("update-order-status", {
+      body: {
+        orderId,
         status,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", orderId);
+      },
+    });
 
     if (error) {
       toast.error(error.message || "Failed to update status");
+      setSavingId(null);
+      return;
+    }
+
+    if (!data?.success) {
+      toast.error(data?.error || "Failed to update status");
       setSavingId(null);
       return;
     }
@@ -910,12 +915,6 @@ export default function AdminOrdersPage() {
                                 {
                                   body: {
                                     orderId: order.id,
-                                    total: order.total || 0,
-                                    customerName: order.customer_name,
-                                    customerEmail: order.customer_email,
-                                    itemName: `Village Eats Order #${order.id
-                                      .slice(0, 8)
-                                      .toUpperCase()}`,
                                   },
                                 }
                               );

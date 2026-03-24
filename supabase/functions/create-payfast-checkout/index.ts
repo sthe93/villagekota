@@ -4,14 +4,9 @@ import CryptoJS from "npm:crypto-js";
 
 type Payload = {
   orderId: string;
-  total: number;
-  customerName: string;
-  customerEmail: string;
-  itemName: string;
 };
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+const corsHeadersBase = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
@@ -54,7 +49,35 @@ function normalizeBaseUrl(value?: string | null) {
   }
 }
 
+function getAllowedOrigins(configuredAppBaseUrl: string | null) {
+  const configuredOrigins = (Deno.env.get("ALLOWED_APP_ORIGINS") || "")
+    .split(",")
+    .map((value) => normalizeBaseUrl(value))
+    .filter((value): value is string => Boolean(value));
+
+  const fallbackOrigins = [
+    configuredAppBaseUrl,
+    "http://localhost:8080",
+    "http://localhost:5173",
+  ].filter((value): value is string => Boolean(value));
+
+  return new Set([...configuredOrigins, ...fallbackOrigins]);
+}
+
+function buildCorsHeaders(origin: string | null, allowedOrigins: Set<string>) {
+  const allowedOrigin = origin && allowedOrigins.has(origin) ? origin : [...allowedOrigins][0] || "null";
+  return {
+    ...corsHeadersBase,
+    "Access-Control-Allow-Origin": allowedOrigin,
+  };
+}
+
 Deno.serve(async (req) => {
+  const configuredAppBaseUrl = normalizeBaseUrl(Deno.env.get("APP_BASE_URL"));
+  const requestOrigin = normalizeBaseUrl(req.headers.get("origin"));
+  const allowedOrigins = getAllowedOrigins(configuredAppBaseUrl);
+  const corsHeaders = buildCorsHeaders(requestOrigin, allowedOrigins);
+
   if (req.method === "OPTIONS") {
     return new Response("ok", {
       status: 200,
@@ -64,22 +87,28 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const merchantId = Deno.env.get("PAYFAST_MERCHANT_ID");
     const merchantKey = Deno.env.get("PAYFAST_MERCHANT_KEY");
     const merchantEmail = (Deno.env.get("PAYFAST_MERCHANT_EMAIL") || "").trim().toLowerCase();
     const passphrase = Deno.env.get("PAYFAST_PASSPHRASE") || "";
     const isSandbox = Deno.env.get("PAYFAST_SANDBOX") === "true";
-    const configuredAppBaseUrl = normalizeBaseUrl(Deno.env.get("APP_BASE_URL"));
 
-    if (!supabaseUrl || !serviceRoleKey || !merchantId || !merchantKey) {
+    if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey || !merchantId || !merchantKey) {
       return new Response(
         JSON.stringify({ error: "Missing environment configuration" }),
         { status: 500, headers: corsHeaders }
       );
     }
 
-    const requestOrigin = normalizeBaseUrl(req.headers.get("origin"));
+    if (requestOrigin && !allowedOrigins.has(requestOrigin)) {
+      return new Response(
+        JSON.stringify({ error: "Origin is not allowed to call this endpoint" }),
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
     const appBaseUrl = requestOrigin || configuredAppBaseUrl;
 
     if (!appBaseUrl) {
@@ -91,20 +120,100 @@ Deno.serve(async (req) => {
       );
     }
 
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: "Missing authorization header" }),
+        { status: 401, headers: corsHeaders }
+      );
+    }
+
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: authHeader,
+        },
+      },
+    });
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAuth.auth.getUser();
+
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: authError?.message || "Not authenticated" }),
+        { status: 401, headers: corsHeaders }
+      );
+    }
+
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
     const body = (await req.json()) as Payload;
 
-    if (!body.orderId || !body.total || !body.customerEmail || !body.itemName) {
+    if (!body.orderId) {
       return new Response(
-        JSON.stringify({ error: "Missing required fields" }),
+        JSON.stringify({ error: "orderId is required" }),
         { status: 400, headers: corsHeaders }
+      );
+    }
+
+    const [{ data: order, error: orderError }, { data: adminRole, error: adminRoleError }] =
+      await Promise.all([
+        supabaseAdmin
+          .from("orders")
+          .select("id, user_id, customer_name, customer_email, total, payment_method")
+          .eq("id", body.orderId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("user_roles")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("role", "admin")
+          .maybeSingle(),
+      ]);
+
+    if (orderError || !order) {
+      return new Response(
+        JSON.stringify({ error: orderError?.message || "Order not found" }),
+        { status: 404, headers: corsHeaders }
+      );
+    }
+
+    if (adminRoleError) {
+      return new Response(
+        JSON.stringify({ error: adminRoleError.message }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
+
+    const isAdmin = !!adminRole;
+    if (order.user_id !== user.id && !isAdmin) {
+      return new Response(
+        JSON.stringify({ error: "You do not have access to this order" }),
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
+    const customerEmail = order.customer_email?.trim() || "";
+    if (!customerEmail) {
+      return new Response(
+        JSON.stringify({ error: "This order does not have a customer email" }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    if (String(order.payment_method || "").toLowerCase() !== "card") {
+      return new Response(
+        JSON.stringify({ error: "Only card orders can start PayFast checkout" }),
+        { status: 409, headers: corsHeaders }
       );
     }
 
     if (
       isSandbox &&
       merchantEmail &&
-      body.customerEmail.trim().toLowerCase() === merchantEmail
+      customerEmail.toLowerCase() === merchantEmail
     ) {
       return new Response(
         JSON.stringify({
@@ -115,11 +224,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    const amount = Number(body.total).toFixed(2);
+    const amount = Number(order.total || 0).toFixed(2);
 
     const returnUrl = `${appBaseUrl}/payment/success?orderId=${encodeURIComponent(body.orderId)}`;
     const cancelUrl = `${appBaseUrl}/payment/cancel?orderId=${encodeURIComponent(body.orderId)}`;
     const notifyUrl = `${supabaseUrl}/functions/v1/payfast-notify`;
+    const itemName = `Village Eats Order #${body.orderId.slice(0, 8).toUpperCase()}`;
 
     const paymentData: Record<string, string> = {
       merchant_id: merchantId,
@@ -127,11 +237,11 @@ Deno.serve(async (req) => {
       return_url: returnUrl,
       cancel_url: cancelUrl,
       notify_url: notifyUrl,
-      name_first: body.customerName,
-      email_address: body.customerEmail,
+      name_first: order.customer_name,
+      email_address: customerEmail,
       m_payment_id: body.orderId,
       amount,
-      item_name: body.itemName,
+      item_name: itemName,
     };
 
     const signature = buildPayfastSignature(paymentData, passphrase);
