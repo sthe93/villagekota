@@ -25,6 +25,11 @@ import {
   geocodeSouthAfricaAddress,
 } from "@/lib/maps";
 import {
+  useCheckoutFlow,
+  type ExtendedPaymentMethod,
+  type CheckoutStep,
+} from "@/hooks/useCheckoutFlow";
+import {
   findDuplicateSavedAddress,
   getNextDefaultSavedAddress,
   normalizeSavedAddressLabel,
@@ -49,9 +54,6 @@ interface VoucherInfo {
   usedCount: number;
   discountAmount: number;
 }
-
-type ExtendedPaymentMethod = PaymentMethod | "voucher";
-type CheckoutStep = 1 | 2 | 3;
 
 interface CreateOrderResponse {
   orderId: string;
@@ -81,7 +83,6 @@ const VOUCHER_PROVIDER_LABELS: Record<VoucherProvider, string> = {
 
 const ONE_VOUCHER_PIN_REGEX = /^\d{16}$/;
 const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
-
 function getPhoneDigits(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -107,16 +108,6 @@ export default function CheckoutPage() {
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
 
-  const [form, setForm] = useState({
-    name: profile?.display_name || "",
-    phone: profile?.phone || "",
-    email: user?.email || "",
-    address: profile?.default_address || "",
-    notes: "",
-    payment: "cash" as ExtendedPaymentMethod,
-  });
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-
   const [savedAddresses, setSavedAddresses] = useState<SavedAddressRecord[]>([]);
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
   const [savingCurrentAddress, setSavingCurrentAddress] = useState(false);
@@ -130,17 +121,31 @@ export default function CheckoutPage() {
     lat: null,
     lng: null,
   });
-
-
-  useEffect(() => {
-    setForm((prev) => ({
-      ...prev,
-      name: prev.name || profile?.display_name || "",
-      phone: prev.phone || profile?.phone || "",
-      email: prev.email || user?.email || "",
-      address: prev.address || profile?.default_address || "",
-    }));
-  }, [profile?.display_name, profile?.phone, profile?.default_address, user?.email]);
+  const {
+    currentStep,
+    setCurrentStep,
+    form,
+    setForm,
+    touched,
+    setTouched,
+    update,
+    markTouched,
+    fieldErrors,
+    canContinueFromDelivery,
+    canContinueFromPayment,
+    handleStepChange,
+  } = useCheckoutFlow({
+    initialForm: {
+      name: profile?.display_name || "",
+      phone: profile?.phone || "",
+      email: user?.email || "",
+      address: profile?.default_address || "",
+      notes: "",
+      payment: "cash",
+    },
+    isSignedIn: Boolean(user),
+    voucherPaymentReady: Boolean(voucherInfo && voucherInfo.type === "prepaid"),
+  });
 
   const refreshSavedAddresses = useCallback(async () => {
     if (!user) {
@@ -187,9 +192,8 @@ export default function CheckoutPage() {
     };
   }, [refreshSavedAddresses]);
 
-  const update = <K extends keyof typeof form>(field: K, value: (typeof form)[K]) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    setTouched((prev) => ({ ...prev, [field]: true }));
+  const updateField = <K extends keyof typeof form>(field: K, value: (typeof form)[K]) => {
+    update(field, value);
 
     if (field === "address") {
       setSelectedDestination({ lat: null, lng: null });
@@ -201,7 +205,7 @@ export default function CheckoutPage() {
   };
 
   const applySavedAddress = (address: SavedAddressRecord) => {
-    update("address", address.address_text);
+    updateField("address", address.address_text);
     setSelectedDestination({
       lat: address.destination_lat,
       lng: address.destination_lng,
@@ -850,7 +854,10 @@ export default function CheckoutPage() {
                     <button
                       key={item.step}
                       type="button"
-                      onClick={() => handleStepChange(item.step)}
+                      onClick={() => {
+                        const error = handleStepChange(item.step);
+                        if (error) toast.error(error);
+                      }}
                       className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors ${
                         currentStep === item.step
                           ? "bg-primary text-primary-foreground"
@@ -890,7 +897,7 @@ export default function CheckoutPage() {
                     <input
                       type="text"
                       value={form.name}
-                      onChange={(e) => update("name", e.target.value)}
+                      onChange={(e) => updateField("name", e.target.value)}
                       onBlur={() => markTouched("name")}
                       className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                       required
@@ -908,7 +915,7 @@ export default function CheckoutPage() {
                       <input
                         type="tel"
                         value={form.phone}
-                        onChange={(e) => update("phone", e.target.value)}
+                        onChange={(e) => updateField("phone", e.target.value)}
                         onBlur={() => markTouched("phone")}
                         placeholder="0XXXXXXXXX"
                         inputMode="numeric"
@@ -930,7 +937,7 @@ export default function CheckoutPage() {
                       <input
                         type="email"
                         value={form.email}
-                        onChange={(e) => update("email", e.target.value)}
+                        onChange={(e) => updateField("email", e.target.value)}
                         onBlur={() => markTouched("email")}
                         className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                       />
@@ -954,7 +961,7 @@ export default function CheckoutPage() {
                   <AddressAutocompleteField
                     label="Delivery Address"
                     value={form.address}
-                    onValueChange={(value) => update("address", value)}
+                    onValueChange={(value) => updateField("address", value)}
                     onSuggestionSelect={(suggestion) => {
                       setSelectedDestination({
                         lat: suggestion.lat,
@@ -1087,7 +1094,7 @@ export default function CheckoutPage() {
                     </label>
                     <textarea
                       value={form.notes}
-                      onChange={(e) => update("notes", e.target.value)}
+                      onChange={(e) => updateField("notes", e.target.value)}
                       rows={3}
                       placeholder="Gate code, extra directions, delivery instructions..."
                       className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
@@ -1121,7 +1128,7 @@ export default function CheckoutPage() {
                         type="button"
                         onClick={() => {
                           if (method.disabled) return;
-                          update("payment", method.value);
+                          updateField("payment", method.value);
                         }}
                         disabled={method.disabled}
                         className={`rounded-2xl border p-4 text-left transition-colors ${
