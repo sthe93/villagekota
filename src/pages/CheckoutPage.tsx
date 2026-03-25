@@ -122,18 +122,18 @@ export default function CheckoutPage() {
     lng: null,
   });
   const {
-    currentStep,
-    setCurrentStep,
+    currentStep: checkoutStep,
+    setCurrentStep: setCheckoutStep,
     form,
     setForm,
     touched,
     setTouched,
     update,
-    markTouched,
-    fieldErrors,
-    canContinueFromDelivery,
-    canContinueFromPayment,
-    handleStepChange,
+    markTouched: markCheckoutTouched,
+    fieldErrors: checkoutFieldErrors,
+    canContinueFromDelivery: canContinueDeliveryStep,
+    canContinueFromPayment: canContinuePaymentStep,
+    handleStepChange: handleCheckoutStepChange,
   } = useCheckoutFlow({
     initialForm: {
       name: profile?.display_name || "",
@@ -855,11 +855,11 @@ export default function CheckoutPage() {
                       key={item.step}
                       type="button"
                       onClick={() => {
-                        const error = handleStepChange(item.step);
+                        const error = handleCheckoutStepChange(item.step);
                         if (error) toast.error(error);
                       }}
                       className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors ${
-                        currentStep === item.step
+                        checkoutStep === item.step
                           ? "bg-primary text-primary-foreground"
                           : "bg-background text-muted-foreground hover:text-foreground"
                       }`}
@@ -870,7 +870,7 @@ export default function CheckoutPage() {
                 </div>
               </section>
 
-              {currentStep === 1 && (
+              {checkoutStep === 1 && (
                 <>
               <section className="rounded-[28px] border border-border bg-card p-5 shadow-card md:p-6">
                 <div className="mb-5 flex items-center justify-between">
@@ -898,12 +898,12 @@ export default function CheckoutPage() {
                       type="text"
                       value={form.name}
                       onChange={(e) => updateField("name", e.target.value)}
-                      onBlur={() => markTouched("name")}
+                      onBlur={() => markCheckoutTouched("name")}
                       className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                       required
                     />
-                    {touched.name && fieldErrors.name && (
-                      <p className="mt-1 text-xs text-destructive">{fieldErrors.name}</p>
+                    {touched.name && checkoutFieldErrors.name && (
+                      <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.name}</p>
                     )}
                   </div>
 
@@ -916,7 +916,7 @@ export default function CheckoutPage() {
                         type="tel"
                         value={form.phone}
                         onChange={(e) => updateField("phone", e.target.value)}
-                        onBlur={() => markTouched("phone")}
+                        onBlur={() => markCheckoutTouched("phone")}
                         placeholder="0XXXXXXXXX"
                         inputMode="numeric"
                         className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
@@ -925,8 +925,8 @@ export default function CheckoutPage() {
                       <p className="mt-2 text-xs text-muted-foreground">
                         South African cell phone numbers should be 10 digits.
                       </p>
-                      {touched.phone && fieldErrors.phone && (
-                        <p className="mt-1 text-xs text-destructive">{fieldErrors.phone}</p>
+                      {touched.phone && checkoutFieldErrors.phone && (
+                        <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.phone}</p>
                       )}
                     </div>
 
@@ -938,11 +938,11 @@ export default function CheckoutPage() {
                         type="email"
                         value={form.email}
                         onChange={(e) => updateField("email", e.target.value)}
-                        onBlur={() => markTouched("email")}
+                        onBlur={() => markCheckoutTouched("email")}
                         className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                       />
-                      {touched.email && fieldErrors.email && (
-                        <p className="mt-1 text-xs text-destructive">{fieldErrors.email}</p>
+                      {touched.email && checkoutFieldErrors.email && (
+                        <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.email}</p>
                       )}
                     </div>
                   </div>
@@ -973,8 +973,8 @@ export default function CheckoutPage() {
                     selected={selectedDestination.lat != null && selectedDestination.lng != null}
                     selectedMessage="Address suggestion selected"
                   />
-                  {touched.address && fieldErrors.address && (
-                    <p className="mt-1 text-xs text-destructive">{fieldErrors.address}</p>
+                  {touched.address && checkoutFieldErrors.address && (
+                    <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
                   )}
 
                   {user && (
@@ -1108,7 +1108,7 @@ export default function CheckoutPage() {
                 </>
               )}
 
-              {currentStep === 2 && (
+              {checkoutStep === 2 && (
               <section className="rounded-[28px] border border-border bg-card p-5 shadow-card md:p-6">
                 <div className="mb-5">
                   <h2 className="font-display text-2xl text-foreground">Payment Method</h2>
@@ -1243,7 +1243,7 @@ export default function CheckoutPage() {
               </section>
               )}
 
-              {currentStep === 3 && (
+              {checkoutStep === 3 && (
                 <section className="rounded-[28px] border border-border bg-card p-5 shadow-card md:p-6">
                   <h2 className="font-display text-2xl text-foreground">Review & Place</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -1287,21 +1287,21 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {currentStep > 1 && (
+                  {checkoutStep > 1 && (
                     <button
                       type="button"
-                      onClick={() => setCurrentStep((prev) => (Math.max(1, prev - 1) as CheckoutStep))}
+                      onClick={() => setCheckoutStep((prev) => (Math.max(1, prev - 1) as CheckoutStep))}
                       className="rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                     >
                       Back
                     </button>
                   )}
 
-                  {currentStep < 3 ? (
+                  {checkoutStep < 3 ? (
                     <button
                       type="button"
                       onClick={() => {
-                        if (currentStep === 1) {
+                        if (checkoutStep === 1) {
                           setTouched((prev) => ({
                             ...prev,
                             name: true,
@@ -1309,7 +1309,7 @@ export default function CheckoutPage() {
                             address: true,
                             email: form.payment === "card" ? true : prev.email,
                           }));
-                          if (!canContinueFromDelivery) {
+                          if (!canContinueDeliveryStep) {
                             toast.error(
                               !user
                                 ? "Please sign in before placing your order."
@@ -1317,20 +1317,20 @@ export default function CheckoutPage() {
                             );
                             return;
                           }
-                          setCurrentStep(2);
+                          setCheckoutStep(2);
                           return;
                         }
 
-                        if (!canContinueFromPayment) {
+                        if (!canContinuePaymentStep) {
                           toast.error("Apply a valid prepaid voucher to continue with voucher payment.");
                           return;
                         }
 
-                        setCurrentStep(3);
+                        setCheckoutStep(3);
                       }}
                       className="flex-1 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                     >
-                      {currentStep === 1 ? "Continue to Payment" : "Continue to Review & Place"}
+                      {checkoutStep === 1 ? "Continue to Payment" : "Continue to Review & Place"}
                     </button>
                   ) : (
                     <button
