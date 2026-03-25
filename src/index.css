@@ -35,12 +35,22 @@
 
     --warning: 35 70% 62%;
     --warning-foreground: 24 34% 18%;
+    --info: 210 78% 44%;
+    --info-foreground: 0 0% 100%;
 
     --border: 34 18% 84%;
     --input: 34 18% 84%;
     --ring: 32 58% 36%;
 
     --radius: 0.9rem;
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 8px);
+
+    --duration-tap: 120ms;
+    --duration-panel: 220ms;
+    --duration-page: 320ms;
 
     --sidebar-background: 36 30% 94%;
     --sidebar-foreground: 24 30% 16%;
@@ -89,6 +99,8 @@
 
     --warning: 35 54% 30%;
     --warning-foreground: 38 30% 94%;
+    --info: 210 82% 66%;
+    --info-foreground: 24 18% 10%;
 
     --border: 24 14% 24%;
     --input: 24 14% 24%;
@@ -111,6 +123,17 @@
   }
   body {
     @apply bg-background text-foreground font-body antialiased;
+  }
+  :where(button, [role="button"], a, input, select, textarea) {
+    transition-duration: var(--duration-tap);
+  }
+  :where(button, [role="button"], .touch-target, input[type="button"], input[type="submit"]) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  :where(a, button, input, select, textarea):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
