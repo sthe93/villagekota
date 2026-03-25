@@ -27,10 +27,24 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build for mobile compatibility check
+        run: npm run build:mobile
+
+      - name: Build for GitHub Pages
+        run: npm run build:web
+
+      - name: Verify GitHub Pages base path
+        run: |
+          grep -q '/villagekota/assets/' dist/index.html
+          grep -q '/villagekota/favicon.ico' dist/index.html
 
       - name: Add SPA fallback for GitHub Pages
         run: cp dist/index.html dist/404.html
