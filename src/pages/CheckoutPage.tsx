@@ -103,6 +103,7 @@ export default function CheckoutPage() {
   const checkoutFormRef = useRef<HTMLFormElement | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
+  const [currentStep, setCurrentStep] = useState<CheckoutStep>(1);
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
@@ -199,6 +200,10 @@ export default function CheckoutPage() {
     }
   };
 
+  const markTouched = (field: keyof typeof form) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
   const applySavedAddress = (address: SavedAddressRecord) => {
     updateField("address", address.address_text);
     setSelectedDestination({
@@ -254,6 +259,62 @@ export default function CheckoutPage() {
     items.length === 0
       ? 0
       : Math.min((subtotal / freeDeliveryThreshold) * 100, 100);
+
+  const fieldErrors = useMemo(() => {
+    const errors: Partial<Record<keyof typeof form, string>> = {};
+    const trimmedName = form.name.trim();
+    const trimmedAddress = form.address.trim();
+    const trimmedEmail = form.email.trim();
+    const phoneDigits = getPhoneDigits(form.phone);
+
+    if (!trimmedName) {
+      errors.name = "Full name is required.";
+    }
+
+    if (!phoneDigits) {
+      errors.phone = "Cell phone number is required.";
+    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
+      errors.phone = "Enter a valid South African cell phone number (10 digits).";
+    }
+
+    if (!trimmedAddress) {
+      errors.address = "Delivery address is required.";
+    }
+
+    if (form.payment === "card" && !trimmedEmail) {
+      errors.email = "Email is required for card payments.";
+    }
+
+    return errors;
+  }, [form]);
+
+  const canContinueFromDelivery = Boolean(
+    user && !fieldErrors.name && !fieldErrors.phone && !fieldErrors.address
+  );
+
+  const canContinueFromPayment = Boolean(
+    form.payment !== "voucher" || (voucherInfo && voucherInfo.type === "prepaid")
+  );
+
+  const handleStepChange = (targetStep: CheckoutStep) => {
+    if (targetStep <= currentStep) {
+      setCurrentStep(targetStep);
+      return;
+    }
+
+    if (targetStep >= 2 && !canContinueFromDelivery) {
+      setTouched((prev) => ({ ...prev, name: true, phone: true, address: true }));
+      toast.error(!user ? "Please sign in before placing your order." : "Complete delivery details first.");
+      return;
+    }
+
+    if (targetStep === 3 && !canContinueFromPayment) {
+      toast.error("Please complete payment setup before review.");
+      return;
+    }
+
+    setCurrentStep(targetStep);
+  };
 
   const orderButtonLabel = useMemo(() => {
     if (submitting) return "Placing Order...";
