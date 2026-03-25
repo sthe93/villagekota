@@ -11,6 +11,8 @@ import {
   Loader2,
   SlidersHorizontal,
   Clock3,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { Link } from "react-router-dom";
@@ -173,11 +175,13 @@ export default function CartDrawer() {
 
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+  const [showSmartSuggestions, setShowSmartSuggestions] = useState(false);
   const [selectedRecommendedProduct, setSelectedRecommendedProduct] =
     useState<Product | null>(null);
 
   const closeDrawer = () => {
     setOpen(false);
+    setShowSmartSuggestions(false);
     setSelectedRecommendedProduct(null);
   };
 
@@ -525,120 +529,153 @@ export default function CartDrawer() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {recommendations.map((product) => {
-                      const hasImage = Boolean(product.image?.trim());
-                      const hasReviews = product.reviewCount > 0 && product.rating > 0;
+                    {recommendations
+                      .slice(0, showSmartSuggestions ? recommendations.length : 1)
+                      .map((product) => {
+                        const hasImage = Boolean(product.image?.trim());
+                        const hasReviews = product.reviewCount > 0 && product.rating > 0;
 
-                      return (
-                        <div
-                          key={product.id}
-                          className="rounded-2xl border border-border bg-card p-3"
-                        >
-                          <div className="flex gap-3">
-                            {hasImage ? (
-                              <img
-                                src={product.image}
-                                alt={product.name}
-                                className="h-16 w-16 rounded-xl object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                                <ImageOff className="h-4 w-4" />
-                              </div>
-                            )}
+                        return (
+                          <div
+                            key={product.id}
+                            className="rounded-2xl border border-border bg-card p-3"
+                          >
+                            <div className="flex gap-3">
+                              {hasImage ? (
+                                <img
+                                  src={product.image}
+                                  alt={product.name}
+                                  className="h-16 w-16 rounded-xl object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                                  <ImageOff className="h-4 w-4" />
+                                </div>
+                              )}
 
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-[11px] font-medium text-muted-foreground">
-                                Because you added{" "}
-                                <span className="text-foreground">
-                                  {getCategoryHeadlineLabel(
-                                    anchorCartItem?.product.category || cartCategories[0] || "Kota"
-                                  )}
-                                </span>
-                                , pair with{" "}
-                                <span className="text-foreground">
-                                  {getRoleLabel(getCategoryRole(product.category))}
-                                </span>
-                              </p>
-                              <p className="truncate font-semibold text-foreground">
-                                {product.name}
-                              </p>
-                                  <p className="mt-1 text-sm font-semibold text-primary">
-                                    {priceFormatter.format(product.price)}
-                                  </p>
-                                  {anchorCartItem && (
-                                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                                      <span>
-                                        {product.price - anchorCartItem.finalUnitPrice >= 0 ? "+" : "-"}
-                                        {priceFormatter.format(
-                                          Math.abs(product.price - anchorCartItem.finalUnitPrice)
-                                        )}{" "}
-                                        vs item
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className="text-[11px] font-medium text-muted-foreground">
+                                      Because you added{" "}
+                                      <span className="text-foreground">
+                                        {getCategoryHeadlineLabel(
+                                          anchorCartItem?.product.category ||
+                                            cartCategories[0] ||
+                                            "Kota"
+                                        )}
                                       </span>
-                                      <span>•</span>
-                                      <span className="inline-flex items-center gap-1">
-                                        <Clock3 className="h-3 w-3" />
-                                        {estimatePrepTimeMinutes(product) -
-                                          estimatePrepTimeMinutes(anchorCartItem.product) >=
-                                        0
-                                          ? "+"
-                                          : ""}
-                                        {estimatePrepTimeMinutes(product) -
-                                          estimatePrepTimeMinutes(anchorCartItem.product)}
-                                        m prep
+                                      , pair with{" "}
+                                      <span className="text-foreground">
+                                        {getRoleLabel(getCategoryRole(product.category))}
                                       </span>
-                                    </div>
-                                  )}
+                                    </p>
+                                    <p className="truncate font-semibold text-foreground">
+                                      {product.name}
+                                    </p>
+                                    {!showSmartSuggestions && (
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        Quick add before checkout.
+                                      </p>
+                                    )}
+                                    <p className="mt-1 text-sm font-semibold text-primary">
+                                      {priceFormatter.format(product.price)}
+                                    </p>
+                                    {showSmartSuggestions && anchorCartItem && (
+                                      <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                                        <span>
+                                          {product.price - anchorCartItem.finalUnitPrice >= 0
+                                            ? "+"
+                                            : "-"}
+                                          {priceFormatter.format(
+                                            Math.abs(
+                                              product.price - anchorCartItem.finalUnitPrice
+                                            )
+                                          )}{" "}
+                                          vs item
+                                        </span>
+                                        <span>•</span>
+                                        <span className="inline-flex items-center gap-1">
+                                          <Clock3 className="h-3 w-3" />
+                                          {estimatePrepTimeMinutes(product) -
+                                            estimatePrepTimeMinutes(
+                                              anchorCartItem.product
+                                            ) >= 0
+                                            ? "+"
+                                            : ""}
+                                          {estimatePrepTimeMinutes(product) -
+                                            estimatePrepTimeMinutes(
+                                              anchorCartItem.product
+                                            )}
+                                          m prep
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <button
+                                    onClick={() => handleQuickAddSuggestion(product)}
+                                    className="inline-flex shrink-0 items-center justify-center rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                                  >
+                                    {product.hasOptions ? "Customise" : "Add"}
+                                  </button>
                                 </div>
 
-                                <button
-                                  onClick={() => handleQuickAddSuggestion(product)}
-                                  className="inline-flex shrink-0 items-center justify-center rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-                                >
-                                  {product.hasOptions ? "Customise" : "Add"}
-                                </button>
-                              </div>
-
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                                  {product.category}
-                                </span>
-
-                                {product.hasOptions && (
-                                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground">
-                                    <SlidersHorizontal className="h-3 w-3" />
-                                    Customisable
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                                    {product.category}
                                   </span>
-                                )}
 
-                                {hasReviews ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
-                                    <Star className="h-3 w-3 fill-accent text-accent" />
-                                    {product.rating.toFixed(1)}
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                                    New
-                                  </span>
-                                )}
+                                  {showSmartSuggestions && product.hasOptions && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground">
+                                      <SlidersHorizontal className="h-3 w-3" />
+                                      Customisable
+                                    </span>
+                                  )}
 
-                                {product.isPopular && (
-                                  <span className="inline-flex items-center rounded-full bg-accent px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-foreground">
-                                    Popular
-                                  </span>
-                                )}
+                                  {showSmartSuggestions &&
+                                    (hasReviews ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
+                                        <Star className="h-3 w-3 fill-accent text-accent" />
+                                        {product.rating.toFixed(1)}
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                                        New
+                                      </span>
+                                    ))}
+
+                                  {showSmartSuggestions && product.isPopular && (
+                                    <span className="inline-flex items-center rounded-full bg-accent px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-foreground">
+                                      Popular
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                   </div>
                 )}
 
-                {drinkAndSideBundle && (
+                {!loadingRecommendations && recommendations.length > 1 && (
+                  <button
+                    onClick={() => setShowSmartSuggestions((current) => !current)}
+                    className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary transition-opacity hover:opacity-90"
+                  >
+                    {showSmartSuggestions
+                      ? "Hide smart suggestions"
+                      : "Show smart suggestions"}
+                    {showSmartSuggestions ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </button>
+                )}
+
+                {showSmartSuggestions && drinkAndSideBundle && (
                   <button
                     onClick={handleMiniBundleAdd}
                     className="mt-3 w-full rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"
