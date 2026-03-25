@@ -17,14 +17,17 @@ import { toast } from "@/components/ui/sonner";
 import { useProducts } from "@/hooks/use-products";
 
 const sortOptions = [
-  { value: "default", label: "Recommended" },
-  { value: "popular", label: "Most Popular" },
+  { value: "default", label: "Best Rated" },
+  { value: "popular", label: "Most Ordered" },
   { value: "price-asc", label: "Price: Low to High" },
-  { value: "price-desc", label: "Price: High to Low" },
 ] as const;
 
 type SortOption = (typeof sortOptions)[number]["value"];
 type FilterSpiceLevel = NonNullable<SpiceLevel>;
+type QuickFilter = "all" | "popular" | "under50" | "spicy" | "veg" | "combos";
+
+const RECENT_SEARCHES_KEY = "villagekota.recentMenuSearches";
+const MAX_RECENT_SEARCHES = 5;
 
 const preferredCategoryOrder = ["Kota", "Bunny Chow", "Sides", "Drinks", "Combos"];
 
@@ -41,12 +44,45 @@ function sortCategories(categories: string[]) {
   });
 }
 
+function levenshteinDistance(a: string, b: string) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const matrix = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return matrix[a.length][b.length];
+}
+
+function isVegetarianLike(text: string) {
+  const normalized = text.toLowerCase();
+  return ["veg", "veggie", "vegetarian", "plant", "bean", "salad"].some((term) =>
+    normalized.includes(term)
+  );
+}
+
 export default function MenuPage() {
   const { data: products = [], isLoading: loading, error, refetch, isFetching } = useProducts();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<Category | "All">("All");
   const [activeSpice, setActiveSpice] = useState<FilterSpiceLevel | "All">("All");
   const [sortBy, setSortBy] = useState<SortOption>("default");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const hasShownErrorRef = useRef(false);
 
@@ -56,6 +92,19 @@ export default function MenuPage() {
     hasShownErrorRef.current = true;
     toast.error(error instanceof Error ? error.message : "Failed to load products");
   }, [error]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(RECENT_SEARCHES_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as string[];
+      if (Array.isArray(parsed)) {
+        setRecentSearches(parsed.slice(0, MAX_RECENT_SEARCHES));
+      }
+    } catch {
+      setRecentSearches([]);
+    }
+  }, []);
 
   const featuredCount = useMemo(
     () => products.filter((p) => p.isFeatured).length,
@@ -120,13 +169,17 @@ export default function MenuPage() {
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
+    const searchWords = term.split(/\s+/).filter(Boolean);
 
     const result = products.filter((product) => {
+      const haystack = `${product.name} ${product.description} ${product.category}`.toLowerCase();
+      const haystackWords = haystack.split(/[^a-z0-9]+/).filter(Boolean);
       const matchesSearch =
         !term ||
-        product.name.toLowerCase().includes(term) ||
-        product.description.toLowerCase().includes(term) ||
-        product.category.toLowerCase().includes(term);
+        haystack.includes(term) ||
+        searchWords.every((word) =>
+          haystackWords.some((candidate) => levenshteinDistance(word, candidate) <= 1)
+        );
 
       const matchesCategory =
         activeCategory === "All" || product.category === activeCategory;
@@ -134,7 +187,17 @@ export default function MenuPage() {
       const matchesSpice =
         activeSpice === "All" || product.spiceLevel === activeSpice;
 
-      return matchesSearch && matchesCategory && matchesSpice;
+      const matchesQuickFilter =
+        quickFilter === "all" ||
+        (quickFilter === "popular" && product.isPopular) ||
+        (quickFilter === "under50" && product.price <= 50) ||
+        (quickFilter === "spicy" &&
+          (product.spiceLevel === "Hot" || product.spiceLevel === "Extra Hot")) ||
+        (quickFilter === "veg" &&
+          isVegetarianLike(`${product.name} ${product.description} ${product.category}`)) ||
+        (quickFilter === "combos" && product.category.toLowerCase().includes("combo"));
+
+      return matchesSearch && matchesCategory && matchesSpice && matchesQuickFilter;
     });
 
     const sorted = [...result];
@@ -145,12 +208,14 @@ export default function MenuPage() {
       switch (sortBy) {
         case "price-asc":
           return a.price - b.price;
-        case "price-desc":
-          return b.price - a.price;
         case "popular":
-          if (a.isPopular !== b.isPopular) return a.isPopular ? -1 : 1;
+          if (a.reviewCount !== b.reviewCount) return b.reviewCount - a.reviewCount;
           if (a.rating !== b.rating) return b.rating - a.rating;
-          return b.reviewCount - a.reviewCount;
+          return a.price - b.price;
+        case "default":
+          if (a.rating !== b.rating) return b.rating - a.rating;
+          if (a.reviewCount !== b.reviewCount) return b.reviewCount - a.reviewCount;
+          return a.price - b.price;
         default:
           if (a.isFeatured && !b.isFeatured) return -1;
           if (!a.isFeatured && b.isFeatured) return 1;
@@ -162,22 +227,36 @@ export default function MenuPage() {
     });
 
     return sorted;
-  }, [products, search, activeCategory, activeSpice, sortBy]);
+  }, [products, search, activeCategory, activeSpice, sortBy, quickFilter]);
 
   const activeSortLabel =
     sortOptions.find((option) => option.value === sortBy)?.label || "Recommended";
 
   const activeFilterCount =
     (search.trim() ? 1 : 0) +
+    (quickFilter !== "all" ? 1 : 0) +
     (activeCategory !== "All" ? 1 : 0) +
     (activeSpice !== "All" ? 1 : 0) +
     (sortBy !== "default" ? 1 : 0);
 
   const clearFilters = () => {
     setSearch("");
+    setQuickFilter("all");
     setActiveCategory("All");
     setActiveSpice("All");
     setSortBy("default");
+  };
+
+  const saveSearchTerm = (term: string) => {
+    const normalized = term.trim();
+    if (!normalized) return;
+
+    const next = [normalized, ...recentSearches.filter((entry) => entry !== normalized)].slice(
+      0,
+      MAX_RECENT_SEARCHES
+    );
+    setRecentSearches(next);
+    window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
   };
 
   const hasActiveFilters = activeFilterCount > 0;
@@ -246,6 +325,11 @@ export default function MenuPage() {
                 placeholder="Search by item name, category, or description"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onBlur={() => {
+                  setSearchFocused(false);
+                  saveSearchTerm(search);
+                }}
+                onFocus={() => setSearchFocused(true)}
                 className="w-full rounded-2xl border border-border bg-background py-3 pl-10 pr-11 text-sm text-foreground transition-colors placeholder:text-muted-foreground focus:border-primary focus:outline-none"
               />
               {search.trim() && (
@@ -258,6 +342,28 @@ export default function MenuPage() {
                 </button>
               )}
             </div>
+
+            {searchFocused && recentSearches.length > 0 && !search.trim() && (
+              <div className="xl:w-[280px]">
+                <div className="rounded-2xl border border-border bg-background p-2">
+                  <p className="px-2 pb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                    Recent
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {recentSearches.map((item) => (
+                      <button
+                        key={item}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => setSearch(item)}
+                        className="rounded-full border border-border px-3 py-1 text-xs text-foreground hover:bg-muted"
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="relative xl:w-[240px]">
               <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -379,7 +485,28 @@ export default function MenuPage() {
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="sticky top-20 z-30 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 p-2 backdrop-blur">
+            {([
+              ["all", "All"],
+              ["popular", "Popular"],
+              ["under50", "Under R50"],
+              ["spicy", "Spicy"],
+              ["veg", "Veg"],
+              ["combos", "Combos"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setQuickFilter(value)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                  quickFilter === value
+                    ? "bg-primary text-primary-foreground"
+                    : "border border-border bg-background text-foreground hover:bg-muted"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+
             <span className="text-sm text-muted-foreground">
               {loading
                 ? "Loading menu..."
@@ -430,6 +557,16 @@ export default function MenuPage() {
                 className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
               >
                 Sort: {activeSortLabel}
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+
+            {quickFilter !== "all" && (
+              <button
+                onClick={() => setQuickFilter("all")}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                Quick: {quickFilter}
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
