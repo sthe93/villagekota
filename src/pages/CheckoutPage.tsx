@@ -357,15 +357,13 @@ export default function CheckoutPage() {
 
   const orderButtonLabel = useMemo(() => {
     if (submitting) return "Placing Order...";
-    if (form.payment === "card") return `Continue to PayFast — ${priceFormatter.format(adjustedTotal)}`;
-    if (form.payment === "eft") return `Place EFT Order — ${priceFormatter.format(adjustedTotal)}`;
+    if (form.payment === "card") return "Continue to PayFast";
+    if (form.payment === "eft") return "Place EFT order";
     if (form.payment === "voucher") {
-      return voucherCoversFullOrder
-        ? `Place ${voucherProviderLabel} Order — Paid`
-        : `Voucher balance remaining — ${priceFormatter.format(adjustedTotal)}`;
+      return voucherCoversFullOrder ? `Place ${voucherProviderLabel} order` : "Choose backup payment method";
     }
-    return `Place Order — ${priceFormatter.format(adjustedTotal)}`;
-  }, [submitting, form.payment, adjustedTotal, voucherCoversFullOrder, voucherProviderLabel]);
+    return "Place order";
+  }, [submitting, form.payment, voucherCoversFullOrder, voucherProviderLabel]);
 
   const handleSaveCurrentAddress = async () => {
     if (!user) {
