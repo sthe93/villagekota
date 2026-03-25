@@ -23,8 +23,6 @@ import Footer from "@/components/Footer";
 import AddressAutocompleteField from "@/components/AddressAutocompleteField";
 import {
   geocodeSouthAfricaAddress,
-  searchSouthAfricaAddresses,
-  type AddressSuggestion,
 } from "@/lib/maps";
 import {
   findDuplicateSavedAddress,
@@ -119,9 +117,6 @@ export default function CheckoutPage() {
   });
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
-  const [addressLoading, setAddressLoading] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddressRecord[]>([]);
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
   const [savingCurrentAddress, setSavingCurrentAddress] = useState(false);
@@ -211,7 +206,6 @@ export default function CheckoutPage() {
       lat: address.destination_lat,
       lng: address.destination_lng,
     });
-    setShowSuggestions(false);
     toast.success(`${address.label} added to checkout.`);
   };
 
@@ -297,6 +291,26 @@ export default function CheckoutPage() {
   const canContinueFromPayment = Boolean(
     form.payment !== "voucher" || (voucherInfo && voucherInfo.type === "prepaid")
   );
+
+  const handleStepChange = (targetStep: CheckoutStep) => {
+    if (targetStep <= currentStep) {
+      setCurrentStep(targetStep);
+      return;
+    }
+
+    if (targetStep >= 2 && !canContinueFromDelivery) {
+      setTouched((prev) => ({ ...prev, name: true, phone: true, address: true }));
+      toast.error(!user ? "Please sign in before placing your order." : "Complete delivery details first.");
+      return;
+    }
+
+    if (targetStep === 3 && !canContinueFromPayment) {
+      toast.error("Please complete payment setup before review.");
+      return;
+    }
+
+    setCurrentStep(targetStep);
+  };
 
   const orderButtonLabel = useMemo(() => {
     if (submitting) return "Placing Order...";
@@ -825,7 +839,7 @@ export default function CheckoutPage() {
           </div>
         ) : (
           <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 xl:grid-cols-[1.15fr_0.85fr]">
-            <form ref={checkoutFormRef} onSubmit={handleSubmit} className="space-y-5 pb-44">
+            <form ref={checkoutFormRef} onSubmit={handleSubmit} className="space-y-5 pb-[240px] md:pb-44">
               <section className="rounded-[24px] border border-border bg-card p-4 shadow-card">
                 <div className="grid grid-cols-3 gap-2">
                   {[
@@ -836,7 +850,7 @@ export default function CheckoutPage() {
                     <button
                       key={item.step}
                       type="button"
-                      onClick={() => setCurrentStep(item.step)}
+                      onClick={() => handleStepChange(item.step)}
                       className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors ${
                         currentStep === item.step
                           ? "bg-primary text-primary-foreground"
@@ -1235,7 +1249,10 @@ export default function CheckoutPage() {
               )}
             </form>
 
-            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 p-3 backdrop-blur md:p-4 xl:left-0">
+            <div
+              className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 p-3 backdrop-blur md:p-4 xl:left-0"
+              style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+            >
               <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
                 <div className="rounded-2xl border border-border bg-background px-4 py-3">
                   <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
@@ -1422,78 +1439,8 @@ export default function CheckoutPage() {
                     })}
                   </div>
 
-                  <div className="mt-5 border-t border-border pt-4">
-                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                      Voucher / Gift Card
-                    </label>
-
-                    {voucherInfo ? (
-                      <div className="flex items-center justify-between rounded-xl border border-success/30 bg-success/10 px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <Tag className="h-4 w-4 text-success" />
-                          <span className="text-sm font-semibold text-success">
-                            {voucherInfo.code} (-{priceFormatter.format(voucherInfo.discountAmount)})
-                          </span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={removeVoucher}
-                          className="text-xs font-medium text-destructive hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={voucherCode}
-                          onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-                          placeholder="Enter code"
-                          className="flex-1 rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleApplyVoucher}
-                          disabled={applyingVoucher || !voucherCode.trim()}
-                          className="rounded-xl bg-secondary px-4 py-2.5 text-sm font-semibold text-secondary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                        >
-                          {applyingVoucher ? "..." : "Apply"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-5 space-y-2 border-t border-border pt-4">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Payment</span>
-                      <span className="text-foreground">{selectedPaymentLabel}</span>
-                    </div>
-
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span className="text-foreground">{priceFormatter.format(subtotal)}</span>
-                    </div>
-
-                    {discountAmount > 0 && (
-                      <div className="flex justify-between text-sm text-success">
-                        <span>{voucherInfo?.provider ? `${voucherProviderLabel} applied` : "Discount"}</span>
-                        <span>-{priceFormatter.format(discountAmount)}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Delivery</span>
-                      <span className="text-foreground">
-                        {deliveryFee === 0 ? "Free" : priceFormatter.format(deliveryFee)}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between border-t border-border pt-3 font-display text-xl">
-                      <span className="text-foreground">TOTAL</span>
-                      <span className="text-primary">{priceFormatter.format(adjustedTotal)}</span>
-                    </div>
+                  <div className="mt-5 rounded-xl border border-border bg-background p-4 text-sm text-muted-foreground">
+                    Totals and voucher adjustments are pinned in the checkout action bar below.
                   </div>
                 </div>
 

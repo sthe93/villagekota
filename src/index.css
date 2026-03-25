@@ -127,7 +127,7 @@
   :where(button, [role="button"], a, input, select, textarea) {
     transition-duration: var(--duration-tap);
   }
-  :where(button, [role="button"], a[href], input[type="button"], input[type="submit"]) {
+  :where(button, [role="button"], .touch-target, input[type="button"], input[type="submit"]) {
     min-height: 44px;
     min-width: 44px;
   }
