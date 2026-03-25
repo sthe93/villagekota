@@ -546,33 +546,52 @@ export default function DriverPage() {
     }
 
     setActionOrderId(orderId);
+    try {
+      const { data, error } = await supabase.functions.invoke("complete-driver-delivery", {
+        body: {
+          orderId,
+          confirmationCode,
+        },
+      });
 
-    const { data, error } = await supabase.functions.invoke("complete-driver-delivery", {
-      body: {
-        orderId,
-        confirmationCode,
-      },
-    });
+      if (error) {
+        const { data: rpcCompleted, error: rpcError } = await supabase.rpc(
+          "complete_delivery_order_with_code",
+          {
+            p_order_id: orderId,
+            p_driver_id: driver.id,
+            p_confirmation_code: confirmationCode,
+          }
+        );
 
-    if (error) {
-      const { data: rpcCompleted, error: rpcError } = await supabase.rpc(
-        "complete_delivery_order_with_code",
-        {
-          p_order_id: orderId,
-          p_driver_id: driver.id,
-          p_confirmation_code: confirmationCode,
+        if (rpcError) {
+          toast.error(rpcError.message || error.message || "Failed to complete delivery");
+          return;
         }
-      );
 
-      if (rpcError) {
-        toast.error(rpcError.message || error.message || "Failed to complete delivery");
-        setActionOrderId(null);
+        if (!rpcCompleted) {
+          toast.error("This delivery cannot be completed yet.");
+          await loadDriverAndOrders();
+          return;
+        }
+
+        if (trackingOrderId === orderId) {
+          stopLiveTracking();
+        }
+
+        toast.success("Delivery completed");
+        setDeliveryCodes((prev) => {
+          const next = { ...prev };
+          delete next[orderId];
+          return next;
+        });
+        setConfirmingOrderId(null);
+        await loadDriverAndOrders();
         return;
       }
 
-      if (!rpcCompleted) {
-        toast.error("This delivery cannot be completed yet.");
-        setActionOrderId(null);
+      if (!data?.success) {
+        toast.error(data?.error || "This delivery cannot be completed yet.");
         await loadDriverAndOrders();
         return;
       }
@@ -588,31 +607,12 @@ export default function DriverPage() {
         return next;
       });
       setConfirmingOrderId(null);
-      setActionOrderId(null);
       await loadDriverAndOrders();
-      return;
-    }
-
-    if (!data?.success) {
-      toast.error(data?.error || "This delivery cannot be completed yet.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to complete delivery");
+    } finally {
       setActionOrderId(null);
-      await loadDriverAndOrders();
-      return;
     }
-
-    if (trackingOrderId === orderId) {
-      stopLiveTracking();
-    }
-
-    toast.success("Delivery completed");
-    setDeliveryCodes((prev) => {
-      const next = { ...prev };
-      delete next[orderId];
-      return next;
-    });
-    setConfirmingOrderId(null);
-    setActionOrderId(null);
-    await loadDriverAndOrders();
   };
 
   useEffect(() => {
