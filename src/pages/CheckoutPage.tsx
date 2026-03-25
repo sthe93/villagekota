@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   BookmarkPlus,
   Home,
-  Trash2,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import AddressAutocompleteField from "@/components/AddressAutocompleteField";
@@ -31,7 +30,6 @@ import {
 } from "@/hooks/useCheckoutFlow";
 import {
   findDuplicateSavedAddress,
-  getNextDefaultSavedAddress,
   normalizeSavedAddressLabel,
   normalizeSavedAddressText,
   sortSavedAddresses,
@@ -101,6 +99,12 @@ export default function CheckoutPage() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const checkoutFormRef = useRef<HTMLFormElement | null>(null);
+  const signInButtonRef = useRef<HTMLButtonElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const phoneInputRef = useRef<HTMLInputElement | null>(null);
+  const emailInputRef = useRef<HTMLInputElement | null>(null);
+  const addressInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const voucherInputRef = useRef<HTMLInputElement | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState<CheckoutStep>(1);
@@ -111,8 +115,6 @@ export default function CheckoutPage() {
   const [savedAddresses, setSavedAddresses] = useState<SavedAddressRecord[]>([]);
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
   const [savingCurrentAddress, setSavingCurrentAddress] = useState(false);
-  const [deletingSavedAddressId, setDeletingSavedAddressId] = useState<string | null>(null);
-  const [defaultingSavedAddressId, setDefaultingSavedAddressId] = useState<string | null>(null);
   const [newSavedAddressLabel, setNewSavedAddressLabel] = useState("");
   const [selectedDestination, setSelectedDestination] = useState<{
     lat: number | null;
@@ -121,6 +123,7 @@ export default function CheckoutPage() {
     lat: null,
     lng: null,
   });
+  const voucherPaymentAllowed = Boolean(voucherInfo && voucherInfo.type === "prepaid");
   const {
     currentStep: checkoutStep,
     setCurrentStep: setCheckoutStep,
@@ -144,7 +147,7 @@ export default function CheckoutPage() {
       payment: "cash",
     },
     isSignedIn: Boolean(user),
-    voucherPaymentReady: Boolean(voucherInfo && voucherInfo.type === "prepaid"),
+    voucherPaymentReady: voucherPaymentAllowed,
   });
 
   const refreshSavedAddresses = useCallback(async () => {
@@ -202,6 +205,42 @@ export default function CheckoutPage() {
 
   const markTouched = (field: keyof typeof form) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const focusAndRevealField = (element: HTMLElement | null) => {
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      element.focus({ preventScroll: true });
+    }, 120);
+  };
+
+  const focusFirstInvalidForDelivery = () => {
+    if (!user) {
+      focusAndRevealField(signInButtonRef.current);
+      return;
+    }
+
+    if (checkoutFieldErrors.name) {
+      focusAndRevealField(nameInputRef.current);
+      return;
+    }
+
+    if (checkoutFieldErrors.phone) {
+      focusAndRevealField(phoneInputRef.current);
+      return;
+    }
+
+    if (checkoutFieldErrors.address) {
+      focusAndRevealField(addressInputRef.current);
+      return;
+    }
+  };
+
+  const focusFirstInvalidForPayment = () => {
+    if (form.payment === "voucher" && !canContinuePaymentStep) {
+      focusAndRevealField(voucherInputRef.current);
+    }
   };
 
   const applySavedAddress = (address: SavedAddressRecord) => {
@@ -318,15 +357,13 @@ export default function CheckoutPage() {
 
   const orderButtonLabel = useMemo(() => {
     if (submitting) return "Placing Order...";
-    if (form.payment === "card") return `Continue to PayFast — ${priceFormatter.format(adjustedTotal)}`;
-    if (form.payment === "eft") return `Place EFT Order — ${priceFormatter.format(adjustedTotal)}`;
+    if (form.payment === "card") return "Continue to PayFast";
+    if (form.payment === "eft") return "Place EFT order";
     if (form.payment === "voucher") {
-      return voucherCoversFullOrder
-        ? `Place ${voucherProviderLabel} Order — Paid`
-        : `Voucher balance remaining — ${priceFormatter.format(adjustedTotal)}`;
+      return voucherCoversFullOrder ? `Place ${voucherProviderLabel} order` : "Choose backup payment method";
     }
-    return `Place Order — ${priceFormatter.format(adjustedTotal)}`;
-  }, [submitting, form.payment, adjustedTotal, voucherCoversFullOrder, voucherProviderLabel]);
+    return "Place order";
+  }, [submitting, form.payment, voucherCoversFullOrder, voucherProviderLabel]);
 
   const handleSaveCurrentAddress = async () => {
     if (!user) {
@@ -390,80 +427,6 @@ export default function CheckoutPage() {
       toast.error(error instanceof Error ? error.message : "Failed to save this address");
     } finally {
       setSavingCurrentAddress(false);
-    }
-  };
-
-  const handleDeleteSavedAddress = async (address: SavedAddressRecord) => {
-    if (!user) return;
-
-    setDeletingSavedAddressId(address.id);
-
-    try {
-      const { error } = await supabase
-        .from("saved_addresses")
-        .delete()
-        .eq("id", address.id)
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-
-      if (address.is_default) {
-        const nextDefaultAddress = getNextDefaultSavedAddress(savedAddresses, address.id);
-
-        if (nextDefaultAddress) {
-          const { error: nextDefaultError } = await supabase
-            .from("saved_addresses")
-            .update({ is_default: true })
-            .eq("id", nextDefaultAddress.id)
-            .eq("user_id", user.id);
-
-          if (nextDefaultError) throw nextDefaultError;
-        }
-
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({ default_address: nextDefaultAddress?.address_text || "" })
-          .eq("user_id", user.id);
-
-        if (profileError) throw profileError;
-      }
-
-      await refreshSavedAddresses();
-      toast.success("Saved address removed.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to remove address");
-    } finally {
-      setDeletingSavedAddressId(null);
-    }
-  };
-
-  const handleSetDefaultSavedAddress = async (address: SavedAddressRecord) => {
-    if (!user) return;
-
-    setDefaultingSavedAddressId(address.id);
-
-    try {
-      const { error } = await supabase
-        .from("saved_addresses")
-        .update({ is_default: true })
-        .eq("id", address.id)
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .update({ default_address: address.address_text })
-        .eq("user_id", user.id);
-
-      if (profileError) throw profileError;
-
-      await refreshSavedAddresses();
-      toast.success(`${address.label} is now your default checkout address.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update default address");
-    } finally {
-      setDefaultingSavedAddressId(null);
     }
   };
 
@@ -816,6 +779,7 @@ export default function CheckoutPage() {
               </div>
 
               <button
+                ref={signInButtonRef}
                 onClick={() => navigate("/auth")}
                 className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
               >
@@ -856,7 +820,15 @@ export default function CheckoutPage() {
                       type="button"
                       onClick={() => {
                         const error = handleCheckoutStepChange(item.step);
-                        if (error) toast.error(error);
+                        if (!error) return;
+
+                        if (item.step === 3 && !canContinuePaymentStep) {
+                          focusFirstInvalidForPayment();
+                        } else if (item.step >= 2) {
+                          focusFirstInvalidForDelivery();
+                        }
+
+                        toast.error(error);
                       }}
                       className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors ${
                         checkoutStep === item.step
@@ -895,11 +867,17 @@ export default function CheckoutPage() {
                       Full Name *
                     </label>
                     <input
+                      ref={nameInputRef}
+                      id="checkout-name"
                       type="text"
                       value={form.name}
                       onChange={(e) => updateField("name", e.target.value)}
                       onBlur={() => markCheckoutTouched("name")}
-                      className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                      className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
+                        touched.name && checkoutFieldErrors.name
+                          ? "border-destructive focus:border-destructive"
+                          : "border-border"
+                      }`}
                       required
                     />
                     {touched.name && checkoutFieldErrors.name && (
@@ -913,13 +891,19 @@ export default function CheckoutPage() {
                         Phone *
                       </label>
                       <input
+                        ref={phoneInputRef}
+                        id="checkout-phone"
                         type="tel"
                         value={form.phone}
                         onChange={(e) => updateField("phone", e.target.value)}
                         onBlur={() => markCheckoutTouched("phone")}
                         placeholder="0XXXXXXXXX"
                         inputMode="numeric"
-                        className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                        className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
+                          touched.phone && checkoutFieldErrors.phone
+                            ? "border-destructive focus:border-destructive"
+                            : "border-border"
+                        }`}
                         required
                       />
                       <p className="mt-2 text-xs text-muted-foreground">
@@ -935,11 +919,17 @@ export default function CheckoutPage() {
                         Email
                       </label>
                       <input
+                        ref={emailInputRef}
+                        id="checkout-email"
                         type="email"
                         value={form.email}
                         onChange={(e) => updateField("email", e.target.value)}
                         onBlur={() => markCheckoutTouched("email")}
-                        className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                        className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
+                          touched.email && checkoutFieldErrors.email
+                            ? "border-destructive focus:border-destructive"
+                            : "border-border"
+                        }`}
                       />
                       {touched.email && checkoutFieldErrors.email && (
                         <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.email}</p>
@@ -960,6 +950,8 @@ export default function CheckoutPage() {
                 <div className="space-y-4">
                   <AddressAutocompleteField
                     label="Delivery Address"
+                    textareaId="checkout-address"
+                    textareaRef={addressInputRef}
                     value={form.address}
                     onValueChange={(value) => updateField("address", value)}
                     onSuggestionSelect={(suggestion) => {
@@ -972,6 +964,7 @@ export default function CheckoutPage() {
                     required
                     selected={selectedDestination.lat != null && selectedDestination.lng != null}
                     selectedMessage="Address suggestion selected"
+                    hasError={touched.address && Boolean(checkoutFieldErrors.address)}
                   />
                   {touched.address && checkoutFieldErrors.address && (
                     <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
@@ -984,7 +977,11 @@ export default function CheckoutPage() {
                           <div>
                             <p className="text-sm font-medium text-foreground">Saved addresses</p>
                             <p className="text-xs text-muted-foreground">
-                              Tap one to autofill checkout or save the address you entered above.
+                              Tap one to autofill checkout. For default/delete changes, manage in{" "}
+                              <Link to="/account" className="font-medium text-primary hover:underline">
+                                Account
+                              </Link>
+                              .
                             </p>
                           </div>
 
@@ -1044,42 +1041,14 @@ export default function CheckoutPage() {
                                   <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
                                 </button>
 
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => applySavedAddress(address)}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
-                                  >
-                                    <Home className="h-4 w-4" />
-                                    Use
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleSetDefaultSavedAddress(address)}
-                                    disabled={address.is_default || defaultingSavedAddressId === address.id}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                                  >
-                                    <Home className="h-4 w-4" />
-                                    {address.is_default
-                                      ? "Default"
-                                      : defaultingSavedAddressId === address.id
-                                        ? "Updating..."
-                                        : "Set Default"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleDeleteSavedAddress(address)}
-                                    disabled={deletingSavedAddressId === address.id}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                                  >
-                                    {deletingSavedAddressId === address.id ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-4 w-4" />
-                                    )}
-                                    Remove
-                                  </button>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => applySavedAddress(address)}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                                >
+                                  <Home className="h-4 w-4" />
+                                  Use
+                                </button>
                               </div>
                             ))}
                           </div>
@@ -1223,6 +1192,8 @@ export default function CheckoutPage() {
                   ) : (
                     <div className="flex gap-2">
                       <input
+                        ref={voucherInputRef}
+                        id="checkout-voucher-code"
                         type="text"
                         value={voucherCode}
                         onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
@@ -1239,6 +1210,41 @@ export default function CheckoutPage() {
                       </button>
                     </div>
                   )}
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-border bg-background p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                    Voucher outcome summary
+                  </p>
+
+                  <div className="mt-3 space-y-2 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Applied amount</span>
+                      <span className="font-semibold text-success">
+                        {discountAmount > 0 ? `-${priceFormatter.format(discountAmount)}` : "R0"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Remaining balance</span>
+                      <span className="font-semibold text-foreground">
+                        {priceFormatter.format(adjustedTotal)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Voucher payment allowed</span>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          voucherPaymentAllowed
+                            ? "bg-success/10 text-success"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {voucherPaymentAllowed ? "Yes" : "No"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </section>
               )}
@@ -1310,6 +1316,7 @@ export default function CheckoutPage() {
                             email: form.payment === "card" ? true : prev.email,
                           }));
                           if (!canContinueDeliveryStep) {
+                            focusFirstInvalidForDelivery();
                             toast.error(
                               !user
                                 ? "Please sign in before placing your order."
@@ -1322,6 +1329,7 @@ export default function CheckoutPage() {
                         }
 
                         if (!canContinuePaymentStep) {
+                          focusFirstInvalidForPayment();
                           toast.error("Apply a valid prepaid voucher to continue with voucher payment.");
                           return;
                         }

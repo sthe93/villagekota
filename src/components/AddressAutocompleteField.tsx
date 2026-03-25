@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { CheckCircle2, Loader2, MapPin } from "lucide-react";
 import { searchSouthAfricaAddresses, type AddressSuggestion } from "@/lib/maps";
 
@@ -16,6 +16,9 @@ type AddressAutocompleteFieldProps = {
   labelClassName?: string;
   textareaClassName?: string;
   suggestionsClassName?: string;
+  textareaId?: string;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  hasError?: boolean;
 };
 
 export default function AddressAutocompleteField({
@@ -32,6 +35,9 @@ export default function AddressAutocompleteField({
   labelClassName,
   textareaClassName,
   suggestionsClassName,
+  textareaId,
+  textareaRef,
+  hasError = false,
 }: AddressAutocompleteFieldProps) {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,6 +110,8 @@ export default function AddressAutocompleteField({
       </label>
 
       <textarea
+        id={textareaId}
+        ref={textareaRef}
         value={value}
         onChange={(event) => {
           setSelectedValue(null);
@@ -116,7 +124,9 @@ export default function AddressAutocompleteField({
         rows={rows}
         className={
           textareaClassName ||
-          "w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+          `w-full resize-none rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
+            hasError ? "border-destructive focus:border-destructive" : "border-border"
+          }`
         }
         required={required}
       />
