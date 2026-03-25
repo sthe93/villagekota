@@ -36,7 +36,7 @@ export default function AuthPage() {
 
   const redirectAfterLogin = useCallback(async (
     userId: string,
-    successMessage = "Signed in successfully"
+    successMessage = "You're signed in"
   ) => {
     localStorage.setItem("vk-has-signed-in", "true");
     setHasSignedInBefore(true);
@@ -95,7 +95,7 @@ export default function AuthPage() {
 
     handledGoogleRedirect.current = true;
     const provider = new URLSearchParams(location.search).get("provider");
-    const successMessage = provider === "google" ? "Signed in with Google" : "Signed in successfully";
+    const successMessage = provider === "google" ? "Signed in with Google" : "You're signed in";
     void redirectAfterLogin(user.id, successMessage);
   }, [loading, location.search, redirectAfterLogin, user]);
 
