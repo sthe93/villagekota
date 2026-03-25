@@ -47,6 +47,14 @@ export default {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
         },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+        },
         popover: {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
@@ -70,6 +78,15 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xl: "calc(var(--radius) + 8px)",
+      },
+      spacing: {
+        "8pt-1": "0.5rem",
+        "8pt-2": "1rem",
+        "8pt-3": "1.5rem",
+        "8pt-4": "2rem",
+        "8pt-5": "2.5rem",
+        "8pt-6": "3rem",
       },
       keyframes: {
         "accordion-down": {
@@ -100,10 +117,15 @@ export default {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "slide-in-right": "slide-in-right 0.3s ease-out",
-        "slide-out-right": "slide-out-right 0.3s ease-out",
-        "fade-in": "fade-in 0.4s ease-out",
-        "scale-in": "scale-in 0.3s ease-out",
+        "slide-in-right": "slide-in-right var(--duration-panel) ease-out",
+        "slide-out-right": "slide-out-right var(--duration-panel) ease-out",
+        "fade-in": "fade-in var(--duration-page) ease-out",
+        "scale-in": "scale-in var(--duration-panel) ease-out",
+      },
+      transitionDuration: {
+        tap: "var(--duration-tap)",
+        panel: "var(--duration-panel)",
+        page: "var(--duration-page)",
       },
     },
   },
