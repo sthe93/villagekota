@@ -55,17 +55,15 @@ function getAllowedOrigins(configuredAppBaseUrl: string | null) {
     .map((value) => normalizeBaseUrl(value))
     .filter((value): value is string => Boolean(value));
 
-  const fallbackOrigins = [
-    configuredAppBaseUrl,
-    "http://localhost:8080",
-    "http://localhost:5173",
-  ].filter((value): value is string => Boolean(value));
+  const fallbackOrigins = [configuredAppBaseUrl].filter(
+    (value): value is string => Boolean(value)
+  );
 
   return new Set([...configuredOrigins, ...fallbackOrigins]);
 }
 
 function buildCorsHeaders(origin: string | null, allowedOrigins: Set<string>) {
-  const allowedOrigin = origin && allowedOrigins.has(origin) ? origin : [...allowedOrigins][0] || "null";
+  const allowedOrigin = origin || [...allowedOrigins][0] || "*";
   return {
     ...corsHeadersBase,
     "Access-Control-Allow-Origin": allowedOrigin,
@@ -99,13 +97,6 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Missing environment configuration" }),
         { status: 500, headers: corsHeaders }
-      );
-    }
-
-    if (requestOrigin && !allowedOrigins.has(requestOrigin)) {
-      return new Response(
-        JSON.stringify({ error: "Origin is not allowed to call this endpoint" }),
-        { status: 403, headers: corsHeaders }
       );
     }
 
