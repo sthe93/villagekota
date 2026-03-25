@@ -555,8 +555,41 @@ export default function DriverPage() {
     });
 
     if (error) {
-      toast.error(error.message || "Failed to complete delivery");
+      const { data: rpcCompleted, error: rpcError } = await supabase.rpc(
+        "complete_delivery_order_with_code",
+        {
+          p_order_id: orderId,
+          p_driver_id: driver.id,
+          p_confirmation_code: confirmationCode,
+        }
+      );
+
+      if (rpcError) {
+        toast.error(rpcError.message || error.message || "Failed to complete delivery");
+        setActionOrderId(null);
+        return;
+      }
+
+      if (!rpcCompleted) {
+        toast.error("This delivery cannot be completed yet.");
+        setActionOrderId(null);
+        await loadDriverAndOrders();
+        return;
+      }
+
+      if (trackingOrderId === orderId) {
+        stopLiveTracking();
+      }
+
+      toast.success("Delivery completed");
+      setDeliveryCodes((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+      setConfirmingOrderId(null);
       setActionOrderId(null);
+      await loadDriverAndOrders();
       return;
     }
 
