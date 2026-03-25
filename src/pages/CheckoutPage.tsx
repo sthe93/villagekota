@@ -839,7 +839,7 @@ export default function CheckoutPage() {
           </div>
         ) : (
           <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 xl:grid-cols-[1.15fr_0.85fr]">
-            <form ref={checkoutFormRef} onSubmit={handleSubmit} className="space-y-5 pb-44">
+            <form ref={checkoutFormRef} onSubmit={handleSubmit} className="space-y-5 pb-[240px] md:pb-44">
               <section className="rounded-[24px] border border-border bg-card p-4 shadow-card">
                 <div className="grid grid-cols-3 gap-2">
                   {[
@@ -1249,7 +1249,10 @@ export default function CheckoutPage() {
               )}
             </form>
 
-            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 p-3 backdrop-blur md:p-4 xl:left-0">
+            <div
+              className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 p-3 backdrop-blur md:p-4 xl:left-0"
+              style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+            >
               <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
                 <div className="rounded-2xl border border-border bg-background px-4 py-3">
                   <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
