@@ -12,10 +12,13 @@ import {
   Truck,
   UserRound,
   Star,
+  AlertTriangle,
+  RotateCcw,
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
+import { useCart } from "@/context/CartContext";
 import { toast } from "@/components/ui/sonner";
 import {
   Accordion,
@@ -64,11 +67,14 @@ import {
 } from "@/features/order-tracking/utils";
 import { formatDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
 import { getMapTilerStyleUrl } from "@/lib/maps";
+import { getProducts } from "@/data/products";
+import { buildReorderPlan } from "@/lib/reorder";
 
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { addItem, setOpen } = useCart();
 
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [items, setItems] = useState<OrderItemRecord[]>([]);
@@ -78,6 +84,8 @@ export default function OrderTrackingPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  const [driverReassigned, setDriverReassigned] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -142,6 +150,48 @@ export default function OrderTrackingPage() {
   const showMap = useMemo(() => {
     return (isOnTheWay || isArrived) && order?.driver_lat != null && order?.driver_lng != null;
   }, [isOnTheWay, isArrived, order?.driver_lat, order?.driver_lng]);
+
+  const confidenceEta = useMemo(() => {
+    if (isDelivered) return "Delivered";
+    if (isArrived) return "Now";
+    if (!order?.estimated_delivery_time) return "ETA updating";
+
+    const etaTime = new Date(order.estimated_delivery_time).getTime();
+    const diffMinutes = Math.max(1, Math.round((etaTime - Date.now()) / 60000));
+    const spread = isOnTheWay ? 2 : 4;
+    const min = Math.max(1, diffMinutes - spread);
+    const max = diffMinutes + spread;
+    return `${min}–${max} min`;
+  }, [isArrived, isDelivered, isOnTheWay, order?.estimated_delivery_time]);
+
+  const exceptionMicrocopy = useMemo(() => {
+    const notes = normalize(order?.notes);
+    if (driverReassigned) {
+      return {
+        title: "Driver reassigned",
+        description:
+          "Your original driver changed, and a new driver is now assigned. ETA may shift slightly while routing updates.",
+      };
+    }
+
+    if (notes.includes("kitchen delay")) {
+      return {
+        title: "Kitchen delay",
+        description:
+          "The kitchen needs a little extra prep time. We’re prioritizing your order and will update ETA as soon as possible.",
+      };
+    }
+
+    if (notes.includes("traffic delay")) {
+      return {
+        title: "Traffic delay",
+        description:
+          "Driver is navigating slower traffic than expected. We’ll keep location and confidence ETA refreshed.",
+      };
+    }
+
+    return null;
+  }, [driverReassigned, order?.notes]);
 
   const statusSummary = useMemo(() => {
     if (!order) return "Loading order status...";
@@ -296,6 +346,16 @@ export default function OrderTrackingPage() {
               toast.success("Driver assigned", {
                 description: "Your order now has a driver and delivery progress will update here.",
                 duration: 2400,
+              });
+            } else if (
+              previousSnapshot.driverId &&
+              nextSnapshot.driverId &&
+              previousSnapshot.driverId !== nextSnapshot.driverId
+            ) {
+              setDriverReassigned(true);
+              toast.message("Driver reassigned", {
+                description: "A new driver has been assigned and route tracking has been refreshed.",
+                duration: 2800,
               });
             }
           }
@@ -495,6 +555,43 @@ export default function OrderTrackingPage() {
     }
   };
 
+  const handleReorder = async () => {
+    if (!items.length) return;
+    setReordering(true);
+
+    try {
+      const products = await getProducts();
+      const plan = buildReorderPlan(items, products);
+
+      if (!plan.lines.length) {
+        toast.error("No items are currently available to reorder.");
+        return;
+      }
+
+      plan.lines.forEach((line) => {
+        addItem(line.product, {
+          quantity: line.quantity,
+          note: line.note,
+          selectedOptions: line.selectedOptions,
+          optionsTotal: line.optionsTotal,
+          finalUnitPrice: line.finalUnitPrice,
+        });
+      });
+
+      setOpen(true);
+      toast.success("Reorder added to cart.", {
+        description:
+          plan.skippedCount > 0
+            ? `${plan.skippedCount} item(s) were unavailable and skipped.`
+            : "Everything from this order is back in your cart.",
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to reorder items.");
+    } finally {
+      setReordering(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[70vh] items-center justify-center bg-background">
@@ -590,6 +687,22 @@ export default function OrderTrackingPage() {
                   </p>
                 </div>
 
+                {exceptionMicrocopy && (
+                  <div className="mt-4 rounded-[24px] border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-700" />
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                          {exceptionMicrocopy.title}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-foreground">
+                          {exceptionMicrocopy.description}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {isDelivered && user && (
                   <div className="mt-4 rounded-[24px] border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -602,13 +715,23 @@ export default function OrderTrackingPage() {
                         </p>
                       </div>
 
-                      <button
-                        onClick={() => setReviewDialogOpen(true)}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-background px-4 py-3 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100/60"
-                      >
-                        <Star className="h-4 w-4" />
-                        Rate this order
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => setReviewDialogOpen(true)}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-background px-4 py-3 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100/60"
+                        >
+                          <Star className="h-4 w-4" />
+                          Rate order
+                        </button>
+                        <button
+                          onClick={() => void handleReorder()}
+                          disabled={reordering}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary bg-primary/5 px-4 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+                        >
+                          {reordering ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                          Reorder in 1 tap
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -644,13 +767,13 @@ export default function OrderTrackingPage() {
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:min-w-[420px]">
                 <InfoTile
-                  label="Estimated arrival"
+                  label="Confidence ETA"
                   value={
                     isDelivered
                       ? "Delivered"
                       : isArrived
                         ? "At your location"
-                        : formatTime(order.estimated_delivery_time)
+                        : confidenceEta
                   }
                   subValue={
                     isOnTheWay || isArrived
@@ -665,7 +788,11 @@ export default function OrderTrackingPage() {
                 <InfoTile
                   label="Driver"
                   value={hasAssignedDriver ? driver?.name || "Assigned" : "Waiting for assignment"}
-                  subValue={driverCardDescription}
+                  subValue={
+                    hasAssignedDriver && order.driver_last_updated
+                      ? `${driverCardDescription} · last location ${formatRelativeTime(order.driver_last_updated)}`
+                      : driverCardDescription
+                  }
                   icon={UserRound}
                 />
 

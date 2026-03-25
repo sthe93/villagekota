@@ -10,6 +10,7 @@ import {
   Star,
   Loader2,
   SlidersHorizontal,
+  Clock3,
 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { Link } from "react-router-dom";
@@ -97,6 +98,33 @@ function getDrawerRecommendationTitle(categoriesInCart: Category[]) {
   if (hasDrink && !hasMeal) return "Pair it with something filling";
   if (hasSide && !hasMeal) return "Add something more filling";
   return "You may also like";
+}
+
+function getRoleLabel(role: CategoryRole) {
+  if (role === "drink") return "Drink";
+  if (role === "side") return "Side";
+  if (role === "combo") return "Combo";
+  if (role === "meal") return "Meal";
+  return "Item";
+}
+
+function getCategoryHeadlineLabel(category: Category) {
+  const value = normalizeCategory(category);
+  if (value.includes("kota")) return "Kota";
+  if (value.includes("drink")) return "Drink";
+  if (value.includes("side")) return "Side";
+  if (value.includes("combo")) return "Combo";
+  if (value.includes("bunny")) return "Bunny Chow";
+  return category;
+}
+
+function estimatePrepTimeMinutes(product: Product) {
+  const role = getCategoryRole(product.category);
+  if (role === "drink") return 2;
+  if (role === "side") return 6;
+  if (role === "meal") return 14;
+  if (role === "combo") return 16;
+  return 10;
 }
 
 function groupSelectedOptions(
@@ -230,6 +258,39 @@ export default function CartDrawer() {
 
   const recommendationTitle = getDrawerRecommendationTitle(cartCategories);
 
+  const anchorCartItem = useMemo(
+    () =>
+      [...items].sort((a, b) => {
+        const roleOrder: CategoryRole[] = ["meal", "combo", "side", "drink", "other"];
+        return (
+          roleOrder.indexOf(getCategoryRole(a.product.category)) -
+          roleOrder.indexOf(getCategoryRole(b.product.category))
+        );
+      })[0] || null,
+    [items]
+  );
+
+  const drinkAndSideBundle = useMemo(() => {
+    const sortedByPrice = [...allProducts]
+      .filter((product) => product.inStock && !cartProductIds.has(product.id))
+      .sort((a, b) => a.price - b.price);
+
+    const drink = sortedByPrice.find(
+      (product) => getCategoryRole(product.category) === "drink" && !product.hasOptions
+    );
+    const side = sortedByPrice.find(
+      (product) => getCategoryRole(product.category) === "side" && !product.hasOptions
+    );
+
+    if (!drink || !side) return null;
+
+    return {
+      drink,
+      side,
+      total: drink.price + side.price,
+    };
+  }, [allProducts, cartProductIds]);
+
   const handleQuickAddSuggestion = (product: Product) => {
     if (product.hasOptions) {
       setSelectedRecommendedProduct(product);
@@ -238,6 +299,16 @@ export default function CartDrawer() {
 
     addItem(product);
     toast.success(`${product.name} added to cart`);
+  };
+
+  const handleMiniBundleAdd = () => {
+    if (!drinkAndSideBundle) return;
+
+    addItem(drinkAndSideBundle.drink);
+    addItem(drinkAndSideBundle.side);
+    toast.success(
+      `Bundle added: ${drinkAndSideBundle.drink.name} + ${drinkAndSideBundle.side.name}`
+    );
   };
 
   if (!isOpen) return null;
@@ -294,7 +365,7 @@ export default function CartDrawer() {
         ) : (
           <>
             <div className="flex-1 overflow-y-auto px-4 py-4">
-              <div className="rounded-2xl border border-border bg-background p-3">
+              <div className="sticky top-0 z-10 rounded-2xl border border-primary/25 bg-primary/5 p-3 backdrop-blur-sm">
                 <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
                   <span>Free delivery progress</span>
                   <span>
@@ -478,13 +549,48 @@ export default function CartDrawer() {
 
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="truncate font-semibold text-foreground">
-                                    {product.name}
-                                  </p>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-medium text-muted-foreground">
+                                Because you added{" "}
+                                <span className="text-foreground">
+                                  {getCategoryHeadlineLabel(
+                                    anchorCartItem?.product.category || cartCategories[0] || "Kota"
+                                  )}
+                                </span>
+                                , pair with{" "}
+                                <span className="text-foreground">
+                                  {getRoleLabel(getCategoryRole(product.category))}
+                                </span>
+                              </p>
+                              <p className="truncate font-semibold text-foreground">
+                                {product.name}
+                              </p>
                                   <p className="mt-1 text-sm font-semibold text-primary">
                                     {priceFormatter.format(product.price)}
                                   </p>
+                                  {anchorCartItem && (
+                                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                                      <span>
+                                        {product.price - anchorCartItem.finalUnitPrice >= 0 ? "+" : "-"}
+                                        {priceFormatter.format(
+                                          Math.abs(product.price - anchorCartItem.finalUnitPrice)
+                                        )}{" "}
+                                        vs item
+                                      </span>
+                                      <span>•</span>
+                                      <span className="inline-flex items-center gap-1">
+                                        <Clock3 className="h-3 w-3" />
+                                        {estimatePrepTimeMinutes(product) -
+                                          estimatePrepTimeMinutes(anchorCartItem.product) >=
+                                        0
+                                          ? "+"
+                                          : ""}
+                                        {estimatePrepTimeMinutes(product) -
+                                          estimatePrepTimeMinutes(anchorCartItem.product)}
+                                        m prep
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
 
                                 <button
@@ -530,6 +636,15 @@ export default function CartDrawer() {
                       );
                     })}
                   </div>
+                )}
+
+                {drinkAndSideBundle && (
+                  <button
+                    onClick={handleMiniBundleAdd}
+                    className="mt-3 w-full rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"
+                  >
+                    Add drink + side • {priceFormatter.format(drinkAndSideBundle.total)}
+                  </button>
                 )}
               </div>
             </div>
