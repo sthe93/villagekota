@@ -127,6 +127,7 @@ export default function CheckoutPage() {
     lat: null,
     lng: null,
   });
+  const voucherPaymentAllowed = Boolean(voucherInfo && voucherInfo.type === "prepaid");
   const {
     currentStep: checkoutStep,
     setCurrentStep: setCheckoutStep,
@@ -150,7 +151,7 @@ export default function CheckoutPage() {
       payment: "cash",
     },
     isSignedIn: Boolean(user),
-    voucherPaymentReady: Boolean(voucherInfo && voucherInfo.type === "prepaid"),
+    voucherPaymentReady: voucherPaymentAllowed,
   });
 
   const refreshSavedAddresses = useCallback(async () => {
@@ -1313,6 +1314,41 @@ export default function CheckoutPage() {
                       </button>
                     </div>
                   )}
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-border bg-background p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                    Voucher outcome summary
+                  </p>
+
+                  <div className="mt-3 space-y-2 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Applied amount</span>
+                      <span className="font-semibold text-success">
+                        {discountAmount > 0 ? `-${priceFormatter.format(discountAmount)}` : "R0"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Remaining balance</span>
+                      <span className="font-semibold text-foreground">
+                        {priceFormatter.format(adjustedTotal)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Voucher payment allowed</span>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          voucherPaymentAllowed
+                            ? "bg-success/10 text-success"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {voucherPaymentAllowed ? "Yes" : "No"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </section>
               )}
