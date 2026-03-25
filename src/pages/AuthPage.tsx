@@ -3,7 +3,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import Footer from "@/components/Footer";
-import { Fingerprint, Loader2, ScanFace, ShieldCheck } from "lucide-react";
+import {
+  Fingerprint,
+  Loader2,
+  ScanFace,
+  ShieldCheck,
+  CheckCircle2,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   enrollBiometricCredential,
@@ -17,6 +23,7 @@ export default function AuthPage() {
   const [biometricLoading, setBiometricLoading] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricEnrolled, setBiometricEnrolled] = useState(false);
+  const [hasSignedInBefore, setHasSignedInBefore] = useState(false);
   const { signInWithGoogle, user, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -31,6 +38,9 @@ export default function AuthPage() {
     userId: string,
     successMessage = "Signed in successfully"
   ) => {
+    localStorage.setItem("vk-has-signed-in", "true");
+    setHasSignedInBefore(true);
+
     const { data: adminRole } = await supabase
       .from("user_roles")
       .select("id")
@@ -68,6 +78,7 @@ export default function AuthPage() {
 
       setBiometricSupported(supported);
       setBiometricEnrolled(Boolean(getStoredBiometricCredential()));
+      setHasSignedInBefore(localStorage.getItem("vk-has-signed-in") === "true");
     };
 
     void loadBiometricState();
@@ -173,6 +184,26 @@ export default function AuthPage() {
               </div>
             </div>
 
+            <div className="rounded-lg border border-border bg-background p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                Why sign in?
+              </p>
+              <ul className="mt-3 space-y-2 text-sm text-foreground">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                  Faster checkout
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                  Save addresses
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                  Track orders live
+                </li>
+              </ul>
+            </div>
+
             <button
               type="button"
               onClick={handleGoogleSignIn}
@@ -207,7 +238,7 @@ export default function AuthPage() {
               {submitting ? "Connecting..." : "Continue with Google"}
             </button>
 
-            {biometricSupported && (
+            {biometricSupported && hasSignedInBefore && (
               <div className="space-y-3 rounded-lg border border-border bg-background p-4">
                 <div className="flex items-start gap-3">
                   <div className="rounded-full bg-muted p-2 text-foreground">
@@ -219,7 +250,7 @@ export default function AuthPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-foreground">
-                      {biometricEnrolled ? "Biometric verification enabled" : "Add biometric verification"}
+                      {biometricEnrolled ? "Biometric verification enabled" : "Add biometric verification (optional)"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {biometricEnrolled
@@ -259,6 +290,12 @@ export default function AuthPage() {
                   </button>
                 )}
               </div>
+            )}
+
+            {biometricSupported && !hasSignedInBefore && (
+              <p className="rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                Biometric sign-in can be enabled after your first successful sign-in on this device.
+              </p>
             )}
 
             <p className="text-center text-xs text-muted-foreground font-body">
