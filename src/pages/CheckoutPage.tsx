@@ -23,8 +23,6 @@ import Footer from "@/components/Footer";
 import AddressAutocompleteField from "@/components/AddressAutocompleteField";
 import {
   geocodeSouthAfricaAddress,
-  searchSouthAfricaAddresses,
-  type AddressSuggestion,
 } from "@/lib/maps";
 import {
   findDuplicateSavedAddress,
@@ -53,6 +51,7 @@ interface VoucherInfo {
 }
 
 type ExtendedPaymentMethod = PaymentMethod | "voucher";
+type CheckoutStep = 1 | 2 | 3;
 
 interface CreateOrderResponse {
   orderId: string;
@@ -100,8 +99,10 @@ export default function CheckoutPage() {
   } = useCart();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const checkoutFormRef = useRef<HTMLFormElement | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
+  const [currentStep, setCurrentStep] = useState<CheckoutStep>(1);
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
@@ -114,10 +115,8 @@ export default function CheckoutPage() {
     notes: "",
     payment: "cash" as ExtendedPaymentMethod,
   });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
-  const [addressLoading, setAddressLoading] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddressRecord[]>([]);
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
   const [savingCurrentAddress, setSavingCurrentAddress] = useState(false);
@@ -190,10 +189,15 @@ export default function CheckoutPage() {
 
   const update = <K extends keyof typeof form>(field: K, value: (typeof form)[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+    setTouched((prev) => ({ ...prev, [field]: true }));
 
     if (field === "address") {
       setSelectedDestination({ lat: null, lng: null });
     }
+  };
+
+  const markTouched = (field: keyof typeof form) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
   };
 
   const applySavedAddress = (address: SavedAddressRecord) => {
@@ -202,7 +206,6 @@ export default function CheckoutPage() {
       lat: address.destination_lat,
       lng: address.destination_lng,
     });
-    setShowSuggestions(false);
     toast.success(`${address.label} added to checkout.`);
   };
 
@@ -252,6 +255,62 @@ export default function CheckoutPage() {
     items.length === 0
       ? 0
       : Math.min((subtotal / freeDeliveryThreshold) * 100, 100);
+
+  const fieldErrors = useMemo(() => {
+    const errors: Partial<Record<keyof typeof form, string>> = {};
+    const trimmedName = form.name.trim();
+    const trimmedAddress = form.address.trim();
+    const trimmedEmail = form.email.trim();
+    const phoneDigits = getPhoneDigits(form.phone);
+
+    if (!trimmedName) {
+      errors.name = "Full name is required.";
+    }
+
+    if (!phoneDigits) {
+      errors.phone = "Cell phone number is required.";
+    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
+      errors.phone = "Enter a valid South African cell phone number (10 digits).";
+    }
+
+    if (!trimmedAddress) {
+      errors.address = "Delivery address is required.";
+    }
+
+    if (form.payment === "card" && !trimmedEmail) {
+      errors.email = "Email is required for card payments.";
+    }
+
+    return errors;
+  }, [form]);
+
+  const canContinueFromDelivery = Boolean(
+    user && !fieldErrors.name && !fieldErrors.phone && !fieldErrors.address
+  );
+
+  const canContinueFromPayment = Boolean(
+    form.payment !== "voucher" || (voucherInfo && voucherInfo.type === "prepaid")
+  );
+
+  const handleStepChange = (targetStep: CheckoutStep) => {
+    if (targetStep <= currentStep) {
+      setCurrentStep(targetStep);
+      return;
+    }
+
+    if (targetStep >= 2 && !canContinueFromDelivery) {
+      setTouched((prev) => ({ ...prev, name: true, phone: true, address: true }));
+      toast.error(!user ? "Please sign in before placing your order." : "Complete delivery details first.");
+      return;
+    }
+
+    if (targetStep === 3 && !canContinueFromPayment) {
+      toast.error("Please complete payment setup before review.");
+      return;
+    }
+
+    setCurrentStep(targetStep);
+  };
 
   const orderButtonLabel = useMemo(() => {
     if (submitting) return "Placing Order...";
@@ -738,7 +797,7 @@ export default function CheckoutPage() {
           </h1>
 
           <p className="mt-3 text-sm text-muted-foreground sm:text-base">
-            Review your details, choose payment, and place your order with confidence.
+            3-step checkout: Delivery, Payment, then Review & Place.
           </p>
         </div>
 
@@ -780,7 +839,32 @@ export default function CheckoutPage() {
           </div>
         ) : (
           <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 xl:grid-cols-[1.15fr_0.85fr]">
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form ref={checkoutFormRef} onSubmit={handleSubmit} className="space-y-5 pb-44">
+              <section className="rounded-[24px] border border-border bg-card p-4 shadow-card">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { step: 1 as CheckoutStep, label: "Delivery" },
+                    { step: 2 as CheckoutStep, label: "Payment" },
+                    { step: 3 as CheckoutStep, label: "Review & Place" },
+                  ].map((item) => (
+                    <button
+                      key={item.step}
+                      type="button"
+                      onClick={() => handleStepChange(item.step)}
+                      className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors ${
+                        currentStep === item.step
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {currentStep === 1 && (
+                <>
               <section className="rounded-[28px] border border-border bg-card p-5 shadow-card md:p-6">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
@@ -807,9 +891,13 @@ export default function CheckoutPage() {
                       type="text"
                       value={form.name}
                       onChange={(e) => update("name", e.target.value)}
+                      onBlur={() => markTouched("name")}
                       className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                       required
                     />
+                    {touched.name && fieldErrors.name && (
+                      <p className="mt-1 text-xs text-destructive">{fieldErrors.name}</p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -821,6 +909,7 @@ export default function CheckoutPage() {
                         type="tel"
                         value={form.phone}
                         onChange={(e) => update("phone", e.target.value)}
+                        onBlur={() => markTouched("phone")}
                         placeholder="0XXXXXXXXX"
                         inputMode="numeric"
                         className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
@@ -829,6 +918,9 @@ export default function CheckoutPage() {
                       <p className="mt-2 text-xs text-muted-foreground">
                         South African cell phone numbers should be 10 digits.
                       </p>
+                      {touched.phone && fieldErrors.phone && (
+                        <p className="mt-1 text-xs text-destructive">{fieldErrors.phone}</p>
+                      )}
                     </div>
 
                     <div>
@@ -839,8 +931,12 @@ export default function CheckoutPage() {
                         type="email"
                         value={form.email}
                         onChange={(e) => update("email", e.target.value)}
+                        onBlur={() => markTouched("email")}
                         className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
                       />
+                      {touched.email && fieldErrors.email && (
+                        <p className="mt-1 text-xs text-destructive">{fieldErrors.email}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -870,116 +966,8 @@ export default function CheckoutPage() {
                     selected={selectedDestination.lat != null && selectedDestination.lng != null}
                     selectedMessage="Address suggestion selected"
                   />
-
-                  {user && (
-                    <div className="rounded-2xl border border-border bg-background p-4">
-                      <div className="flex flex-col gap-4">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-foreground">Saved addresses</p>
-                            <p className="text-xs text-muted-foreground">
-                              Tap one to autofill checkout or save the address you entered above.
-                            </p>
-                          </div>
-
-                          <div className="flex flex-col gap-2 sm:flex-row">
-                            <input
-                              type="text"
-                              value={newSavedAddressLabel}
-                              onChange={(e) => setNewSavedAddressLabel(e.target.value)}
-                              placeholder="Save as Home"
-                              className="rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void handleSaveCurrentAddress()}
-                              disabled={savingCurrentAddress}
-                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                            >
-                              {savingCurrentAddress ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <BookmarkPlus className="h-4 w-4" />
-                              )}
-                              Save current address
-                            </button>
-                          </div>
-                        </div>
-
-                        {loadingSavedAddresses ? (
-                          <div className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Loading saved addresses...
-                          </div>
-                        ) : savedAddresses.length === 0 ? (
-                          <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                            Save an address here to use it in one tap next time.
-                          </div>
-                        ) : (
-                          <div className="grid gap-3">
-                            {savedAddresses.map((address) => (
-                              <div
-                                key={address.id}
-                                className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between"
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => applySavedAddress(address)}
-                                  className="min-w-0 flex-1 text-left"
-                                >
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <p className="font-medium text-foreground">{address.label}</p>
-                                    {address.is_default && (
-                                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                                        Default
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
-                                </button>
-
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => applySavedAddress(address)}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
-                                  >
-                                    <Home className="h-4 w-4" />
-                                    Use
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleSetDefaultSavedAddress(address)}
-                                    disabled={address.is_default || defaultingSavedAddressId === address.id}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                                  >
-                                    <Home className="h-4 w-4" />
-                                    {address.is_default
-                                      ? "Default"
-                                      : defaultingSavedAddressId === address.id
-                                        ? "Updating..."
-                                        : "Set Default"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleDeleteSavedAddress(address)}
-                                    disabled={deletingSavedAddressId === address.id}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                                  >
-                                    {deletingSavedAddressId === address.id ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-4 w-4" />
-                                    )}
-                                    Remove
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  {touched.address && fieldErrors.address && (
+                    <p className="mt-1 text-xs text-destructive">{fieldErrors.address}</p>
                   )}
 
                   {user && (
@@ -1110,7 +1098,10 @@ export default function CheckoutPage() {
                   </div>
                 </div>
               </section>
+                </>
+              )}
 
+              {currentStep === 2 && (
               <section className="rounded-[28px] border border-border bg-card p-5 shadow-card md:p-6">
                 <div className="mb-5">
                   <h2 className="font-display text-2xl text-foreground">Payment Method</h2>
@@ -1199,17 +1190,152 @@ export default function CheckoutPage() {
                       : `${voucherProviderLabel} is applied as a discount, but another payment method is still required for the remaining balance.`}
                   </div>
                 )}
-              </section>
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                {orderButtonLabel}
-              </button>
+                <div className="mt-5 border-t border-border pt-4">
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                    Voucher / Gift Card
+                  </label>
+
+                  {voucherInfo ? (
+                    <div className="flex items-center justify-between rounded-xl border border-success/30 bg-success/10 px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <Tag className="h-4 w-4 text-success" />
+                        <span className="text-sm font-semibold text-success">
+                          {voucherInfo.code} (-{priceFormatter.format(voucherInfo.discountAmount)})
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={removeVoucher}
+                        className="text-xs font-medium text-destructive hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={voucherCode}
+                        onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+                        placeholder="Enter code"
+                        className="flex-1 rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyVoucher}
+                        disabled={applyingVoucher || !voucherCode.trim()}
+                        className="rounded-xl bg-secondary px-4 py-2.5 text-sm font-semibold text-secondary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                      >
+                        {applyingVoucher ? "..." : "Apply"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </section>
+              )}
+
+              {currentStep === 3 && (
+                <section className="rounded-[28px] border border-border bg-card p-5 shadow-card md:p-6">
+                  <h2 className="font-display text-2xl text-foreground">Review & Place</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Confirm your delivery details, payment method, and order total, then place your order.
+                  </p>
+                  <div className="mt-4 rounded-xl border border-border bg-background p-4 text-sm text-muted-foreground">
+                    Payment method: <span className="font-semibold text-foreground">{selectedPaymentLabel}</span>
+                  </div>
+                </section>
+              )}
             </form>
+
+            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 p-3 backdrop-blur md:p-4 xl:left-0">
+              <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
+                <div className="rounded-2xl border border-border bg-background px-4 py-3">
+                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">Subtotal</p>
+                      <p className="font-semibold text-foreground">{priceFormatter.format(subtotal)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">Delivery</p>
+                      <p className="font-semibold text-foreground">
+                        {deliveryFee === 0 ? "Free" : priceFormatter.format(deliveryFee)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">Voucher discount</p>
+                      <p className="font-semibold text-success">
+                        {discountAmount > 0 ? `-${priceFormatter.format(discountAmount)}` : "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">Final total</p>
+                      <p className="font-display text-lg text-primary">{priceFormatter.format(adjustedTotal)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {currentStep > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep((prev) => (Math.max(1, prev - 1) as CheckoutStep))}
+                      className="rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Back
+                    </button>
+                  )}
+
+                  {currentStep < 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (currentStep === 1) {
+                          setTouched((prev) => ({
+                            ...prev,
+                            name: true,
+                            phone: true,
+                            address: true,
+                            email: form.payment === "card" ? true : prev.email,
+                          }));
+                          if (!canContinueFromDelivery) {
+                            toast.error(
+                              !user
+                                ? "Please sign in before placing your order."
+                                : "Please complete required delivery fields."
+                            );
+                            return;
+                          }
+                          setCurrentStep(2);
+                          return;
+                        }
+
+                        if (!canContinueFromPayment) {
+                          toast.error("Apply a valid prepaid voucher to continue with voucher payment.");
+                          return;
+                        }
+
+                        setCurrentStep(3);
+                      }}
+                      className="flex-1 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                    >
+                      {currentStep === 1 ? "Continue to Payment" : "Continue to Review & Place"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => checkoutFormRef.current?.requestSubmit()}
+                      disabled={submitting}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {orderButtonLabel}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
 
             <aside className="space-y-4">
               <div className="sticky top-24 space-y-4">
@@ -1310,78 +1436,8 @@ export default function CheckoutPage() {
                     })}
                   </div>
 
-                  <div className="mt-5 border-t border-border pt-4">
-                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                      Voucher / Gift Card
-                    </label>
-
-                    {voucherInfo ? (
-                      <div className="flex items-center justify-between rounded-xl border border-success/30 bg-success/10 px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <Tag className="h-4 w-4 text-success" />
-                          <span className="text-sm font-semibold text-success">
-                            {voucherInfo.code} (-{priceFormatter.format(voucherInfo.discountAmount)})
-                          </span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={removeVoucher}
-                          className="text-xs font-medium text-destructive hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={voucherCode}
-                          onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-                          placeholder="Enter code"
-                          className="flex-1 rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleApplyVoucher}
-                          disabled={applyingVoucher || !voucherCode.trim()}
-                          className="rounded-xl bg-secondary px-4 py-2.5 text-sm font-semibold text-secondary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                        >
-                          {applyingVoucher ? "..." : "Apply"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-5 space-y-2 border-t border-border pt-4">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Payment</span>
-                      <span className="text-foreground">{selectedPaymentLabel}</span>
-                    </div>
-
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span className="text-foreground">{priceFormatter.format(subtotal)}</span>
-                    </div>
-
-                    {discountAmount > 0 && (
-                      <div className="flex justify-between text-sm text-success">
-                        <span>{voucherInfo?.provider ? `${voucherProviderLabel} applied` : "Discount"}</span>
-                        <span>-{priceFormatter.format(discountAmount)}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Delivery</span>
-                      <span className="text-foreground">
-                        {deliveryFee === 0 ? "Free" : priceFormatter.format(deliveryFee)}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between border-t border-border pt-3 font-display text-xl">
-                      <span className="text-foreground">TOTAL</span>
-                      <span className="text-primary">{priceFormatter.format(adjustedTotal)}</span>
-                    </div>
+                  <div className="mt-5 rounded-xl border border-border bg-background p-4 text-sm text-muted-foreground">
+                    Totals and voucher adjustments are pinned in the checkout action bar below.
                   </div>
                 </div>
 
