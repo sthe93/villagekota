@@ -20,9 +20,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
       position="top-center"
       visibleToasts={1}
       expand={false}
-      duration={4200}
-      offset="18vh"
-      mobileOffset="12vh"
+      duration={2800}
+      offset="1rem"
+      mobileOffset="1rem"
       closeButton={false}
       className="toaster group"
       icons={{
@@ -37,12 +37,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
         unstyled: true,
         classNames: {
           toast:
-            "group toast w-[calc(100vw-2rem)] max-w-[26rem] rounded-[28px] border border-slate-200/80 bg-white px-0 py-0 text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.18)] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-          content: "flex flex-col items-center px-7 pb-7 pt-8 text-center",
+            "group toast w-[calc(100vw-1rem)] max-w-[22rem] rounded-2xl border border-slate-200/80 bg-white px-0 py-0 text-slate-600 shadow-[0_20px_40px_rgba(15,23,42,0.16)] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 sm:max-w-[24rem] sm:rounded-3xl",
+          content: "flex flex-col items-center px-4 pb-4 pt-4 text-center sm:px-6 sm:pb-6 sm:pt-6",
           icon:
-            "mx-auto flex h-16 w-16 items-center justify-center rounded-full border-4 border-current/10 bg-current/5 [&>svg]:h-8 [&>svg]:w-8",
-          title: "text-2xl font-semibold tracking-tight text-foreground",
-          description: "mt-1 text-sm leading-6 text-muted-foreground",
+            "mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full border-[3px] border-current/10 bg-current/5 [&>svg]:h-6 [&>svg]:w-6 sm:h-14 sm:w-14 sm:[&>svg]:h-7 sm:[&>svg]:w-7",
+          title: "text-lg font-semibold leading-tight tracking-tight text-foreground sm:text-xl",
+          description: "mt-1 text-xs leading-5 text-muted-foreground sm:text-sm sm:leading-6",
           actionButton:
             "mt-3 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground hover:opacity-90",
           cancelButton:
