@@ -5,7 +5,7 @@ import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => {
   const configuredBase = process.env.VITE_BASE_PATH?.trim();
-  const defaultBase = mode === "production" ? "/villagekota/" : "/";
+  const defaultBase = "/";
   const base = configuredBase && configuredBase.length > 0 ? configuredBase : defaultBase;
 
   return {
