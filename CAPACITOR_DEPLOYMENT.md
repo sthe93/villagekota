@@ -56,3 +56,11 @@ The repo currently supports browser notifications. For app-store releases, imple
 - Configure bundle identifiers and signing certificates/profiles
 - Prepare store metadata and screenshots
 - Run signed builds on real iOS and Android devices before submission
+
+## Apple App Store readiness notes
+
+- Ensure iOS permission copy in `ios/App/App/Info.plist` is final and product-approved:
+  - `NSLocationWhenInUseUsageDescription` for driver live tracking
+  - `NSFaceIDUsageDescription` for optional biometric verification
+- Keep `ITSAppUsesNonExemptEncryption` aligned with release/export-compliance answers in App Store Connect.
+- Verify app capability declarations in Xcode (Push Notifications / Background Modes) match implemented behavior before submission.

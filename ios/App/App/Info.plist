@@ -22,13 +22,19 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Village Kota uses your location to support driver live-tracking and accurate delivery updates.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Village Kota uses Face ID as an optional biometric verification step before sign-in.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
