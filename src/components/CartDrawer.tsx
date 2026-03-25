@@ -102,24 +102,6 @@ function getDrawerRecommendationTitle(categoriesInCart: Category[]) {
   return "You may also like";
 }
 
-function getRoleLabel(role: CategoryRole) {
-  if (role === "drink") return "Drink";
-  if (role === "side") return "Side";
-  if (role === "combo") return "Combo";
-  if (role === "meal") return "Meal";
-  return "Item";
-}
-
-function getCategoryHeadlineLabel(category: Category) {
-  const value = normalizeCategory(category);
-  if (value.includes("kota")) return "Kota";
-  if (value.includes("drink")) return "Drink";
-  if (value.includes("side")) return "Side";
-  if (value.includes("combo")) return "Combo";
-  if (value.includes("bunny")) return "Bunny Chow";
-  return category;
-}
-
 function estimatePrepTimeMinutes(product: Product) {
   const role = getCategoryRole(product.category);
   if (role === "drink") return 2;
@@ -534,6 +516,13 @@ export default function CartDrawer() {
                       .map((product) => {
                         const hasImage = Boolean(product.image?.trim());
                         const hasReviews = product.reviewCount > 0 && product.rating > 0;
+                        const prepDeltaMinutes = anchorCartItem
+                          ? Math.max(
+                              0,
+                              estimatePrepTimeMinutes(product) -
+                                estimatePrepTimeMinutes(anchorCartItem.product)
+                            )
+                          : null;
 
                         return (
                           <div
@@ -557,18 +546,7 @@ export default function CartDrawer() {
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="min-w-0">
                                     <p className="text-[11px] font-medium text-muted-foreground">
-                                      Because you added{" "}
-                                      <span className="text-foreground">
-                                        {getCategoryHeadlineLabel(
-                                          anchorCartItem?.product.category ||
-                                            cartCategories[0] ||
-                                            "Kota"
-                                        )}
-                                      </span>
-                                      , pair with{" "}
-                                      <span className="text-foreground">
-                                        {getRoleLabel(getCategoryRole(product.category))}
-                                      </span>
+                                      Popular with your cart
                                     </p>
                                     <p className="truncate font-semibold text-foreground">
                                       {product.name}
@@ -579,37 +557,15 @@ export default function CartDrawer() {
                                       </p>
                                     )}
                                     <p className="mt-1 text-sm font-semibold text-primary">
-                                      {priceFormatter.format(product.price)}
+                                      From {priceFormatter.format(product.price)}
                                     </p>
-                                    {showSmartSuggestions && anchorCartItem && (
-                                      <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                                        <span>
-                                          {product.price - anchorCartItem.finalUnitPrice >= 0
-                                            ? "+"
-                                            : "-"}
-                                          {priceFormatter.format(
-                                            Math.abs(
-                                              product.price - anchorCartItem.finalUnitPrice
-                                            )
-                                          )}{" "}
-                                          vs item
-                                        </span>
-                                        <span>•</span>
-                                        <span className="inline-flex items-center gap-1">
-                                          <Clock3 className="h-3 w-3" />
-                                          {estimatePrepTimeMinutes(product) -
-                                            estimatePrepTimeMinutes(
-                                              anchorCartItem.product
-                                            ) >= 0
-                                            ? "+"
-                                            : ""}
-                                          {estimatePrepTimeMinutes(product) -
-                                            estimatePrepTimeMinutes(
-                                              anchorCartItem.product
-                                            )}
-                                          m prep
-                                        </span>
-                                      </div>
+                                    {showSmartSuggestions && prepDeltaMinutes !== null && (
+                                      <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                                        <Clock3 className="h-3 w-3" />
+                                        {prepDeltaMinutes === 0
+                                          ? "No extra prep time"
+                                          : `Adds ~${prepDeltaMinutes} min prep`}
+                                      </p>
                                     )}
                                   </div>
 
