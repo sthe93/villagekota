@@ -101,6 +101,12 @@ export default function CheckoutPage() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const checkoutFormRef = useRef<HTMLFormElement | null>(null);
+  const signInButtonRef = useRef<HTMLButtonElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const phoneInputRef = useRef<HTMLInputElement | null>(null);
+  const emailInputRef = useRef<HTMLInputElement | null>(null);
+  const addressInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const voucherInputRef = useRef<HTMLInputElement | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState<CheckoutStep>(1);
@@ -202,6 +208,42 @@ export default function CheckoutPage() {
 
   const markTouched = (field: keyof typeof form) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const focusAndRevealField = (element: HTMLElement | null) => {
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      element.focus({ preventScroll: true });
+    }, 120);
+  };
+
+  const focusFirstInvalidForDelivery = () => {
+    if (!user) {
+      focusAndRevealField(signInButtonRef.current);
+      return;
+    }
+
+    if (checkoutFieldErrors.name) {
+      focusAndRevealField(nameInputRef.current);
+      return;
+    }
+
+    if (checkoutFieldErrors.phone) {
+      focusAndRevealField(phoneInputRef.current);
+      return;
+    }
+
+    if (checkoutFieldErrors.address) {
+      focusAndRevealField(addressInputRef.current);
+      return;
+    }
+  };
+
+  const focusFirstInvalidForPayment = () => {
+    if (form.payment === "voucher" && !canContinuePaymentStep) {
+      focusAndRevealField(voucherInputRef.current);
+    }
   };
 
   const applySavedAddress = (address: SavedAddressRecord) => {
@@ -816,6 +858,7 @@ export default function CheckoutPage() {
               </div>
 
               <button
+                ref={signInButtonRef}
                 onClick={() => navigate("/auth")}
                 className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
               >
@@ -856,7 +899,15 @@ export default function CheckoutPage() {
                       type="button"
                       onClick={() => {
                         const error = handleCheckoutStepChange(item.step);
-                        if (error) toast.error(error);
+                        if (!error) return;
+
+                        if (item.step === 3 && !canContinuePaymentStep) {
+                          focusFirstInvalidForPayment();
+                        } else if (item.step >= 2) {
+                          focusFirstInvalidForDelivery();
+                        }
+
+                        toast.error(error);
                       }}
                       className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors ${
                         checkoutStep === item.step
@@ -895,11 +946,17 @@ export default function CheckoutPage() {
                       Full Name *
                     </label>
                     <input
+                      ref={nameInputRef}
+                      id="checkout-name"
                       type="text"
                       value={form.name}
                       onChange={(e) => updateField("name", e.target.value)}
                       onBlur={() => markCheckoutTouched("name")}
-                      className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                      className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
+                        touched.name && checkoutFieldErrors.name
+                          ? "border-destructive focus:border-destructive"
+                          : "border-border"
+                      }`}
                       required
                     />
                     {touched.name && checkoutFieldErrors.name && (
@@ -913,13 +970,19 @@ export default function CheckoutPage() {
                         Phone *
                       </label>
                       <input
+                        ref={phoneInputRef}
+                        id="checkout-phone"
                         type="tel"
                         value={form.phone}
                         onChange={(e) => updateField("phone", e.target.value)}
                         onBlur={() => markCheckoutTouched("phone")}
                         placeholder="0XXXXXXXXX"
                         inputMode="numeric"
-                        className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                        className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
+                          touched.phone && checkoutFieldErrors.phone
+                            ? "border-destructive focus:border-destructive"
+                            : "border-border"
+                        }`}
                         required
                       />
                       <p className="mt-2 text-xs text-muted-foreground">
@@ -935,11 +998,17 @@ export default function CheckoutPage() {
                         Email
                       </label>
                       <input
+                        ref={emailInputRef}
+                        id="checkout-email"
                         type="email"
                         value={form.email}
                         onChange={(e) => updateField("email", e.target.value)}
                         onBlur={() => markCheckoutTouched("email")}
-                        className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                        className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
+                          touched.email && checkoutFieldErrors.email
+                            ? "border-destructive focus:border-destructive"
+                            : "border-border"
+                        }`}
                       />
                       {touched.email && checkoutFieldErrors.email && (
                         <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.email}</p>
@@ -960,6 +1029,8 @@ export default function CheckoutPage() {
                 <div className="space-y-4">
                   <AddressAutocompleteField
                     label="Delivery Address"
+                    textareaId="checkout-address"
+                    textareaRef={addressInputRef}
                     value={form.address}
                     onValueChange={(value) => updateField("address", value)}
                     onSuggestionSelect={(suggestion) => {
@@ -972,6 +1043,7 @@ export default function CheckoutPage() {
                     required
                     selected={selectedDestination.lat != null && selectedDestination.lng != null}
                     selectedMessage="Address suggestion selected"
+                    hasError={touched.address && Boolean(checkoutFieldErrors.address)}
                   />
                   {touched.address && checkoutFieldErrors.address && (
                     <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
@@ -1223,6 +1295,8 @@ export default function CheckoutPage() {
                   ) : (
                     <div className="flex gap-2">
                       <input
+                        ref={voucherInputRef}
+                        id="checkout-voucher-code"
                         type="text"
                         value={voucherCode}
                         onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
@@ -1310,6 +1384,7 @@ export default function CheckoutPage() {
                             email: form.payment === "card" ? true : prev.email,
                           }));
                           if (!canContinueDeliveryStep) {
+                            focusFirstInvalidForDelivery();
                             toast.error(
                               !user
                                 ? "Please sign in before placing your order."
@@ -1322,6 +1397,7 @@ export default function CheckoutPage() {
                         }
 
                         if (!canContinuePaymentStep) {
+                          focusFirstInvalidForPayment();
                           toast.error("Apply a valid prepaid voucher to continue with voucher payment.");
                           return;
                         }
