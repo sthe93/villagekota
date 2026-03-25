@@ -64,3 +64,20 @@ The repo currently supports browser notifications. For app-store releases, imple
   - `NSFaceIDUsageDescription` for optional biometric verification
 - Keep `ITSAppUsesNonExemptEncryption` aligned with release/export-compliance answers in App Store Connect.
 - Verify app capability declarations in Xcode (Push Notifications / Background Modes) match implemented behavior before submission.
+
+## Windows-friendly iOS testing path (via GitHub Actions)
+
+You can trigger `.github/workflows/ios-testflight.yml` with **Run workflow** in GitHub Actions.
+This builds on `macos-latest`, archives the Capacitor iOS app, exports an IPA, uploads it as an artifact,
+and then submits the IPA to TestFlight.
+
+Required GitHub secrets:
+
+- `BUILD_CERTIFICATE_BASE64` (Apple Distribution `.p12`, base64-encoded)
+- `P12_PASSWORD` (password for the `.p12`)
+- `KEYCHAIN_PASSWORD` (temporary keychain password for CI)
+- `BUILD_PROVISION_PROFILE_BASE64` (App Store provisioning profile, base64-encoded)
+- `EXPORT_OPTIONS_PLIST_BASE64` (`ExportOptions.plist`, base64-encoded)
+- `APPSTORE_ISSUER_ID` (App Store Connect API issuer id)
+- `APPSTORE_API_KEY_ID` (App Store Connect API key id)
+- `APPSTORE_API_PRIVATE_KEY` (contents of the `.p8` API key)
