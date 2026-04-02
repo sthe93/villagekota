@@ -42,6 +42,11 @@ import {
   isWithinStarVillageGeofence,
   STAR_VILLAGE_DELIVERY_MESSAGE,
 } from "@/lib/deliveryZone";
+import {
+  buildCheckoutFieldErrors,
+  buildCheckoutValidationMessages,
+  getPhoneDigits,
+} from "@/lib/checkoutValidation";
 
 const AddressAutocompleteField = lazy(() => import("@/components/AddressAutocompleteField"));
 
@@ -89,10 +94,6 @@ const VOUCHER_PROVIDER_LABELS: Record<VoucherProvider, string> = {
 };
 
 const ONE_VOUCHER_PIN_REGEX = /^\d{16}$/;
-const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
-function getPhoneDigits(value: string) {
-  return value.replace(/\D/g, "");
-}
 
 export default function CheckoutPage() {
   const {
@@ -264,46 +265,11 @@ export default function CheckoutPage() {
   };
 
   const getCheckoutValidationMessages = () => {
-    const messages: string[] = [];
-    const trimmedName = form.name.trim();
-    const trimmedAddress = form.address.trim();
-    const trimmedEmail = form.email.trim();
-    const phoneDigits = getPhoneDigits(form.phone);
-
-    if (!user) {
-      messages.push("Please sign in before placing your order.");
-    }
-
-    if (!trimmedName) {
-      messages.push("Full name is required.");
-    }
-
-    if (!phoneDigits) {
-      messages.push("Cell phone number is required.");
-    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
-      messages.push("Enter a valid South African cell phone number with 10 digits.");
-    }
-
-    const hasGeocodedDestination =
-      selectedDestination.lat != null && selectedDestination.lng != null;
-    const isOutsideZone = hasGeocodedDestination
-      ? !isWithinStarVillageGeofence({
-          lat: selectedDestination.lat!,
-          lng: selectedDestination.lng!,
-        })
-      : !isStarVillageAddress(trimmedAddress);
-
-    if (!trimmedAddress) {
-      messages.push("Delivery address is required.");
-    } else if (isOutsideZone) {
-      messages.push(STAR_VILLAGE_DELIVERY_MESSAGE);
-    }
-
-    if (form.payment === "card" && !trimmedEmail) {
-      messages.push("Email is required for card payments.");
-    }
-
-    return messages;
+    return buildCheckoutValidationMessages({
+      isSignedIn: Boolean(user),
+      fields: form,
+      destination: selectedDestination,
+    });
   };
 
   const discountAmount = voucherInfo?.discountAmount || 0;
@@ -342,42 +308,7 @@ export default function CheckoutPage() {
       : Math.min((subtotal / freeDeliveryThreshold) * 100, 100);
 
   const fieldErrors = useMemo(() => {
-    const errors: Partial<Record<keyof typeof form, string>> = {};
-    const trimmedName = form.name.trim();
-    const trimmedAddress = form.address.trim();
-    const trimmedEmail = form.email.trim();
-    const phoneDigits = getPhoneDigits(form.phone);
-
-    if (!trimmedName) {
-      errors.name = "Full name is required.";
-    }
-
-    if (!phoneDigits) {
-      errors.phone = "Cell phone number is required.";
-    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
-      errors.phone = "Enter a valid South African cell phone number (10 digits).";
-    }
-
-    const hasGeocodedDestination =
-      selectedDestination.lat != null && selectedDestination.lng != null;
-    const isOutsideZone = hasGeocodedDestination
-      ? !isWithinStarVillageGeofence({
-          lat: selectedDestination.lat!,
-          lng: selectedDestination.lng!,
-        })
-      : !isStarVillageAddress(trimmedAddress);
-
-    if (!trimmedAddress) {
-      errors.address = "Delivery address is required.";
-    } else if (isOutsideZone) {
-      errors.address = STAR_VILLAGE_DELIVERY_MESSAGE;
-    }
-
-    if (form.payment === "card" && !trimmedEmail) {
-      errors.email = "Email is required for card payments.";
-    }
-
-    return errors;
+    return buildCheckoutFieldErrors(form, selectedDestination);
   }, [form, selectedDestination.lat, selectedDestination.lng]);
 
   const canContinueFromDelivery = Boolean(
