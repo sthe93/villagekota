@@ -42,26 +42,28 @@ function haversineDistanceMeters(a: Coordinates, b: Coordinates) {
 }
 
 export function createDeliveryZonePolicy(config: DeliveryZoneConfig) {
+  const isAddressInZone = (address: string) => config.addressPattern.test(address.trim());
+  const isCoordinatesInZone = (destination: Coordinates) =>
+    haversineDistanceMeters(config.center, destination) <= config.radiusMeters;
+
+  const getDeliveryAddressError = (address: string, destination: DestinationCoords) => {
+    const trimmedAddress = address.trim();
+    if (!trimmedAddress) {
+      return "Delivery address is required.";
+    }
+
+    const hasGeocodedDestination = destination.lat != null && destination.lng != null;
+    const isOutsideZone = hasGeocodedDestination
+      ? !isCoordinatesInZone({ lat: destination.lat, lng: destination.lng })
+      : !isAddressInZone(trimmedAddress);
+
+    return isOutsideZone ? config.outOfZoneMessage : null;
+  };
+
   return {
-    isAddressInZone(address: string) {
-      return config.addressPattern.test(address.trim());
-    },
-    isCoordinatesInZone(destination: Coordinates) {
-      return haversineDistanceMeters(config.center, destination) <= config.radiusMeters;
-    },
-    getDeliveryAddressError(address: string, destination: DestinationCoords) {
-      const trimmedAddress = address.trim();
-      if (!trimmedAddress) {
-        return "Delivery address is required.";
-      }
-
-      const hasGeocodedDestination = destination.lat != null && destination.lng != null;
-      const isOutsideZone = hasGeocodedDestination
-        ? !this.isCoordinatesInZone({ lat: destination.lat, lng: destination.lng })
-        : !this.isAddressInZone(trimmedAddress);
-
-      return isOutsideZone ? config.outOfZoneMessage : null;
-    },
+    isAddressInZone,
+    isCoordinatesInZone,
+    getDeliveryAddressError,
   };
 }
 

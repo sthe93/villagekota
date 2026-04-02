@@ -66,4 +66,16 @@ describe("createDeliveryZonePolicy", () => {
       "Outside custom zone"
     );
   });
+
+  it("supports destructuring policy methods without losing behavior", () => {
+    const policy = createDeliveryZonePolicy({
+      addressPattern: /custom zone/i,
+      center: { lat: 0, lng: 0 },
+      radiusMeters: 500,
+      outOfZoneMessage: "Outside custom zone",
+    });
+
+    const { getDeliveryAddressError } = policy;
+    expect(getDeliveryAddressError("Unknown", { lat: 1, lng: 1 })).toBe("Outside custom zone");
+  });
 });
