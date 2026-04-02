@@ -94,6 +94,7 @@ type PreparedItem = {
 
 const DELIVERY_FEE = 25;
 const FREE_DELIVERY_THRESHOLD = 150;
+const STAR_VILLAGE_ADDRESS_PATTERN = /\bstar\s+village\b/i;
 const STAR_VILLAGE_CENTER = { lat: -26.3004, lng: 27.8429 };
 const STAR_VILLAGE_RADIUS_METERS = 2200;
 
@@ -141,6 +142,10 @@ function haversineDistanceMeters(a: { lat: number; lng: number }, b: { lat: numb
 
 function isWithinStarVillageGeofence(destination: { lat: number; lng: number }) {
   return haversineDistanceMeters(STAR_VILLAGE_CENTER, destination) <= STAR_VILLAGE_RADIUS_METERS;
+}
+
+function isStarVillageAddress(address: string) {
+  return STAR_VILLAGE_ADDRESS_PATTERN.test(address.trim());
 }
 
 function normalizePhone(value: string | null | undefined) {
@@ -286,11 +291,18 @@ Deno.serve(async (req) => {
       throw new Error("Enter a valid South African cell phone number with 10 digits.");
     }
     if (!deliveryAddress) throw new Error("Delivery address is required");
-    if (destinationLat == null || destinationLng == null) {
-      throw new Error("Please choose an address suggestion inside Star Village.");
-    }
-    if (!isWithinStarVillageGeofence({ lat: destinationLat, lng: destinationLng })) {
+    const hasDestinationCoordinates = destinationLat != null && destinationLng != null;
+    if (
+      destinationLat != null &&
+      destinationLng != null &&
+      !isWithinStarVillageGeofence({ lat: destinationLat, lng: destinationLng })
+    ) {
       throw new Error("The selected address is outside our Star Village delivery zone.");
+    }
+    if (!hasDestinationCoordinates && !isStarVillageAddress(deliveryAddress)) {
+      throw new Error(
+        "Please choose a suggested address inside Star Village so we can verify your delivery location."
+      );
     }
     if (paymentMethod === "card" && !customerEmail) {
       throw new Error("Email is required for card payments.");

@@ -603,6 +603,13 @@ export default function CheckoutPage() {
           ? selectedDestination
           : await geocodeSouthAfricaAddress(form.address);
 
+      if (destination?.lat == null || destination?.lng == null) {
+        toast.error(
+          "Please choose a suggested address inside Star Village so we can verify your delivery location."
+        );
+        return;
+      }
+
       const createOrderPayload = {
         customerName: form.name.trim(),
         customerPhone,
@@ -1189,7 +1196,7 @@ export default function CheckoutPage() {
                               )}
                               {!active && method.disabled && (
                                 <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                                  Apply voucher first
+                                  {method.value === "card" ? "Temporarily unavailable" : "Apply voucher first"}
                                 </span>
                               )}
                             </div>
