@@ -15,7 +15,6 @@ import {
   AlertTriangle,
   RotateCcw,
 } from "lucide-react";
-import maplibregl from "maplibre-gl";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
@@ -70,6 +69,8 @@ import { getMapTilerStyleUrl } from "@/lib/maps";
 import { getProducts } from "@/data/products";
 import { buildReorderPlan } from "@/lib/reorder";
 
+type MaplibreModule = typeof import("maplibre-gl");
+
 export default function OrderTrackingPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
@@ -88,9 +89,10 @@ export default function OrderTrackingPage() {
   const [driverReassigned, setDriverReassigned] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const destinationMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const mapRef = useRef<import("maplibre-gl").Map | null>(null);
+  const driverMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
+  const destinationMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
+  const maplibreModuleRef = useRef<MaplibreModule | null>(null);
   const lastOrderSnapshotRef = useRef<{
     status: OrderStatus | null;
     paymentStatus: string;
@@ -435,57 +437,71 @@ export default function OrderTrackingPage() {
     const styleUrl = getMapTilerStyleUrl();
     if (!styleUrl) return;
 
-    if (!mapRef.current) {
-      mapRef.current = new maplibregl.Map({
-        container: mapContainerRef.current,
-        style: styleUrl,
-        center: driverLngLat,
-        zoom: isArrived ? 16 : 14,
-      });
+    let cancelled = false;
 
-      driverMarkerRef.current = new maplibregl.Marker({ color: "#111827" })
-        .setLngLat(driverLngLat)
-        .addTo(mapRef.current);
+    const syncMap = async () => {
+      const maplibre = maplibreModuleRef.current ?? (await import("maplibre-gl"));
+      if (cancelled || !mapContainerRef.current) return;
+      maplibreModuleRef.current = maplibre;
 
-      if (destinationLngLat) {
-        destinationMarkerRef.current = new maplibregl.Marker({ color: "#059669" })
-          .setLngLat(destinationLngLat)
-          .addTo(mapRef.current);
-      }
-    } else {
-      driverMarkerRef.current?.setLngLat(driverLngLat);
-
-      if (destinationLngLat) {
-        if (!destinationMarkerRef.current) {
-          destinationMarkerRef.current = new maplibregl.Marker({ color: "#059669" })
-            .setLngLat(destinationLngLat)
-            .addTo(mapRef.current);
-        } else {
-          destinationMarkerRef.current.setLngLat(destinationLngLat);
-        }
-      } else {
-        destinationMarkerRef.current?.remove();
-        destinationMarkerRef.current = null;
-      }
-    }
-
-    if (mapRef.current) {
-      if (destinationLngLat && !isArrived) {
-        const bounds = new maplibregl.LngLatBounds(driverLngLat, driverLngLat);
-        bounds.extend(destinationLngLat);
-        mapRef.current.fitBounds(bounds, {
-          padding: 60,
-          maxZoom: 15,
-          duration: 800,
-        });
-      } else {
-        mapRef.current.easeTo({
+      if (!mapRef.current) {
+        mapRef.current = new maplibre.Map({
+          container: mapContainerRef.current,
+          style: styleUrl,
           center: driverLngLat,
           zoom: isArrived ? 16 : 14,
-          duration: 800,
         });
+
+        driverMarkerRef.current = new maplibre.Marker({ color: "#111827" })
+          .setLngLat(driverLngLat)
+          .addTo(mapRef.current);
+
+        if (destinationLngLat) {
+          destinationMarkerRef.current = new maplibre.Marker({ color: "#059669" })
+            .setLngLat(destinationLngLat)
+            .addTo(mapRef.current);
+        }
+      } else {
+        driverMarkerRef.current?.setLngLat(driverLngLat);
+
+        if (destinationLngLat) {
+          if (!destinationMarkerRef.current) {
+            destinationMarkerRef.current = new maplibre.Marker({ color: "#059669" })
+              .setLngLat(destinationLngLat)
+              .addTo(mapRef.current);
+          } else {
+            destinationMarkerRef.current.setLngLat(destinationLngLat);
+          }
+        } else {
+          destinationMarkerRef.current?.remove();
+          destinationMarkerRef.current = null;
+        }
       }
-    }
+
+      if (mapRef.current) {
+        if (destinationLngLat && !isArrived) {
+          const bounds = new maplibre.LngLatBounds(driverLngLat, driverLngLat);
+          bounds.extend(destinationLngLat);
+          mapRef.current.fitBounds(bounds, {
+            padding: 60,
+            maxZoom: 15,
+            duration: 800,
+          });
+        } else {
+          mapRef.current.easeTo({
+            center: driverLngLat,
+            zoom: isArrived ? 16 : 14,
+            duration: 800,
+          });
+        }
+      }
+    };
+
+    void syncMap();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     showMap,
     isArrived,
