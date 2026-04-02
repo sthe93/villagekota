@@ -739,6 +739,41 @@ export default function CheckoutPage() {
     },
   ];
 
+  const paymentClarity = (() => {
+    if (form.payment === "card") {
+      return {
+        title: "Secure online payment",
+        description: "You’ll be redirected to PayFast now. A valid email is required.",
+        tone: "border-border bg-background text-muted-foreground",
+      };
+    }
+
+    if (form.payment === "eft") {
+      return {
+        title: "Bank transfer payment",
+        description:
+          "Place order now, then complete EFT transfer. Fulfilment should continue once payment is confirmed.",
+        tone: "border-border bg-background text-muted-foreground",
+      };
+    }
+
+    if (form.payment === "voucher") {
+      return {
+        title: "Voucher applied",
+        description: voucherCoversFullOrder
+          ? `${voucherProviderLabel} will fully cover this order.`
+          : `${voucherProviderLabel} is applied, and a backup payment method is still required for the balance.`,
+        tone: "border-success/30 bg-success/10 text-success",
+      };
+    }
+
+    return {
+      title: "Pay on delivery",
+      description: "Pay cash to your driver when the order arrives.",
+      tone: "border-border bg-background text-muted-foreground",
+    };
+  })();
+
   function paymentOptionsLabel(method: PaymentMethod) {
     switch (method) {
       case "card":
@@ -1141,31 +1176,11 @@ export default function CheckoutPage() {
                   })}
                 </div>
 
-                {form.payment === "card" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    You’ll be redirected to PayFast for secure card payment. An email address is required.
-                  </div>
-                )}
-
-                {form.payment === "eft" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    EFT orders are created with payment pending. Preparation and dispatch should only continue after payment is confirmed manually.
-                  </div>
-                )}
-
-                {form.payment === "cash" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    Pay the driver on delivery. Please have the correct amount ready if possible.
-                  </div>
-                )}
-
-                {form.payment === "voucher" && (
-                  <div className="mt-4 rounded-2xl border border-success/30 bg-success/10 p-4 text-sm text-success">
-                    {voucherCoversFullOrder
-                      ? `${voucherProviderLabel} will fully pay for this order during checkout.`
-                      : `${voucherProviderLabel} is applied as a discount, but another payment method is still required for the remaining balance.`}
-                  </div>
-                )}
+                <div className={`mt-4 rounded-2xl border p-4 ${paymentClarity.tone}`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.1em]">Payment clarity</p>
+                  <p className="mt-1 text-sm font-semibold">{paymentClarity.title}</p>
+                  <p className="mt-1 text-sm">{paymentClarity.description}</p>
+                </div>
 
                 <div className="mt-5 border-t border-border pt-4">
                   <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
