@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { isStarVillageAddress, STAR_VILLAGE_DELIVERY_MESSAGE } from "@/lib/deliveryZone";
 
 export type CheckoutStep = 1 | 2 | 3;
 export type ExtendedPaymentMethod = "cash" | "card" | "eft" | "voucher";
@@ -71,6 +72,8 @@ export function useCheckoutFlow({
 
     if (!form.address.trim()) {
       errors.address = "Delivery address is required.";
+    } else if (!isStarVillageAddress(form.address)) {
+      errors.address = STAR_VILLAGE_DELIVERY_MESSAGE;
     }
 
     if (form.payment === "card" && !form.email.trim()) {
