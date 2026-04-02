@@ -15,6 +15,7 @@ import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
 import { toast } from "@/components/ui/sonner";
 import { useProducts } from "@/hooks/use-products";
+import { trackEvent } from "@/lib/analytics";
 
 const sortOptions = [
   { value: "default", label: "Best Rated" },
@@ -292,6 +293,16 @@ export default function MenuPage() {
   };
 
   const hasActiveFilters = activeFilterCount > 0;
+
+  useEffect(() => {
+    if (intentPreset === "none") return;
+
+    trackEvent("menu_intent_preset_selected", {
+      preset: intentPreset,
+      quick_filter: quickFilter,
+      category: activeCategory,
+    });
+  }, [intentPreset, quickFilter, activeCategory]);
 
   return (
     <div className="min-h-screen bg-background">

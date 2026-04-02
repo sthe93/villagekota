@@ -35,6 +35,7 @@ import {
   sortSavedAddresses,
   type SavedAddressRecord,
 } from "@/lib/savedAddresses";
+import { trackEvent } from "@/lib/analytics";
 
 type PaymentMethod = "cash" | "card" | "eft";
 type VoucherProvider = "one_voucher" | "ott_voucher" | "blu_voucher" | "instant_money";
@@ -811,6 +812,14 @@ export default function CheckoutPage() {
       : checkoutStep === 2
         ? "Step 2 of 3 · Payment setup"
         : "Step 3 of 3 · Review and place order";
+
+  useEffect(() => {
+    trackEvent("checkout_step_viewed", {
+      step: checkoutStep,
+      payment_method: form.payment,
+      has_voucher: Boolean(voucherInfo),
+    });
+  }, [checkoutStep, form.payment, voucherInfo]);
 
   return (
     <div className="min-h-screen bg-background">

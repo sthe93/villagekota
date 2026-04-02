@@ -11,6 +11,7 @@ import {
 import type { Product } from "@/data/products";
 import ProductQuickAddSheet from "@/components/ProductQuickAddSheet";
 import { useCart } from "@/context/CartContext";
+import { trackEvent } from "@/lib/analytics";
 
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
@@ -81,6 +82,10 @@ export default function ProductCard({ product }: { product: Product }) {
     if (didCloseSheet && cartIncreased) {
       setRecentlyAdded(true);
       window.dispatchEvent(new CustomEvent("cart:add-feedback"));
+      trackEvent("menu_product_added", {
+        product_id: product.id,
+        product_name: product.name,
+      });
       if (addFeedbackTimerRef.current) {
         window.clearTimeout(addFeedbackTimerRef.current);
       }
@@ -92,7 +97,7 @@ export default function ProductCard({ product }: { product: Product }) {
 
     previousQuickAddOpenRef.current = quickAddOpen;
     previousItemCountRef.current = itemCount;
-  }, [quickAddOpen, itemCount]);
+  }, [quickAddOpen, itemCount, product.id, product.name]);
 
   useEffect(() => {
     return () => {
