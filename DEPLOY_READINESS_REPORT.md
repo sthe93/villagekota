@@ -1,71 +1,66 @@
-# App Store / Play Store Deployment Readiness Report
+# Deployment Readiness Report
 
-Date: 2026-03-24 (UTC)  
+Date: 2026-04-01 (UTC)  
 Repository: `villagekota`
 
 ## Executive verdict
 
-**CONDITIONAL NO-GO** for Apple App Store and Google Play submission.
+**Conditional GO for web production deployment** and **NO-GO for app-store mobile release**.
 
-The engineering quality gates and core compliance/backend gaps raised in the previous review are now addressed in-repo. Remaining blockers are primarily mobile distribution readiness (native projects, native push, store assets/metadata, and real-device release evidence).
+The current codebase passes all configured engineering quality gates (lint, tests, production build), and core legal/compliance pages are present. The remaining blockers are in native mobile release operations (APNs/FCM push, store assets/metadata, and signed real-device release evidence).
 
-## Checklist assessment
+## Evidence collected in this review
 
-### 5) Go / no-go checklist
+### 1) Automated quality gates
 
-#### Security / backend
+- ✅ `npm run lint` passed with zero warnings.
+- ✅ `npm run test` passed (8 test files, 39 tests).
+- ✅ `npm run build` produced a successful production bundle.
 
-- [x] **Order totals computed server-side**
-- [x] **Payment amount derived from DB, not client body**
-- [x] **Checkout endpoint authenticated and ownership-checked**
-- [x] **PayFast webhook exists and is verified**
-- [x] **Voucher redemption handled server-side**
-- [x] **Delivery PIN flow works end-to-end**
-- [x] **Audit/payment logs exist**
-  - Added migration-backed `payment_logs` table and write paths in PayFast flow.
+### 2) Configuration and documentation checks
 
-#### Release engineering
+- `.env.example` includes required frontend runtime keys (Supabase + MapTiler).
+- `README.md` documents deployment scripts, environment setup, edge functions, and mobile caveats.
+- Legal/compliance routes are documented (`/privacy-policy`, `/terms-of-service`, `/data-disclosure`).
 
-- [x] **`npm run build` passes**
-- [x] **`npm run lint` passes with zero warnings (`--max-warnings=0`)**
-- [x] **`npm run test` passes**
-- [x] **Production envs managed outside tracked `.env`**
+### 3) Mobile readiness status
 
-#### Product / compliance
+- `android/` and `ios/` directories exist in repo.
+- Browser-notification flow is documented, but native offline push for app-store builds remains a separate requirement.
+- Store listing assets/metadata and signed device test evidence are still required before store submission.
 
-- [x] **Privacy Policy URL**
-- [x] **Terms of Service**
-- [x] **Account deletion flow**
-- [x] **Support/contact method**
-- [x] **Data disclosures documented**
+## Notable risks to address before “full go-live”
 
-#### Mobile/store readiness
+1. **Large maps vendor chunk**
+   - Current production output includes a large `vendor-maps` JS chunk (~1 MB+ raw). This can affect first-load performance on slower networks/devices.
+2. **Outdated Browserslist data warning**
+   - Build reports stale `caniuse-lite` metadata. Not a hard blocker, but should be refreshed for accurate browser targeting.
+3. **Native push and store packaging gap**
+   - APNs/FCM production push and store artifact preparation still need to be completed for mobile storefront approval.
 
-- [ ] **Android project exists**
-- [ ] **iOS project exists**
-- [ ] **Native push implemented**
-- [ ] **App icons/screenshots prepared**
-- [ ] **Store metadata completed**
-- [ ] **Test release run on real devices**
+## Final checklist
 
-## What changed in this remediation pass
+### Web deployment
 
-1. **Lint & CI policy**
-   - Enforced lint gate with `eslint . --max-warnings=0` and added `lint:ci` script.
-2. **Test env hardening**
-   - Supabase client now has safe fallback test values so unit tests run in CI without env injection.
-3. **Release architecture decision**
-   - Documented PWA-first release strategy in README until native-wrapper approval.
-4. **Legal/compliance pages**
-   - Added in-app Privacy Policy, Terms of Service, and Data Disclosure pages with routable URLs.
-5. **Account deletion flow**
-   - Added authenticated `delete-account` edge function plus My Account UI flow.
-6. **Payment/audit logging**
-   - Added `payment_logs` migration and PayFast log writes on checkout creation and webhook processing.
+- [x] Build/lint/test gates pass
+- [x] Required frontend env keys documented
+- [x] Legal/compliance pages documented
+- [x] Deployment scripts available
 
-## Remaining work before app-store submission
+**Web status:** Ready to deploy, with performance optimization follow-ups recommended.
 
-1. Establish native app containers (`android/`, `ios/`) or a finalized wrapper approach.
-2. Implement native mobile push channels (FCM/APNs) for store builds.
-3. Prepare store icon/screenshot sets and complete metadata in Play Console/App Store Connect.
-4. Run and document signed test releases on real Android and iOS devices.
+### Mobile app-store deployment
+
+- [x] Capacitor scaffold and platform directories present
+- [ ] Native APNs/FCM push fully implemented and validated
+- [ ] Store screenshots/icons/metadata finalized
+- [ ] Signed test releases executed on real Android/iOS devices and documented
+
+**Mobile store status:** Not yet ready for submission.
+
+## Recommended next actions (ordered)
+
+1. Ship web deployment from current commit.
+2. Reduce maps bundle impact (lazy-load map surfaces, split provider code where possible).
+3. Refresh Browserslist DB in CI/dev toolchain.
+4. Complete native push + store assets + signed release testing, then re-run final store-readiness audit.
