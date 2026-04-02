@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getStarVillageDeliveryError } from "@/lib/deliveryZone";
 
 export type CheckoutStep = 1 | 2 | 3;
 export type ExtendedPaymentMethod = "cash" | "card" | "eft" | "voucher";
@@ -69,8 +70,12 @@ export function useCheckoutFlow({
       errors.phone = "Enter a valid South African cell phone number (10 digits).";
     }
 
-    if (!form.address.trim()) {
-      errors.address = "Delivery address is required.";
+    const deliveryAddressError = getStarVillageDeliveryError(form.address, {
+      lat: null,
+      lng: null,
+    });
+    if (deliveryAddressError) {
+      errors.address = deliveryAddressError;
     }
 
     if (form.payment === "card" && !form.email.trim()) {
