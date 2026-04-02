@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDeliveryZonePolicy,
   getStarVillageDeliveryError,
   isStarVillageAddress,
   isWithinStarVillageGeofence,
@@ -47,5 +48,22 @@ describe("getStarVillageDeliveryError", () => {
         lng: 27.9202,
       })
     ).toBe("We currently deliver only to addresses inside Star Village.");
+  });
+});
+
+describe("createDeliveryZonePolicy", () => {
+  it("supports custom zone policies", () => {
+    const policy = createDeliveryZonePolicy({
+      addressPattern: /custom zone/i,
+      center: { lat: 0, lng: 0 },
+      radiusMeters: 500,
+      outOfZoneMessage: "Outside custom zone",
+    });
+
+    expect(policy.isAddressInZone("123 Custom Zone")).toBe(true);
+    expect(policy.isCoordinatesInZone({ lat: 0.001, lng: 0.001 })).toBe(true);
+    expect(policy.getDeliveryAddressError("Unknown", { lat: 1, lng: 1 })).toBe(
+      "Outside custom zone"
+    );
   });
 });

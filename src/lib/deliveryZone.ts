@@ -1,24 +1,34 @@
-const STAR_VILLAGE_ADDRESS_PATTERN = /\bstar\s+village\b/i;
-const STAR_VILLAGE_CENTER = { lat: -26.3004, lng: 27.8429 };
-const STAR_VILLAGE_RADIUS_METERS = 2200;
+export type Coordinates = {
+  lat: number;
+  lng: number;
+};
 
-type DestinationCoords = {
+export type DestinationCoords = {
   lat: number | null;
   lng: number | null;
 };
 
-export function isStarVillageAddress(address: string): boolean {
-  return STAR_VILLAGE_ADDRESS_PATTERN.test(address.trim());
-}
+export type DeliveryZoneConfig = {
+  addressPattern: RegExp;
+  center: Coordinates;
+  radiusMeters: number;
+  outOfZoneMessage: string;
+};
 
-export const STAR_VILLAGE_DELIVERY_MESSAGE =
-  "We currently deliver only to addresses inside Star Village.";
+const DEFAULT_CONFIG: DeliveryZoneConfig = {
+  addressPattern: /\bstar\s+village\b/i,
+  center: { lat: -26.3004, lng: 27.8429 },
+  radiusMeters: 2200,
+  outOfZoneMessage: "We currently deliver only to addresses inside Star Village.",
+};
+
+export const STAR_VILLAGE_DELIVERY_MESSAGE = DEFAULT_CONFIG.outOfZoneMessage;
 
 function toRadians(value: number) {
   return (value * Math.PI) / 180;
 }
 
-function haversineDistanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+function haversineDistanceMeters(a: Coordinates, b: Coordinates) {
   const earthRadiusMeters = 6371000;
   const deltaLat = toRadians(b.lat - a.lat);
   const deltaLng = toRadians(b.lng - a.lng);
@@ -31,23 +41,43 @@ function haversineDistanceMeters(a: { lat: number; lng: number }, b: { lat: numb
   return earthRadiusMeters * arc;
 }
 
-export function isWithinStarVillageGeofence(destination: { lat: number; lng: number }) {
-  return haversineDistanceMeters(STAR_VILLAGE_CENTER, destination) <= STAR_VILLAGE_RADIUS_METERS;
+export function createDeliveryZonePolicy(config: DeliveryZoneConfig) {
+  return {
+    isAddressInZone(address: string) {
+      return config.addressPattern.test(address.trim());
+    },
+    isCoordinatesInZone(destination: Coordinates) {
+      return haversineDistanceMeters(config.center, destination) <= config.radiusMeters;
+    },
+    getDeliveryAddressError(address: string, destination: DestinationCoords) {
+      const trimmedAddress = address.trim();
+      if (!trimmedAddress) {
+        return "Delivery address is required.";
+      }
+
+      const hasGeocodedDestination = destination.lat != null && destination.lng != null;
+      const isOutsideZone = hasGeocodedDestination
+        ? !this.isCoordinatesInZone({ lat: destination.lat, lng: destination.lng })
+        : !this.isAddressInZone(trimmedAddress);
+
+      return isOutsideZone ? config.outOfZoneMessage : null;
+    },
+  };
+}
+
+const starVillagePolicy = createDeliveryZonePolicy(DEFAULT_CONFIG);
+
+export function isStarVillageAddress(address: string): boolean {
+  return starVillagePolicy.isAddressInZone(address);
+}
+
+export function isWithinStarVillageGeofence(destination: Coordinates) {
+  return starVillagePolicy.isCoordinatesInZone(destination);
 }
 
 export function getStarVillageDeliveryError(
   address: string,
   destination: DestinationCoords
 ): string | null {
-  const trimmedAddress = address.trim();
-  if (!trimmedAddress) {
-    return "Delivery address is required.";
-  }
-
-  const hasGeocodedDestination = destination.lat != null && destination.lng != null;
-  const isOutsideZone = hasGeocodedDestination
-    ? !isWithinStarVillageGeofence({ lat: destination.lat, lng: destination.lng })
-    : !isStarVillageAddress(trimmedAddress);
-
-  return isOutsideZone ? STAR_VILLAGE_DELIVERY_MESSAGE : null;
+  return starVillagePolicy.getDeliveryAddressError(address, destination);
 }
