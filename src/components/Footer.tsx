@@ -1,5 +1,4 @@
-import { MapPin, Phone, Mail, Clock } from "lucide-react";
-import logo from "@/assets/star-village-logo.png";
+import { MapPin, Phone, Mail, Clock, Star } from "lucide-react";
 
 export default function Footer() {
   return (
@@ -7,11 +6,12 @@ export default function Footer() {
       <div className="container py-14 grid grid-cols-1 md:grid-cols-3 gap-10">
         <div>
           <div className="flex items-center mb-5">
-            <img
-              src={logo}
-              alt="Village Eats"
-              className="h-16 w-auto object-contain mix-blend-screen"
-            />
+            <div className="inline-flex items-center gap-2 rounded-xl border border-secondary-foreground/20 bg-secondary-foreground/10 px-3 py-2">
+              <Star className="h-5 w-5 fill-current text-accent" />
+              <span className="text-base font-semibold tracking-tight text-secondary-foreground">
+                Village Eats
+              </span>
+            </div>
           </div>
 
           <p className="text-sm leading-7 text-secondary-foreground/85 font-body max-w-xs">

@@ -10,7 +10,6 @@ import CartDrawer from "@/components/CartDrawer";
 import CartFAB from "@/components/CartFAB";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
-import "maplibre-gl/dist/maplibre-gl.css";
 import { Loader2 } from "lucide-react";
 import { Suspense, lazy } from "react";
 
