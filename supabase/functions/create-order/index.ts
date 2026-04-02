@@ -30,6 +30,8 @@ type CreateOrderRequest = {
   voucherCode?: string | null;
   voucherSource?: VoucherSource | null;
   voucherProvider?: VoucherProvider | null;
+  cardPaymentConfirmed?: boolean;
+  cardPaymentReference?: string | null;
 };
 
 type ProductRow = {
@@ -95,7 +97,7 @@ type PreparedItem = {
 const DELIVERY_FEE = 25;
 const FREE_DELIVERY_THRESHOLD = 150;
 const STAR_VILLAGE_ADDRESS_PATTERN = /\bstar\s+village\b/i;
-const STAR_VILLAGE_CENTER = { lat: -26.3004, lng: 27.8429 };
+const STAR_VILLAGE_CENTER = { lat: -26.2856, lng: 27.7594 };
 const STAR_VILLAGE_RADIUS_METERS = 2200;
 
 const corsHeaders = {
@@ -161,11 +163,12 @@ function buildOrderPaymentState(params: {
   voucherSource: VoucherSource | null;
   voucherProvider: VoucherProvider | null;
   adjustedTotal: number;
+  cardPaymentConfirmed: boolean;
 }) {
   if (params.paymentMethod === "card") {
     return {
       paymentProvider: "payfast",
-      paymentStatus: "pending",
+      paymentStatus: params.cardPaymentConfirmed ? "paid" : "pending",
     };
   }
 
@@ -285,6 +288,8 @@ Deno.serve(async (req) => {
     const voucherCode = normalizeVoucherCode(body.voucherCode);
     const voucherSource = body.voucherSource || null;
     const voucherProvider = body.voucherProvider || null;
+    const cardPaymentConfirmed = body.cardPaymentConfirmed === true;
+    const cardPaymentReference = (body.cardPaymentReference || "").trim() || null;
 
     if (!customerName) throw new Error("Full name is required");
     if (!/^0\d{9}$/.test(customerPhone)) {
@@ -307,10 +312,8 @@ Deno.serve(async (req) => {
     if (paymentMethod === "card" && !customerEmail) {
       throw new Error("Email is required for card payments.");
     }
-    if (paymentMethod === "card") {
-      throw new Error(
-        "Card checkout is temporarily disabled until post-payment order confirmation is enabled."
-      );
+    if (paymentMethod === "card" && !cardPaymentConfirmed) {
+      throw new Error("Card orders can only be created after confirmed PayFast payment.");
     }
     if (items.length === 0) throw new Error("Your cart is empty");
 
@@ -552,6 +555,7 @@ Deno.serve(async (req) => {
       voucherSource,
       voucherProvider: voucherSource === "provider" ? voucherProvider : ((localVoucher?.provider as VoucherProvider | null) ?? null),
       adjustedTotal,
+      cardPaymentConfirmed,
     });
 
     const itemNotes = preparedItems
@@ -586,6 +590,7 @@ Deno.serve(async (req) => {
       payment_method: paymentMethod,
       payment_provider: paymentState.paymentProvider,
       payment_status: paymentState.paymentStatus,
+      payment_reference: paymentMethod === "card" ? cardPaymentReference : null,
       subtotal,
       delivery_fee: deliveryFee,
       discount_amount: discountAmount,

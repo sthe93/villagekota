@@ -17,7 +17,7 @@ export type DeliveryZoneConfig = {
 
 const DEFAULT_CONFIG: DeliveryZoneConfig = {
   addressPattern: /\bstar\s+village\b/i,
-  center: { lat: -26.3004, lng: 27.8429 },
+  center: { lat: -26.2856, lng: 27.7594 },
   radiusMeters: 2200,
   outOfZoneMessage: "We currently deliver only to addresses inside Star Village.",
 };

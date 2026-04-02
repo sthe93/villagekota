@@ -633,6 +633,37 @@ export default function CheckoutPage() {
         voucherProvider: voucherInfo?.provider || null,
       };
 
+      if (form.payment === "card") {
+        const cardSessionId = crypto.randomUUID();
+        window.localStorage.setItem(
+          `pending_card_order:${cardSessionId}`,
+          JSON.stringify({ ...createOrderPayload, paymentMethod: "card" })
+        );
+
+        const { data: payfastData, error: payfastError } = await supabase.functions.invoke(
+          "create-payfast-checkout",
+          {
+            body: {
+              cardSessionId,
+              draftAmount: adjustedTotal,
+              customerName: form.name.trim(),
+              customerEmail,
+            },
+          }
+        );
+
+        if (payfastError || !payfastData?.url) {
+          window.localStorage.removeItem(`pending_card_order:${cardSessionId}`);
+          toast.error(
+            `Failed to start payment: ${payfastError?.message || "No payment URL returned"}`
+          );
+          return;
+        }
+
+        window.location.href = payfastData.url;
+        return;
+      }
+
       const { data: createdOrder, error: createOrderError } = await supabase.functions.invoke(
         "create-order",
         {
@@ -716,9 +747,9 @@ export default function CheckoutPage() {
   const paymentClarity = (() => {
     if (form.payment === "card") {
       return {
-        title: "Card checkout unavailable",
-        description: "Card payment will be re-enabled once orders are created only after confirmed payment.",
-        tone: "border-destructive/20 bg-destructive/5 text-destructive",
+        title: "Secure online payment",
+        description: "You’ll be redirected to PayFast now. A valid email is required.",
+        tone: "border-border bg-background text-muted-foreground",
       };
     }
 

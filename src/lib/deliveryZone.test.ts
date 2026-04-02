@@ -19,7 +19,7 @@ describe("isStarVillageAddress", () => {
 
 describe("isWithinStarVillageGeofence", () => {
   it("returns true for coordinates inside Star Village geofence", () => {
-    expect(isWithinStarVillageGeofence({ lat: -26.3003, lng: 27.8436 })).toBe(true);
+    expect(isWithinStarVillageGeofence({ lat: -26.2854, lng: 27.7598 })).toBe(true);
   });
 
   it("returns false for coordinates outside Star Village geofence", () => {
@@ -37,8 +37,8 @@ describe("getStarVillageDeliveryError", () => {
   it("uses geofence when destination coordinates are available", () => {
     expect(
       getStarVillageDeliveryError("Random address", {
-        lat: -26.3003,
-        lng: 27.8436,
+        lat: -26.2854,
+        lng: 27.7598,
       })
     ).toBeNull();
 
