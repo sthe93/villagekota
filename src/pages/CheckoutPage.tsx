@@ -805,6 +805,13 @@ export default function CheckoutPage() {
     }
   }
 
+  const checkoutStepMicrocopy =
+    checkoutStep === 1
+      ? "Step 1 of 3 · Delivery details"
+      : checkoutStep === 2
+        ? "Step 2 of 3 · Payment setup"
+        : "Step 3 of 3 · Review and place order";
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-7xl py-8 md:py-10">
@@ -895,6 +902,9 @@ export default function CheckoutPage() {
                     </button>
                   ))}
                 </div>
+                <p className="mt-3 text-center text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                  {checkoutStepMicrocopy}
+                </p>
               </section>
 
               {checkoutStep === 1 && (

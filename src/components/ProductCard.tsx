@@ -235,6 +235,9 @@ export default function ProductCard({ product }: { product: Product }) {
           </p>
 
           <div className="mt-auto pt-5">
+            <span className="sr-only" aria-live="polite">
+              {recentlyAdded ? `${product.name} added to cart` : ""}
+            </span>
             <button
               onClick={(event) => {
                 event.stopPropagation();

@@ -13,6 +13,7 @@ export default function CartFAB() {
   const { toggleCart, itemCount, total } = useCart();
   const [pulse, setPulse] = useState(false);
   const pulseTimeoutRef = useRef<number | null>(null);
+  const itemLabel = itemCount === 1 ? "item" : "items";
 
   useEffect(() => {
     const handlePulse = () => {
@@ -40,10 +41,13 @@ export default function CartFAB() {
   return (
     <button
       onClick={toggleCart}
+      aria-label={`Open cart with ${itemCount} ${itemLabel}, total ${priceFormatter.format(total)}`}
       className={`fixed bottom-6 right-6 z-40 bg-primary text-primary-foreground rounded-2xl px-5 py-3.5 shadow-fab flex items-center gap-3 hover:opacity-90 transition-all animate-scale-in md:hidden ${pulse ? "scale-110" : ""}`}
     >
       <ShoppingBag className="w-5 h-5" />
-      <span className="font-medium text-sm">{itemCount} items</span>
+      <span className="font-medium text-sm">
+        {itemCount} {itemLabel}
+      </span>
       <span className="font-display text-lg">{priceFormatter.format(total)}</span>
     </button>
   );
