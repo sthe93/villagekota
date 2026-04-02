@@ -37,7 +37,11 @@ import {
   type SavedAddressRecord,
 } from "@/lib/savedAddresses";
 import { trackEvent } from "@/lib/analytics";
-import { isStarVillageAddress, STAR_VILLAGE_DELIVERY_MESSAGE } from "@/lib/deliveryZone";
+import {
+  isStarVillageAddress,
+  isWithinStarVillageGeofence,
+  STAR_VILLAGE_DELIVERY_MESSAGE,
+} from "@/lib/deliveryZone";
 
 const AddressAutocompleteField = lazy(() => import("@/components/AddressAutocompleteField"));
 
@@ -280,9 +284,18 @@ export default function CheckoutPage() {
       messages.push("Enter a valid South African cell phone number with 10 digits.");
     }
 
+    const hasGeocodedDestination =
+      selectedDestination.lat != null && selectedDestination.lng != null;
+    const isOutsideZone = hasGeocodedDestination
+      ? !isWithinStarVillageGeofence({
+          lat: selectedDestination.lat!,
+          lng: selectedDestination.lng!,
+        })
+      : !isStarVillageAddress(trimmedAddress);
+
     if (!trimmedAddress) {
       messages.push("Delivery address is required.");
-    } else if (!isStarVillageAddress(trimmedAddress)) {
+    } else if (isOutsideZone) {
       messages.push(STAR_VILLAGE_DELIVERY_MESSAGE);
     }
 
@@ -345,9 +358,18 @@ export default function CheckoutPage() {
       errors.phone = "Enter a valid South African cell phone number (10 digits).";
     }
 
+    const hasGeocodedDestination =
+      selectedDestination.lat != null && selectedDestination.lng != null;
+    const isOutsideZone = hasGeocodedDestination
+      ? !isWithinStarVillageGeofence({
+          lat: selectedDestination.lat!,
+          lng: selectedDestination.lng!,
+        })
+      : !isStarVillageAddress(trimmedAddress);
+
     if (!trimmedAddress) {
       errors.address = "Delivery address is required.";
-    } else if (!isStarVillageAddress(trimmedAddress)) {
+    } else if (isOutsideZone) {
       errors.address = STAR_VILLAGE_DELIVERY_MESSAGE;
     }
 
@@ -356,7 +378,7 @@ export default function CheckoutPage() {
     }
 
     return errors;
-  }, [form]);
+  }, [form, selectedDestination.lat, selectedDestination.lng]);
 
   const canContinueFromDelivery = Boolean(
     user && !fieldErrors.name && !fieldErrors.phone && !fieldErrors.address
@@ -1051,6 +1073,13 @@ export default function CheckoutPage() {
                       value={form.address}
                       onValueChange={(value) => updateField("address", value)}
                       onSuggestionSelect={(suggestion) => {
+                        if (!isWithinStarVillageGeofence({ lat: suggestion.lat, lng: suggestion.lng })) {
+                          setSelectedDestination({ lat: null, lng: null });
+                          setTouched((prev) => ({ ...prev, address: true }));
+                          toast.error(STAR_VILLAGE_DELIVERY_MESSAGE);
+                          return;
+                        }
+
                         setSelectedDestination({
                           lat: suggestion.lat,
                           lng: suggestion.lng,

@@ -94,7 +94,8 @@ type PreparedItem = {
 
 const DELIVERY_FEE = 25;
 const FREE_DELIVERY_THRESHOLD = 150;
-const STAR_VILLAGE_ADDRESS_PATTERN = /\bstar\s+village\b/i;
+const STAR_VILLAGE_CENTER = { lat: -26.3004, lng: 27.8429 };
+const STAR_VILLAGE_RADIUS_METERS = 2200;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -121,8 +122,25 @@ function normalizeVoucherCode(value: string | null | undefined) {
   return (value || "").replace(/\s+/g, "").trim().toUpperCase();
 }
 
-function isStarVillageAddress(address: string) {
-  return STAR_VILLAGE_ADDRESS_PATTERN.test(address.trim());
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function haversineDistanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const earthRadiusMeters = 6371000;
+  const deltaLat = toRadians(b.lat - a.lat);
+  const deltaLng = toRadians(b.lng - a.lng);
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+  const inner =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const arc = 2 * Math.atan2(Math.sqrt(inner), Math.sqrt(1 - inner));
+  return earthRadiusMeters * arc;
+}
+
+function isWithinStarVillageGeofence(destination: { lat: number; lng: number }) {
+  return haversineDistanceMeters(STAR_VILLAGE_CENTER, destination) <= STAR_VILLAGE_RADIUS_METERS;
 }
 
 function normalizePhone(value: string | null | undefined) {
@@ -255,6 +273,8 @@ Deno.serve(async (req) => {
     const customerPhone = normalizePhone(body.customerPhone);
     const customerEmail = body.customerEmail?.trim() || user.email || null;
     const deliveryAddress = body.deliveryAddress?.trim();
+    const destinationLat = typeof body.destinationLat === "number" ? body.destinationLat : null;
+    const destinationLng = typeof body.destinationLng === "number" ? body.destinationLng : null;
     const paymentMethod = body.paymentMethod || "cash";
     const items = Array.isArray(body.items) ? body.items : [];
     const voucherCode = normalizeVoucherCode(body.voucherCode);
@@ -266,8 +286,11 @@ Deno.serve(async (req) => {
       throw new Error("Enter a valid South African cell phone number with 10 digits.");
     }
     if (!deliveryAddress) throw new Error("Delivery address is required");
-    if (!isStarVillageAddress(deliveryAddress)) {
-      throw new Error("We currently deliver only to addresses inside Star Village.");
+    if (destinationLat == null || destinationLng == null) {
+      throw new Error("Please choose an address suggestion inside Star Village.");
+    }
+    if (!isWithinStarVillageGeofence({ lat: destinationLat, lng: destinationLng })) {
+      throw new Error("The selected address is outside our Star Village delivery zone.");
     }
     if (paymentMethod === "card" && !customerEmail) {
       throw new Error("Email is required for card payments.");
