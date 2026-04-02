@@ -1,4 +1,5 @@
 import { MapPin, Phone, Mail, Clock, Star } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export default function Footer() {
   return (
@@ -45,11 +46,21 @@ export default function Footer() {
         <div>
           <h4 className="font-display text-2xl mb-4 text-secondary-foreground">QUICK LINKS</h4>
           <div className="space-y-2 text-sm text-secondary-foreground/85">
-            <a href="/menu" className="block hover:text-accent transition-colors">Full Menu</a>
-            <a href="/checkout" className="block hover:text-accent transition-colors">Checkout</a>
-            <a href="/terms-of-service" className="block hover:text-accent transition-colors">Terms of Service</a>
-            <a href="/privacy-policy" className="block hover:text-accent transition-colors">Privacy Policy</a>
-            <a href="/data-disclosure" className="block hover:text-accent transition-colors">Data Disclosure</a>
+            <Link to="/menu" className="block hover:text-accent transition-colors">
+              Full Menu
+            </Link>
+            <Link to="/checkout" className="block hover:text-accent transition-colors">
+              Checkout
+            </Link>
+            <Link to="/terms-of-service" className="block hover:text-accent transition-colors">
+              Terms of Service
+            </Link>
+            <Link to="/privacy-policy" className="block hover:text-accent transition-colors">
+              Privacy Policy
+            </Link>
+            <Link to="/data-disclosure" className="block hover:text-accent transition-colors">
+              Data Disclosure
+            </Link>
           </div>
         </div>
       </div>

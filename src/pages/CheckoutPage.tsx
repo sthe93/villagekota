@@ -37,6 +37,7 @@ import {
   type SavedAddressRecord,
 } from "@/lib/savedAddresses";
 import { trackEvent } from "@/lib/analytics";
+import { isStarVillageAddress, STAR_VILLAGE_DELIVERY_MESSAGE } from "@/lib/deliveryZone";
 
 const AddressAutocompleteField = lazy(() => import("@/components/AddressAutocompleteField"));
 
@@ -281,6 +282,8 @@ export default function CheckoutPage() {
 
     if (!trimmedAddress) {
       messages.push("Delivery address is required.");
+    } else if (!isStarVillageAddress(trimmedAddress)) {
+      messages.push(STAR_VILLAGE_DELIVERY_MESSAGE);
     }
 
     if (form.payment === "card" && !trimmedEmail) {
@@ -344,6 +347,8 @@ export default function CheckoutPage() {
 
     if (!trimmedAddress) {
       errors.address = "Delivery address is required.";
+    } else if (!isStarVillageAddress(trimmedAddress)) {
+      errors.address = STAR_VILLAGE_DELIVERY_MESSAGE;
     }
 
     if (form.payment === "card" && !trimmedEmail) {
@@ -402,6 +407,11 @@ export default function CheckoutPage() {
 
     if (!label || !addressText) {
       toast.error("Add a label and a delivery address before saving.");
+      return;
+    }
+
+    if (!isStarVillageAddress(addressText)) {
+      toast.error(STAR_VILLAGE_DELIVERY_MESSAGE);
       return;
     }
 

@@ -94,6 +94,7 @@ type PreparedItem = {
 
 const DELIVERY_FEE = 25;
 const FREE_DELIVERY_THRESHOLD = 150;
+const STAR_VILLAGE_ADDRESS_PATTERN = /\bstar\s+village\b/i;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -118,6 +119,10 @@ function roundCurrency(value: number) {
 
 function normalizeVoucherCode(value: string | null | undefined) {
   return (value || "").replace(/\s+/g, "").trim().toUpperCase();
+}
+
+function isStarVillageAddress(address: string) {
+  return STAR_VILLAGE_ADDRESS_PATTERN.test(address.trim());
 }
 
 function normalizePhone(value: string | null | undefined) {
@@ -261,6 +266,9 @@ Deno.serve(async (req) => {
       throw new Error("Enter a valid South African cell phone number with 10 digits.");
     }
     if (!deliveryAddress) throw new Error("Delivery address is required");
+    if (!isStarVillageAddress(deliveryAddress)) {
+      throw new Error("We currently deliver only to addresses inside Star Village.");
+    }
     if (paymentMethod === "card" && !customerEmail) {
       throw new Error("Email is required for card payments.");
     }
