@@ -576,8 +576,8 @@ export default function CheckoutPage() {
     const customerEmail = form.email.trim() || user.email || "";
     const customerPhone = getPhoneDigits(form.phone);
 
-    if (form.payment === "card" && !customerEmail) {
-      toast.error("Email is required for card payments.");
+    if (form.payment === "card") {
+      toast.error("Card checkout is temporarily disabled until post-payment order confirmation is enabled.");
       return;
     }
 
@@ -589,7 +589,7 @@ export default function CheckoutPage() {
 
       if (!voucherCoversFullOrder) {
         toast.error(
-          "This prepaid voucher does not cover the full order total yet. Use card, EFT, or cash for the remaining balance."
+          "This prepaid voucher does not cover the full order total yet. Use EFT or cash for the remaining balance."
         );
         return;
       }
@@ -643,29 +643,6 @@ export default function CheckoutPage() {
         throw new Error("Order creation completed but no order id was returned.");
       }
 
-      if (form.payment === "card") {
-        const { data: payfastData, error: payfastError } = await supabase.functions.invoke(
-          "create-payfast-checkout",
-          {
-            body: {
-              orderId: order.orderId,
-            },
-          }
-        );
-
-        if (payfastError || !payfastData?.url) {
-          toast.error(
-            `Failed to start payment: ${payfastError?.message || "No payment URL returned"}`
-          );
-          navigate(`/order-tracking/${order.orderId}`);
-          return;
-        }
-
-        clearCart();
-        window.location.href = payfastData.url;
-        return;
-      }
-
       if (form.payment === "eft") {
         clearCart();
         toast.success("Order placed. Please complete your EFT payment and keep your order reference.");
@@ -706,8 +683,9 @@ export default function CheckoutPage() {
     {
       value: "card",
       label: "Card / PayFast",
-      description: "Secure online payment via PayFast.",
+      description: "Disabled until payment-first checkout flow is released.",
       icon: CreditCard,
+      disabled: true,
     },
     {
       value: "eft",
@@ -731,9 +709,9 @@ export default function CheckoutPage() {
   const paymentClarity = (() => {
     if (form.payment === "card") {
       return {
-        title: "Secure online payment",
-        description: "You’ll be redirected to PayFast now. A valid email is required.",
-        tone: "border-border bg-background text-muted-foreground",
+        title: "Card checkout unavailable",
+        description: "Card payment will be re-enabled once orders are created only after confirmed payment.",
+        tone: "border-destructive/20 bg-destructive/5 text-destructive",
       };
     }
 

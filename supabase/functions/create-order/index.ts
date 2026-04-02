@@ -295,6 +295,11 @@ Deno.serve(async (req) => {
     if (paymentMethod === "card" && !customerEmail) {
       throw new Error("Email is required for card payments.");
     }
+    if (paymentMethod === "card") {
+      throw new Error(
+        "Card checkout is temporarily disabled until post-payment order confirmation is enabled."
+      );
+    }
     if (items.length === 0) throw new Error("Your cart is empty");
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
