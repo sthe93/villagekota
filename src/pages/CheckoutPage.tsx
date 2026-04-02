@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,7 +21,6 @@ import {
   ChevronUp,
 } from "lucide-react";
 import Footer from "@/components/Footer";
-import AddressAutocompleteField from "@/components/AddressAutocompleteField";
 import {
   geocodeSouthAfricaAddress,
 } from "@/lib/maps";
@@ -38,6 +37,8 @@ import {
   type SavedAddressRecord,
 } from "@/lib/savedAddresses";
 import { trackEvent } from "@/lib/analytics";
+
+const AddressAutocompleteField = lazy(() => import("@/components/AddressAutocompleteField"));
 
 type PaymentMethod = "cash" | "card" | "eft";
 type VoucherProvider = "one_voucher" | "ott_voucher" | "blu_voucher" | "instant_money";
@@ -1026,24 +1027,32 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="space-y-4">
-                  <AddressAutocompleteField
-                    label="Delivery Address"
-                    textareaId="checkout-address"
-                    textareaRef={addressInputRef}
-                    value={form.address}
-                    onValueChange={(value) => updateField("address", value)}
-                    onSuggestionSelect={(suggestion) => {
-                      setSelectedDestination({
-                        lat: suggestion.lat,
-                        lng: suggestion.lng,
-                      });
-                    }}
-                    rows={3}
-                    required
-                    selected={selectedDestination.lat != null && selectedDestination.lng != null}
-                    selectedMessage="Address suggestion selected"
-                    hasError={touched.address && Boolean(checkoutFieldErrors.address)}
-                  />
+                  <Suspense
+                    fallback={
+                      <div className="rounded-xl border border-dashed border-border bg-background px-4 py-3 text-sm text-muted-foreground">
+                        Loading address lookup...
+                      </div>
+                    }
+                  >
+                    <AddressAutocompleteField
+                      label="Delivery Address"
+                      textareaId="checkout-address"
+                      textareaRef={addressInputRef}
+                      value={form.address}
+                      onValueChange={(value) => updateField("address", value)}
+                      onSuggestionSelect={(suggestion) => {
+                        setSelectedDestination({
+                          lat: suggestion.lat,
+                          lng: suggestion.lng,
+                        });
+                      }}
+                      rows={3}
+                      required
+                      selected={selectedDestination.lat != null && selectedDestination.lng != null}
+                      selectedMessage="Address suggestion selected"
+                      hasError={touched.address && Boolean(checkoutFieldErrors.address)}
+                    />
+                  </Suspense>
                   {touched.address && checkoutFieldErrors.address && (
                     <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
                   )}

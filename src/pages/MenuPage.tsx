@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   SlidersHorizontal,
@@ -88,6 +88,7 @@ export default function MenuPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [intentPreset, setIntentPreset] = useState<IntentPreset>("none");
   const hasShownErrorRef = useRef(false);
+  const deferredSearch = useDeferredValue(search);
 
   useEffect(() => {
     if (!error || hasShownErrorRef.current) return;
@@ -171,7 +172,7 @@ export default function MenuPage() {
   }, [activeSpice, spiceOptions]);
 
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = deferredSearch.trim().toLowerCase();
     const searchWords = term.split(/\s+/).filter(Boolean);
 
     const result = products.filter((product) => {
@@ -252,7 +253,7 @@ export default function MenuPage() {
     });
 
     return sorted;
-  }, [products, search, activeCategory, activeSpice, sortBy, quickFilter, intentPreset]);
+  }, [products, deferredSearch, activeCategory, activeSpice, sortBy, quickFilter, intentPreset]);
 
   const activeSortLabel =
     sortOptions.find((option) => option.value === sortBy)?.label || "Recommended";

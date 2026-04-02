@@ -100,9 +100,11 @@ npm run browserslist:update
 - `npm run lint` — ESLint with `--max-warnings=0`
 - `npm run test` — run Vitest once
 - `npm run test:watch` — run Vitest watch mode
+- `npm run preview` — preview the latest production build locally
 - `npm run lint:ci` — CI lint entrypoint
 - `npm run browserslist:update` — refresh local Browserslist/caniuse-lite DB
 - `npm run build:mobile` — build with `VITE_ROUTER_BASENAME=/` for native shell
+- `npm run build:web` — build with `VITE_BASE_PATH=/villagekota/` and `VITE_ROUTER_BASENAME=/villagekota` for subpath hosting
 - `npm run cap:add:android` / `npm run cap:add:ios` — generate native Capacitor projects
 - `npm run cap:sync` — sync web assets/plugins into native projects
 - `npm run cap:open:android` / `npm run cap:open:ios` — open native IDE projects
