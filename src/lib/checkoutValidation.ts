@@ -11,6 +11,11 @@ export interface CheckoutValidationFields {
 }
 
 const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
+const PHONE_REQUIRED_MESSAGE = "Cell phone number is required.";
+const PHONE_INVALID_FIELD_MESSAGE = "Enter a valid South African cell phone number (10 digits).";
+const PHONE_INVALID_SUMMARY_MESSAGE = "Enter a valid South African cell phone number with 10 digits.";
+const NAME_REQUIRED_MESSAGE = "Full name is required.";
+const CARD_EMAIL_REQUIRED_MESSAGE = "Email is required for card payments.";
 
 export function getPhoneDigits(value: string) {
   return value.replace(/\D/g, "");
@@ -27,13 +32,13 @@ export function buildCheckoutFieldErrors(
   const phoneDigits = getPhoneDigits(fields.phone);
 
   if (!trimmedName) {
-    errors.name = "Full name is required.";
+    errors.name = NAME_REQUIRED_MESSAGE;
   }
 
   if (!phoneDigits) {
-    errors.phone = "Cell phone number is required.";
+    errors.phone = PHONE_REQUIRED_MESSAGE;
   } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
-    errors.phone = "Enter a valid South African cell phone number (10 digits).";
+    errors.phone = PHONE_INVALID_FIELD_MESSAGE;
   }
 
   const deliveryAddressError = getStarVillageDeliveryError(trimmedAddress, destination);
@@ -42,7 +47,7 @@ export function buildCheckoutFieldErrors(
   }
 
   if (fields.payment === "card" && !trimmedEmail) {
-    errors.email = "Email is required for card payments.";
+    errors.email = CARD_EMAIL_REQUIRED_MESSAGE;
   }
 
   return errors;
@@ -61,7 +66,11 @@ export function buildCheckoutValidationMessages(params: {
 
   const fieldErrors = buildCheckoutFieldErrors(params.fields, params.destination);
   if (fieldErrors.name) messages.push(fieldErrors.name);
-  if (fieldErrors.phone) messages.push(fieldErrors.phone.replace("(10 digits)", "with 10 digits"));
+  if (fieldErrors.phone) {
+    messages.push(
+      fieldErrors.phone === PHONE_INVALID_FIELD_MESSAGE ? PHONE_INVALID_SUMMARY_MESSAGE : fieldErrors.phone
+    );
+  }
   if (fieldErrors.address) messages.push(fieldErrors.address);
   if (fieldErrors.email) messages.push(fieldErrors.email);
 

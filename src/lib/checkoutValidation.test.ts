@@ -39,4 +39,20 @@ describe("checkoutValidation", () => {
 
     expect(messages).toContain("Please sign in before placing your order.");
   });
+
+  it("uses summary-friendly invalid phone wording", () => {
+    const messages = buildCheckoutValidationMessages({
+      isSignedIn: true,
+      fields: {
+        name: "A",
+        phone: "123",
+        email: "",
+        address: "12 Palm Road, Star Village",
+        payment: "cash",
+      },
+      destination: { lat: null, lng: null },
+    });
+
+    expect(messages).toContain("Enter a valid South African cell phone number with 10 digits.");
+  });
 });
