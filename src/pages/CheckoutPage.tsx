@@ -576,8 +576,8 @@ export default function CheckoutPage() {
     const customerEmail = form.email.trim() || user.email || "";
     const customerPhone = getPhoneDigits(form.phone);
 
-    if (form.payment === "card" && !customerEmail) {
-      toast.error("Email is required for card payments.");
+    if (form.payment === "card") {
+      toast.error("Card checkout is temporarily disabled until post-payment order confirmation is enabled.");
       return;
     }
 
@@ -589,7 +589,7 @@ export default function CheckoutPage() {
 
       if (!voucherCoversFullOrder) {
         toast.error(
-          "This prepaid voucher does not cover the full order total yet. Use card, EFT, or cash for the remaining balance."
+          "This prepaid voucher does not cover the full order total yet. Use EFT or cash for the remaining balance."
         );
         return;
       }
@@ -721,8 +721,9 @@ export default function CheckoutPage() {
     {
       value: "card",
       label: "Card / PayFast",
-      description: "Secure online payment via PayFast.",
+      description: "Disabled until payment-first checkout flow is released.",
       icon: CreditCard,
+      disabled: true,
     },
     {
       value: "eft",
