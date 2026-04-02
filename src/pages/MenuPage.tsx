@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   SlidersHorizontal,
@@ -15,6 +15,7 @@ import ProductCard from "@/components/ProductCard";
 import Footer from "@/components/Footer";
 import { toast } from "@/components/ui/sonner";
 import { useProducts } from "@/hooks/use-products";
+import { trackEvent } from "@/lib/analytics";
 
 const sortOptions = [
   { value: "default", label: "Best Rated" },
@@ -25,6 +26,7 @@ const sortOptions = [
 type SortOption = (typeof sortOptions)[number]["value"];
 type FilterSpiceLevel = NonNullable<SpiceLevel>;
 type QuickFilter = "all" | "popular" | "under50" | "spicy" | "veg" | "combos";
+type IntentPreset = "none" | "fastest" | "value" | "most_ordered" | "spicy";
 
 const RECENT_SEARCHES_KEY = "villagekota.recentMenuSearches";
 const MAX_RECENT_SEARCHES = 5;
@@ -84,7 +86,9 @@ export default function MenuPage() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchFocused, setSearchFocused] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [intentPreset, setIntentPreset] = useState<IntentPreset>("none");
   const hasShownErrorRef = useRef(false);
+  const deferredSearch = useDeferredValue(search);
 
   useEffect(() => {
     if (!error || hasShownErrorRef.current) return;
@@ -168,7 +172,7 @@ export default function MenuPage() {
   }, [activeSpice, spiceOptions]);
 
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = deferredSearch.trim().toLowerCase();
     const searchWords = term.split(/\s+/).filter(Boolean);
 
     const result = products.filter((product) => {
@@ -205,6 +209,28 @@ export default function MenuPage() {
     sorted.sort((a, b) => {
       if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
 
+      if (intentPreset === "fastest") {
+        if (a.isPopular !== b.isPopular) return a.isPopular ? -1 : 1;
+        if (a.price !== b.price) return a.price - b.price;
+      }
+
+      if (intentPreset === "value") {
+        if (a.price !== b.price) return a.price - b.price;
+        if (a.rating !== b.rating) return b.rating - a.rating;
+      }
+
+      if (intentPreset === "most_ordered") {
+        if (a.reviewCount !== b.reviewCount) return b.reviewCount - a.reviewCount;
+        if (a.rating !== b.rating) return b.rating - a.rating;
+      }
+
+      if (intentPreset === "spicy") {
+        const spiceRank = (value?: SpiceLevel | null) =>
+          value === "Extra Hot" ? 3 : value === "Hot" ? 2 : value === "Medium" ? 1 : 0;
+        const spiceDiff = spiceRank(b.spiceLevel) - spiceRank(a.spiceLevel);
+        if (spiceDiff !== 0) return spiceDiff;
+      }
+
       switch (sortBy) {
         case "price-asc":
           return a.price - b.price;
@@ -227,7 +253,7 @@ export default function MenuPage() {
     });
 
     return sorted;
-  }, [products, search, activeCategory, activeSpice, sortBy, quickFilter]);
+  }, [products, deferredSearch, activeCategory, activeSpice, sortBy, quickFilter, intentPreset]);
 
   const activeSortLabel =
     sortOptions.find((option) => option.value === sortBy)?.label || "Recommended";
@@ -245,6 +271,14 @@ export default function MenuPage() {
     setActiveCategory("All");
     setActiveSpice("All");
     setSortBy("default");
+    setIntentPreset("none");
+  };
+
+  const intentPresetLabel: Record<Exclude<IntentPreset, "none">, string> = {
+    fastest: "Fastest",
+    value: "Best Value",
+    most_ordered: "Most Ordered",
+    spicy: "Spicy Picks",
   };
 
   const saveSearchTerm = (term: string) => {
@@ -260,6 +294,16 @@ export default function MenuPage() {
   };
 
   const hasActiveFilters = activeFilterCount > 0;
+
+  useEffect(() => {
+    if (intentPreset === "none") return;
+
+    trackEvent("menu_intent_preset_selected", {
+      preset: intentPreset,
+      quick_filter: quickFilter,
+      category: activeCategory,
+    });
+  }, [intentPreset, quickFilter, activeCategory]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -486,6 +530,37 @@ export default function MenuPage() {
           )}
 
           <div className="sticky top-20 z-30 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 p-2 backdrop-blur">
+            {(
+              [
+                ["fastest", "Fastest"],
+                ["value", "Best Value"],
+                ["most_ordered", "Most Ordered"],
+                ["spicy", "Spicy Picks"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setIntentPreset((prev) => (prev === value ? "none" : value))}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                  intentPreset === value
+                    ? "bg-secondary text-secondary-foreground"
+                    : "border border-border bg-background text-foreground hover:bg-muted"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+
+            {intentPreset !== "none" && (
+              <button
+                onClick={() => setIntentPreset("none")}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                Intent: {intentPresetLabel[intentPreset]}
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+
             {([
               ["all", "All"],
               ["popular", "Popular"],
@@ -651,6 +726,27 @@ export default function MenuPage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 Try a different keyword, switch category, or remove some filters.
               </p>
+
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  onClick={() => setQuickFilter("popular")}
+                  className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                >
+                  Show popular
+                </button>
+                <button
+                  onClick={() => setQuickFilter("under50")}
+                  className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                >
+                  Under R50
+                </button>
+                <button
+                  onClick={() => setActiveSpice("All")}
+                  className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                >
+                  Clear spice
+                </button>
+              </div>
 
               <button
                 onClick={clearFilters}
