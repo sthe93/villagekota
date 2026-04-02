@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import "maplibre-gl/dist/maplibre-gl.css";
 import {
   CreditCard,
   Loader2,
