@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,9 +17,10 @@ import {
   CheckCircle2,
   BookmarkPlus,
   Home,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import Footer from "@/components/Footer";
-import AddressAutocompleteField from "@/components/AddressAutocompleteField";
 import {
   geocodeSouthAfricaAddress,
 } from "@/lib/maps";
@@ -35,6 +36,19 @@ import {
   sortSavedAddresses,
   type SavedAddressRecord,
 } from "@/lib/savedAddresses";
+import { trackEvent } from "@/lib/analytics";
+import {
+  isStarVillageAddress,
+  isWithinStarVillageGeofence,
+  STAR_VILLAGE_DELIVERY_MESSAGE,
+} from "@/lib/deliveryZone";
+import {
+  buildCheckoutFieldErrors,
+  buildCheckoutValidationMessages,
+  getPhoneDigits,
+} from "@/lib/checkoutValidation";
+
+const AddressAutocompleteField = lazy(() => import("@/components/AddressAutocompleteField"));
 
 type PaymentMethod = "cash" | "card" | "eft";
 type VoucherProvider = "one_voucher" | "ott_voucher" | "blu_voucher" | "instant_money";
@@ -80,10 +94,6 @@ const VOUCHER_PROVIDER_LABELS: Record<VoucherProvider, string> = {
 };
 
 const ONE_VOUCHER_PIN_REGEX = /^\d{16}$/;
-const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
-function getPhoneDigits(value: string) {
-  return value.replace(/\D/g, "");
-}
 
 export default function CheckoutPage() {
   const {
@@ -116,6 +126,8 @@ export default function CheckoutPage() {
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(true);
   const [savingCurrentAddress, setSavingCurrentAddress] = useState(false);
   const [newSavedAddressLabel, setNewSavedAddressLabel] = useState("");
+  const [showSavedAddresses, setShowSavedAddresses] = useState(false);
+  const [showVoucherSummary, setShowVoucherSummary] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState<{
     lat: number | null;
     lng: number | null;
@@ -253,35 +265,11 @@ export default function CheckoutPage() {
   };
 
   const getCheckoutValidationMessages = () => {
-    const messages: string[] = [];
-    const trimmedName = form.name.trim();
-    const trimmedAddress = form.address.trim();
-    const trimmedEmail = form.email.trim();
-    const phoneDigits = getPhoneDigits(form.phone);
-
-    if (!user) {
-      messages.push("Please sign in before placing your order.");
-    }
-
-    if (!trimmedName) {
-      messages.push("Full name is required.");
-    }
-
-    if (!phoneDigits) {
-      messages.push("Cell phone number is required.");
-    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
-      messages.push("Enter a valid South African cell phone number with 10 digits.");
-    }
-
-    if (!trimmedAddress) {
-      messages.push("Delivery address is required.");
-    }
-
-    if (form.payment === "card" && !trimmedEmail) {
-      messages.push("Email is required for card payments.");
-    }
-
-    return messages;
+    return buildCheckoutValidationMessages({
+      isSignedIn: Boolean(user),
+      fields: form,
+      destination: selectedDestination,
+    });
   };
 
   const discountAmount = voucherInfo?.discountAmount || 0;
@@ -290,6 +278,26 @@ export default function CheckoutPage() {
   const voucherProviderLabel =
     voucherInfo?.provider ? VOUCHER_PROVIDER_LABELS[voucherInfo.provider] : "Prepaid voucher";
   const voucherCoversFullOrder = prepaidVoucherApplied && adjustedTotal === 0;
+  const addressConfidence = useMemo(() => {
+    if (selectedDestination.lat != null && selectedDestination.lng != null) {
+      return {
+        label: "Exact pin found",
+        tone: "bg-success/10 text-success",
+      };
+    }
+
+    if (form.address.trim().length >= 12) {
+      return {
+        label: "Approximate match",
+        tone: "bg-accent/20 text-accent-foreground",
+      };
+    }
+
+    return {
+      label: "Needs confirmation",
+      tone: "bg-muted text-muted-foreground",
+    };
+  }, [form.address, selectedDestination.lat, selectedDestination.lng]);
   const selectedPaymentLabel =
     form.payment === "voucher"
       ? voucherProviderLabel
@@ -300,32 +308,8 @@ export default function CheckoutPage() {
       : Math.min((subtotal / freeDeliveryThreshold) * 100, 100);
 
   const fieldErrors = useMemo(() => {
-    const errors: Partial<Record<keyof typeof form, string>> = {};
-    const trimmedName = form.name.trim();
-    const trimmedAddress = form.address.trim();
-    const trimmedEmail = form.email.trim();
-    const phoneDigits = getPhoneDigits(form.phone);
-
-    if (!trimmedName) {
-      errors.name = "Full name is required.";
-    }
-
-    if (!phoneDigits) {
-      errors.phone = "Cell phone number is required.";
-    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
-      errors.phone = "Enter a valid South African cell phone number (10 digits).";
-    }
-
-    if (!trimmedAddress) {
-      errors.address = "Delivery address is required.";
-    }
-
-    if (form.payment === "card" && !trimmedEmail) {
-      errors.email = "Email is required for card payments.";
-    }
-
-    return errors;
-  }, [form]);
+    return buildCheckoutFieldErrors(form, selectedDestination);
+  }, [form, selectedDestination.lat, selectedDestination.lng]);
 
   const canContinueFromDelivery = Boolean(
     user && !fieldErrors.name && !fieldErrors.phone && !fieldErrors.address
@@ -376,6 +360,11 @@ export default function CheckoutPage() {
 
     if (!label || !addressText) {
       toast.error("Add a label and a delivery address before saving.");
+      return;
+    }
+
+    if (!isStarVillageAddress(addressText)) {
+      toast.error(STAR_VILLAGE_DELIVERY_MESSAGE);
       return;
     }
 
@@ -587,8 +576,8 @@ export default function CheckoutPage() {
     const customerEmail = form.email.trim() || user.email || "";
     const customerPhone = getPhoneDigits(form.phone);
 
-    if (form.payment === "card" && !customerEmail) {
-      toast.error("Email is required for card payments.");
+    if (form.payment === "card") {
+      toast.error("Card checkout is temporarily disabled until post-payment order confirmation is enabled.");
       return;
     }
 
@@ -600,7 +589,7 @@ export default function CheckoutPage() {
 
       if (!voucherCoversFullOrder) {
         toast.error(
-          "This prepaid voucher does not cover the full order total yet. Use card, EFT, or cash for the remaining balance."
+          "This prepaid voucher does not cover the full order total yet. Use EFT or cash for the remaining balance."
         );
         return;
       }
@@ -654,29 +643,6 @@ export default function CheckoutPage() {
         throw new Error("Order creation completed but no order id was returned.");
       }
 
-      if (form.payment === "card") {
-        const { data: payfastData, error: payfastError } = await supabase.functions.invoke(
-          "create-payfast-checkout",
-          {
-            body: {
-              orderId: order.orderId,
-            },
-          }
-        );
-
-        if (payfastError || !payfastData?.url) {
-          toast.error(
-            `Failed to start payment: ${payfastError?.message || "No payment URL returned"}`
-          );
-          navigate(`/order-tracking/${order.orderId}`);
-          return;
-        }
-
-        clearCart();
-        window.location.href = payfastData.url;
-        return;
-      }
-
       if (form.payment === "eft") {
         clearCart();
         toast.success("Order placed. Please complete your EFT payment and keep your order reference.");
@@ -717,8 +683,9 @@ export default function CheckoutPage() {
     {
       value: "card",
       label: "Card / PayFast",
-      description: "Secure online payment via PayFast.",
+      description: "Disabled until payment-first checkout flow is released.",
       icon: CreditCard,
+      disabled: true,
     },
     {
       value: "eft",
@@ -739,6 +706,41 @@ export default function CheckoutPage() {
     },
   ];
 
+  const paymentClarity = (() => {
+    if (form.payment === "card") {
+      return {
+        title: "Card checkout unavailable",
+        description: "Card payment will be re-enabled once orders are created only after confirmed payment.",
+        tone: "border-destructive/20 bg-destructive/5 text-destructive",
+      };
+    }
+
+    if (form.payment === "eft") {
+      return {
+        title: "Bank transfer payment",
+        description:
+          "Place order now, then complete EFT transfer. Fulfilment should continue once payment is confirmed.",
+        tone: "border-border bg-background text-muted-foreground",
+      };
+    }
+
+    if (form.payment === "voucher") {
+      return {
+        title: "Voucher applied",
+        description: voucherCoversFullOrder
+          ? `${voucherProviderLabel} will fully cover this order.`
+          : `${voucherProviderLabel} is applied, and a backup payment method is still required for the balance.`,
+        tone: "border-success/30 bg-success/10 text-success",
+      };
+    }
+
+    return {
+      title: "Pay on delivery",
+      description: "Pay cash to your driver when the order arrives.",
+      tone: "border-border bg-background text-muted-foreground",
+    };
+  })();
+
   function paymentOptionsLabel(method: PaymentMethod) {
     switch (method) {
       case "card":
@@ -749,6 +751,21 @@ export default function CheckoutPage() {
         return "Cash on delivery";
     }
   }
+
+  const checkoutStepMicrocopy =
+    checkoutStep === 1
+      ? "Step 1 of 3 · Delivery details"
+      : checkoutStep === 2
+        ? "Step 2 of 3 · Payment setup"
+        : "Step 3 of 3 · Review and place order";
+
+  useEffect(() => {
+    trackEvent("checkout_step_viewed", {
+      step: checkoutStep,
+      payment_method: form.payment,
+      has_voucher: Boolean(voucherInfo),
+    });
+  }, [checkoutStep, form.payment, voucherInfo]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -840,6 +857,9 @@ export default function CheckoutPage() {
                     </button>
                   ))}
                 </div>
+                <p className="mt-3 text-center text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                  {checkoutStepMicrocopy}
+                </p>
               </section>
 
               {checkoutStep === 1 && (
@@ -948,110 +968,152 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="space-y-4">
-                  <AddressAutocompleteField
-                    label="Delivery Address"
-                    textareaId="checkout-address"
-                    textareaRef={addressInputRef}
-                    value={form.address}
-                    onValueChange={(value) => updateField("address", value)}
-                    onSuggestionSelect={(suggestion) => {
-                      setSelectedDestination({
-                        lat: suggestion.lat,
-                        lng: suggestion.lng,
-                      });
-                    }}
-                    rows={3}
-                    required
-                    selected={selectedDestination.lat != null && selectedDestination.lng != null}
-                    selectedMessage="Address suggestion selected"
-                    hasError={touched.address && Boolean(checkoutFieldErrors.address)}
-                  />
+                  <Suspense
+                    fallback={
+                      <div className="rounded-xl border border-dashed border-border bg-background px-4 py-3 text-sm text-muted-foreground">
+                        Loading address lookup...
+                      </div>
+                    }
+                  >
+                    <AddressAutocompleteField
+                      label="Delivery Address"
+                      textareaId="checkout-address"
+                      textareaRef={addressInputRef}
+                      value={form.address}
+                      onValueChange={(value) => updateField("address", value)}
+                      onSuggestionSelect={(suggestion) => {
+                        if (!isWithinStarVillageGeofence({ lat: suggestion.lat, lng: suggestion.lng })) {
+                          setSelectedDestination({ lat: null, lng: null });
+                          setTouched((prev) => ({ ...prev, address: true }));
+                          toast.error(STAR_VILLAGE_DELIVERY_MESSAGE);
+                          return;
+                        }
+
+                        setSelectedDestination({
+                          lat: suggestion.lat,
+                          lng: suggestion.lng,
+                        });
+                      }}
+                      rows={3}
+                      required
+                      selected={selectedDestination.lat != null && selectedDestination.lng != null}
+                      selectedMessage="Address suggestion selected"
+                      hasError={touched.address && Boolean(checkoutFieldErrors.address)}
+                    />
+                  </Suspense>
                   {touched.address && checkoutFieldErrors.address && (
                     <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
                   )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                      Address status
+                    </span>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${addressConfidence.tone}`}
+                    >
+                      {addressConfidence.label}
+                    </span>
+                  </div>
 
                   {user && (
                     <div className="rounded-2xl border border-border bg-background p-4">
-                      <div className="flex flex-col gap-4">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex flex-col gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowSavedAddresses((prev) => !prev)}
+                          className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-2 text-left"
+                        >
                           <div>
                             <p className="text-sm font-medium text-foreground">Saved addresses</p>
-                            <p className="text-xs text-muted-foreground">
-                              Tap one to autofill checkout. For default/delete changes, manage in{" "}
-                              <Link to="/account" className="font-medium text-primary hover:underline">
-                                Account
-                              </Link>
-                              .
-                            </p>
+                            <p className="text-xs text-muted-foreground">Use one-tap address autofill</p>
                           </div>
+                          {showSavedAddresses ? (
+                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </button>
 
-                          <div className="flex flex-col gap-2 sm:flex-row">
-                            <input
-                              type="text"
-                              value={newSavedAddressLabel}
-                              onChange={(e) => setNewSavedAddressLabel(e.target.value)}
-                              placeholder="Save as Home"
-                              className="rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void handleSaveCurrentAddress()}
-                              disabled={savingCurrentAddress}
-                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                            >
-                              {savingCurrentAddress ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <BookmarkPlus className="h-4 w-4" />
-                              )}
-                              Save current address
-                            </button>
-                          </div>
-                        </div>
+                        {showSavedAddresses && (
+                          <>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <p className="text-xs text-muted-foreground">
+                                For default/delete changes, manage in{" "}
+                                <Link to="/account" className="font-medium text-primary hover:underline">
+                                  Account
+                                </Link>
+                                .
+                              </p>
 
-                        {loadingSavedAddresses ? (
-                          <div className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Loading saved addresses...
-                          </div>
-                        ) : savedAddresses.length === 0 ? (
-                          <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                            Save an address here to use it in one tap next time.
-                          </div>
-                        ) : (
-                          <div className="grid gap-3">
-                            {savedAddresses.map((address) => (
-                              <div
-                                key={address.id}
-                                className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between"
-                              >
+                              <div className="flex flex-col gap-2 sm:flex-row">
+                                <input
+                                  type="text"
+                                  value={newSavedAddressLabel}
+                                  onChange={(e) => setNewSavedAddressLabel(e.target.value)}
+                                  placeholder="Save as Home"
+                                  className="rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                                />
                                 <button
                                   type="button"
-                                  onClick={() => applySavedAddress(address)}
-                                  className="min-w-0 flex-1 text-left"
+                                  onClick={() => void handleSaveCurrentAddress()}
+                                  disabled={savingCurrentAddress}
+                                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
                                 >
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <p className="font-medium text-foreground">{address.label}</p>
-                                    {address.is_default && (
-                                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                                        Default
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => applySavedAddress(address)}
-                                  className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
-                                >
-                                  <Home className="h-4 w-4" />
-                                  Use
+                                  {savingCurrentAddress ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <BookmarkPlus className="h-4 w-4" />
+                                  )}
+                                  Save current address
                                 </button>
                               </div>
-                            ))}
-                          </div>
+                            </div>
+
+                            {loadingSavedAddresses ? (
+                              <div className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Loading saved addresses...
+                              </div>
+                            ) : savedAddresses.length === 0 ? (
+                              <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                                Save an address here to use it in one tap next time.
+                              </div>
+                            ) : (
+                              <div className="grid gap-3">
+                                {savedAddresses.map((address) => (
+                                  <div
+                                    key={address.id}
+                                    className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between"
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => applySavedAddress(address)}
+                                      className="min-w-0 flex-1 text-left"
+                                    >
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="font-medium text-foreground">{address.label}</p>
+                                        {address.is_default && (
+                                          <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                                            Default
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="mt-2 text-sm text-muted-foreground">{address.address_text}</p>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => applySavedAddress(address)}
+                                      className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                                    >
+                                      <Home className="h-4 w-4" />
+                                      Use
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -1141,31 +1203,11 @@ export default function CheckoutPage() {
                   })}
                 </div>
 
-                {form.payment === "card" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    You’ll be redirected to PayFast for secure card payment. An email address is required.
-                  </div>
-                )}
-
-                {form.payment === "eft" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    EFT orders are created with payment pending. Preparation and dispatch should only continue after payment is confirmed manually.
-                  </div>
-                )}
-
-                {form.payment === "cash" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    Pay the driver on delivery. Please have the correct amount ready if possible.
-                  </div>
-                )}
-
-                {form.payment === "voucher" && (
-                  <div className="mt-4 rounded-2xl border border-success/30 bg-success/10 p-4 text-sm text-success">
-                    {voucherCoversFullOrder
-                      ? `${voucherProviderLabel} will fully pay for this order during checkout.`
-                      : `${voucherProviderLabel} is applied as a discount, but another payment method is still required for the remaining balance.`}
-                  </div>
-                )}
+                <div className={`mt-4 rounded-2xl border p-4 ${paymentClarity.tone}`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.1em]">Payment clarity</p>
+                  <p className="mt-1 text-sm font-semibold">{paymentClarity.title}</p>
+                  <p className="mt-1 text-sm">{paymentClarity.description}</p>
+                </div>
 
                 <div className="mt-5 border-t border-border pt-4">
                   <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
@@ -1213,38 +1255,51 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-border bg-background p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                    Voucher outcome summary
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowVoucherSummary((prev) => !prev)}
+                    className="flex w-full items-center justify-between"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                      Payment breakdown
+                    </p>
+                    {showVoucherSummary ? (
+                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </button>
 
-                  <div className="mt-3 space-y-2 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-muted-foreground">Applied amount</span>
-                      <span className="font-semibold text-success">
-                        {discountAmount > 0 ? `-${priceFormatter.format(discountAmount)}` : "R0"}
-                      </span>
-                    </div>
+                  {showVoucherSummary && (
+                    <div className="mt-3 space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Applied amount</span>
+                        <span className="font-semibold text-success">
+                          {discountAmount > 0 ? `-${priceFormatter.format(discountAmount)}` : "R0"}
+                        </span>
+                      </div>
 
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-muted-foreground">Remaining balance</span>
-                      <span className="font-semibold text-foreground">
-                        {priceFormatter.format(adjustedTotal)}
-                      </span>
-                    </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Remaining balance</span>
+                        <span className="font-semibold text-foreground">
+                          {priceFormatter.format(adjustedTotal)}
+                        </span>
+                      </div>
 
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-muted-foreground">Voucher payment allowed</span>
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          voucherPaymentAllowed
-                            ? "bg-success/10 text-success"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {voucherPaymentAllowed ? "Yes" : "No"}
-                      </span>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Voucher payment allowed</span>
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            voucherPaymentAllowed
+                              ? "bg-success/10 text-success"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {voucherPaymentAllowed ? "Yes" : "No"}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </section>
               )}
