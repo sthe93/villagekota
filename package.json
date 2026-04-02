@@ -19,7 +19,8 @@
     "cap:add:android": "npx cap add android",
     "cap:add:ios": "npx cap add ios",
     "cap:copy": "npx cap copy",
-    "build:web": "VITE_BASE_PATH=/villagekota/ VITE_ROUTER_BASENAME=/villagekota vite build"
+    "build:web": "VITE_BASE_PATH=/villagekota/ VITE_ROUTER_BASENAME=/villagekota vite build",
+    "browserslist:update": "npx update-browserslist-db@latest"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",

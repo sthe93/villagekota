@@ -1,0 +1,11 @@
+key,epic,summary,owner,estimate_days,dependencies,priority,acceptance_criteria
+MB-101,MB-100,Android FCM production wiring,Mobile Eng (Android),1.5,,P0,"FCM linked to production package; token registration survives reinstall/login cycles; notifications arrive in foreground/background/terminated; failure logs captured"
+MB-102,MB-100,iOS APNs production wiring,Mobile Eng (iOS),2.0,,P0,"APNs key/cert configured; permission+token flow verified on physical iPhone; notifications arrive in all app states; token refresh/invalid token handling validated"
+MB-103,MB-100,Push E2E matrix signoff,QA + Mobile Eng,1.0,"MB-101|MB-102",P0,"Platform/state matrix completed with evidence; deep-link behavior validated from push; zero open P0/P1 push defects"
+MB-201,MB-200,Android release signing and AAB artifact,Release Eng / Android Eng,0.5,MB-101,P0,"Signed AAB generated for internal track; signing runbook documented; artifact checksum + release notes archived"
+MB-202,MB-200,iOS release signing and ASC upload validation,Release Eng / iOS Eng,1.0,MB-102,P0,"Signed iOS archive created and accepted in App Store Connect; provisioning/certificate warnings resolved; metadata release-ready"
+MB-301,MB-300,Creative asset pack (icons + screenshots),Design,1.5,,P1,"Required icon and screenshot sets produced for both stores; assets pass platform spec checks; captions/overlays policy-safe"
+MB-302,MB-300,Listing metadata and compliance forms,Product + Compliance,1.0,MB-301,P0,"Descriptions/category/age-rating/release-notes complete; data safety/privacy forms completed and reviewed; legal/support links verified live"
+MB-401,MB-400,Customer flow smoke suite on real devices,QA,1.0,"MB-201|MB-202",P0,"Browse→cart→checkout→tracking pass on Android+iOS physical devices; payment states validated; screenshots/videos captured"
+MB-402,MB-400,Driver flow smoke suite on real devices,QA,0.5,"MB-201|MB-202",P1,"Accept/start/arrive/complete and confirmation PIN flow pass; reassignment/reconnect edge cases exercised"
+MB-403,MB-400,Launch go/no-go review,Eng Manager + Product Owner,0.5,"MB-103|MB-302|MB-401|MB-402",P0,"No open P0/P1 defects; rollback/on-call plans approved; dated launch sign-off recorded"
