@@ -1,7 +1,6 @@
-import { ShoppingBag, Menu, X, User, Shield, House, UtensilsCrossed, Package } from "lucide-react";
+import { ShoppingBag, Menu, X, User, Shield, House, UtensilsCrossed, Package, Star } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
-import logo from "@/assets/star-village-logo.png";
 import { useAuth } from "@/context/AuthContext";
 import DriverNavbarBadge from "@/components/DriverNavbarBadge";
 import { useState } from "react";
@@ -36,11 +35,10 @@ export default function Navbar() {
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 shadow-sm backdrop-blur-md">
       <div className="container flex h-20 items-center justify-between">
         <Link to="/" className="flex items-center">
-          <img
-            src={logo}
-            alt="Village Eats"
-            className="h-14 w-auto object-contain mix-blend-multiply md:h-16"
-          />
+          <div className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary">
+            <Star className="h-5 w-5 fill-current" />
+            <span className="text-sm font-semibold tracking-tight md:text-base">Village Eats</span>
+          </div>
         </Link>
 
         <div className="hidden items-center gap-10 md:flex">

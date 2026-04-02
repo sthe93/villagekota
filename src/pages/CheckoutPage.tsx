@@ -35,6 +35,7 @@ import {
   sortSavedAddresses,
   type SavedAddressRecord,
 } from "@/lib/savedAddresses";
+import { trackEvent } from "@/lib/analytics";
 
 type PaymentMethod = "cash" | "card" | "eft";
 type VoucherProvider = "one_voucher" | "ott_voucher" | "blu_voucher" | "instant_money";
@@ -290,6 +291,26 @@ export default function CheckoutPage() {
   const voucherProviderLabel =
     voucherInfo?.provider ? VOUCHER_PROVIDER_LABELS[voucherInfo.provider] : "Prepaid voucher";
   const voucherCoversFullOrder = prepaidVoucherApplied && adjustedTotal === 0;
+  const addressConfidence = useMemo(() => {
+    if (selectedDestination.lat != null && selectedDestination.lng != null) {
+      return {
+        label: "Exact pin found",
+        tone: "bg-success/10 text-success",
+      };
+    }
+
+    if (form.address.trim().length >= 12) {
+      return {
+        label: "Approximate match",
+        tone: "bg-accent/20 text-accent-foreground",
+      };
+    }
+
+    return {
+      label: "Needs confirmation",
+      tone: "bg-muted text-muted-foreground",
+    };
+  }, [form.address, selectedDestination.lat, selectedDestination.lng]);
   const selectedPaymentLabel =
     form.payment === "voucher"
       ? voucherProviderLabel
@@ -739,6 +760,41 @@ export default function CheckoutPage() {
     },
   ];
 
+  const paymentClarity = (() => {
+    if (form.payment === "card") {
+      return {
+        title: "Secure online payment",
+        description: "You’ll be redirected to PayFast now. A valid email is required.",
+        tone: "border-border bg-background text-muted-foreground",
+      };
+    }
+
+    if (form.payment === "eft") {
+      return {
+        title: "Bank transfer payment",
+        description:
+          "Place order now, then complete EFT transfer. Fulfilment should continue once payment is confirmed.",
+        tone: "border-border bg-background text-muted-foreground",
+      };
+    }
+
+    if (form.payment === "voucher") {
+      return {
+        title: "Voucher applied",
+        description: voucherCoversFullOrder
+          ? `${voucherProviderLabel} will fully cover this order.`
+          : `${voucherProviderLabel} is applied, and a backup payment method is still required for the balance.`,
+        tone: "border-success/30 bg-success/10 text-success",
+      };
+    }
+
+    return {
+      title: "Pay on delivery",
+      description: "Pay cash to your driver when the order arrives.",
+      tone: "border-border bg-background text-muted-foreground",
+    };
+  })();
+
   function paymentOptionsLabel(method: PaymentMethod) {
     switch (method) {
       case "card":
@@ -749,6 +805,21 @@ export default function CheckoutPage() {
         return "Cash on delivery";
     }
   }
+
+  const checkoutStepMicrocopy =
+    checkoutStep === 1
+      ? "Step 1 of 3 · Delivery details"
+      : checkoutStep === 2
+        ? "Step 2 of 3 · Payment setup"
+        : "Step 3 of 3 · Review and place order";
+
+  useEffect(() => {
+    trackEvent("checkout_step_viewed", {
+      step: checkoutStep,
+      payment_method: form.payment,
+      has_voucher: Boolean(voucherInfo),
+    });
+  }, [checkoutStep, form.payment, voucherInfo]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -840,6 +911,9 @@ export default function CheckoutPage() {
                     </button>
                   ))}
                 </div>
+                <p className="mt-3 text-center text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                  {checkoutStepMicrocopy}
+                </p>
               </section>
 
               {checkoutStep === 1 && (
@@ -969,6 +1043,16 @@ export default function CheckoutPage() {
                   {touched.address && checkoutFieldErrors.address && (
                     <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
                   )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                      Address status
+                    </span>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${addressConfidence.tone}`}
+                    >
+                      {addressConfidence.label}
+                    </span>
+                  </div>
 
                   {user && (
                     <div className="rounded-2xl border border-border bg-background p-4">
@@ -1141,31 +1225,11 @@ export default function CheckoutPage() {
                   })}
                 </div>
 
-                {form.payment === "card" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    You’ll be redirected to PayFast for secure card payment. An email address is required.
-                  </div>
-                )}
-
-                {form.payment === "eft" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    EFT orders are created with payment pending. Preparation and dispatch should only continue after payment is confirmed manually.
-                  </div>
-                )}
-
-                {form.payment === "cash" && (
-                  <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">
-                    Pay the driver on delivery. Please have the correct amount ready if possible.
-                  </div>
-                )}
-
-                {form.payment === "voucher" && (
-                  <div className="mt-4 rounded-2xl border border-success/30 bg-success/10 p-4 text-sm text-success">
-                    {voucherCoversFullOrder
-                      ? `${voucherProviderLabel} will fully pay for this order during checkout.`
-                      : `${voucherProviderLabel} is applied as a discount, but another payment method is still required for the remaining balance.`}
-                  </div>
-                )}
+                <div className={`mt-4 rounded-2xl border p-4 ${paymentClarity.tone}`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.1em]">Payment clarity</p>
+                  <p className="mt-1 text-sm font-semibold">{paymentClarity.title}</p>
+                  <p className="mt-1 text-sm">{paymentClarity.description}</p>
+                </div>
 
                 <div className="mt-5 border-t border-border pt-4">
                   <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
