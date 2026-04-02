@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Flame,
   Plus,
@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import type { Product } from "@/data/products";
 import ProductQuickAddSheet from "@/components/ProductQuickAddSheet";
+import { useCart } from "@/context/CartContext";
+import { trackEvent } from "@/lib/analytics";
 
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
@@ -49,7 +51,12 @@ const spiceConfig: Record<
 };
 
 export default function ProductCard({ product }: { product: Product }) {
+  const { itemCount } = useCart();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [recentlyAdded, setRecentlyAdded] = useState(false);
+  const previousItemCountRef = useRef(itemCount);
+  const previousQuickAddOpenRef = useRef(quickAddOpen);
+  const addFeedbackTimerRef = useRef<number | null>(null);
 
   const spiceStyle = product.spiceLevel
     ? spiceConfig[product.spiceLevel] ?? {
@@ -67,6 +74,38 @@ export default function ProductCard({ product }: { product: Product }) {
     if (!product.inStock) return;
     setQuickAddOpen(true);
   };
+
+  useEffect(() => {
+    const didCloseSheet = previousQuickAddOpenRef.current && !quickAddOpen;
+    const cartIncreased = itemCount > previousItemCountRef.current;
+
+    if (didCloseSheet && cartIncreased) {
+      setRecentlyAdded(true);
+      window.dispatchEvent(new CustomEvent("cart:add-feedback"));
+      trackEvent("menu_product_added", {
+        product_id: product.id,
+        product_name: product.name,
+      });
+      if (addFeedbackTimerRef.current) {
+        window.clearTimeout(addFeedbackTimerRef.current);
+      }
+      addFeedbackTimerRef.current = window.setTimeout(() => {
+        setRecentlyAdded(false);
+        addFeedbackTimerRef.current = null;
+      }, 1200);
+    }
+
+    previousQuickAddOpenRef.current = quickAddOpen;
+    previousItemCountRef.current = itemCount;
+  }, [quickAddOpen, itemCount, product.id, product.name]);
+
+  useEffect(() => {
+    return () => {
+      if (addFeedbackTimerRef.current) {
+        window.clearTimeout(addFeedbackTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <>
@@ -201,6 +240,9 @@ export default function ProductCard({ product }: { product: Product }) {
           </p>
 
           <div className="mt-auto pt-5">
+            <span className="sr-only" aria-live="polite">
+              {recentlyAdded ? `${product.name} added to cart` : ""}
+            </span>
             <button
               onClick={(event) => {
                 event.stopPropagation();
@@ -216,7 +258,11 @@ export default function ProductCard({ product }: { product: Product }) {
                   ) : (
                     <ShoppingBag className="h-4 w-4" />
                   )}
-                  {hasCustomisation ? "Customise & add" : "Add to cart"}
+                  {recentlyAdded
+                    ? "Added +1"
+                    : hasCustomisation
+                      ? "Customise & add"
+                      : "Add to cart"}
                 </>
               ) : (
                 <>
