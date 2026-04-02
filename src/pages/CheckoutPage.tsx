@@ -290,6 +290,26 @@ export default function CheckoutPage() {
   const voucherProviderLabel =
     voucherInfo?.provider ? VOUCHER_PROVIDER_LABELS[voucherInfo.provider] : "Prepaid voucher";
   const voucherCoversFullOrder = prepaidVoucherApplied && adjustedTotal === 0;
+  const addressConfidence = useMemo(() => {
+    if (selectedDestination.lat != null && selectedDestination.lng != null) {
+      return {
+        label: "Exact pin found",
+        tone: "bg-success/10 text-success",
+      };
+    }
+
+    if (form.address.trim().length >= 12) {
+      return {
+        label: "Approximate match",
+        tone: "bg-accent/20 text-accent-foreground",
+      };
+    }
+
+    return {
+      label: "Needs confirmation",
+      tone: "bg-muted text-muted-foreground",
+    };
+  }, [form.address, selectedDestination.lat, selectedDestination.lng]);
   const selectedPaymentLabel =
     form.payment === "voucher"
       ? voucherProviderLabel
@@ -1004,6 +1024,16 @@ export default function CheckoutPage() {
                   {touched.address && checkoutFieldErrors.address && (
                     <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
                   )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                      Address status
+                    </span>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${addressConfidence.tone}`}
+                    >
+                      {addressConfidence.label}
+                    </span>
+                  </div>
 
                   {user && (
                     <div className="rounded-2xl border border-border bg-background p-4">
