@@ -1190,20 +1190,21 @@ export default function CheckoutPage() {
                   {paymentOptions.map((method) => {
                     const Icon = method.icon;
                     const active = form.payment === method.value;
+                    const isDisabled = method.value === "card" ? false : Boolean(method.disabled);
 
                     return (
                       <button
                         key={method.value}
                         type="button"
                         onClick={() => {
-                          if (method.disabled) return;
+                          if (isDisabled) return;
                           updateField("payment", method.value);
                         }}
-                        disabled={method.disabled}
+                        disabled={isDisabled}
                         className={`rounded-2xl border p-4 text-left transition-colors ${
                           active
                             ? "border-primary bg-primary/10"
-                            : method.disabled
+                            : isDisabled
                               ? "border-border bg-background opacity-60"
                               : "border-border bg-background hover:bg-muted"
                         }`}
@@ -1225,7 +1226,7 @@ export default function CheckoutPage() {
                                   Selected
                                 </span>
                               )}
-                              {!active && method.disabled && (
+                              {!active && isDisabled && (
                                 <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                                   {method.value === "card" ? "Temporarily unavailable" : "Apply voucher first"}
                                 </span>
