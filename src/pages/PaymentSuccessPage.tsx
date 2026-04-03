@@ -1,14 +1,31 @@
 import { CheckCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import PaymentResultCard from "@/components/payment/PaymentResultCard";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/sonner";
+import { useAuth } from "@/context/AuthContext";
+
+function extractFunctionErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "Failed to finalize paid order.";
+  }
+
+  const edgeError = error as Error & {
+    context?: {
+      json?: () => Promise<{ error?: string }>;
+    };
+  };
+
+  return edgeError.message || "Failed to finalize paid order.";
+}
 
 export default function PaymentSuccessPage() {
+  const { user, session, loading } = useAuth();
   const [searchParams] = useSearchParams();
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
+  const authPromptedRef = useRef(false);
 
   const orderId = useMemo(() => searchParams.get("orderId"), [searchParams]);
   const cardSessionId = useMemo(() => searchParams.get("cardSessionId"), [searchParams]);
@@ -19,6 +36,15 @@ export default function PaymentSuccessPage() {
 
   useEffect(() => {
     if (orderId || !cardSessionId || !payfastReference) return;
+    if (loading) return;
+    if (!user) {
+      if (!authPromptedRef.current) {
+        toast.error("Please sign in again so we can finalize your paid order.");
+        authPromptedRef.current = true;
+      }
+      return;
+    }
+    authPromptedRef.current = false;
 
     const storageKey = `pending_card_order:${cardSessionId}`;
     const pendingPayloadRaw = window.localStorage.getItem(storageKey);
@@ -35,6 +61,11 @@ export default function PaymentSuccessPage() {
             cardPaymentConfirmed: true,
             cardPaymentReference: payfastReference,
           },
+          headers: session?.access_token
+            ? {
+                Authorization: `Bearer ${session.access_token}`,
+              }
+            : undefined,
         });
 
         if (error) {
@@ -49,14 +80,14 @@ export default function PaymentSuccessPage() {
         window.localStorage.removeItem(storageKey);
         setCreatedOrderId(nextOrderId);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to finalize paid order.");
+        toast.error(extractFunctionErrorMessage(error));
       } finally {
         setFinalizing(false);
       }
     };
 
     void finalizeCardOrder();
-  }, [cardSessionId, orderId, payfastReference]);
+  }, [cardSessionId, loading, orderId, payfastReference, session?.access_token, user]);
 
   const resolvedOrderId = createdOrderId || orderId;
 
