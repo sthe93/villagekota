@@ -241,6 +241,31 @@ export default function CheckoutPage() {
     };
   }, [user]);
 
+  useEffect(() => {
+    const normalizedAddress = form.address.trim();
+    if (normalizedAddress.length < 10) return;
+    if (selectedDestination.lat != null && selectedDestination.lng != null) return;
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const geocoded = await geocodeSouthAfricaAddress(normalizedAddress, controller.signal);
+        if (!geocoded) return;
+
+        if (isWithinStarVillageGeofence({ lat: geocoded.lat, lng: geocoded.lng })) {
+          setSelectedDestination({ lat: geocoded.lat, lng: geocoded.lng });
+        }
+      } catch {
+        // ignore lookup failures for passive autocomplete geocoding
+      }
+    }, 550);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [form.address, selectedDestination.lat, selectedDestination.lng]);
+
   const updateField = <K extends keyof typeof form>(field: K, value: (typeof form)[K]) => {
     update(field, value);
 
