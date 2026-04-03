@@ -26,6 +26,7 @@ import Footer from "@/components/Footer";
 import DeliveryProgressTracker, {
   type DeliveryStatus,
 } from "@/components/DeliveryProgressTracker";
+import { getClientAppBaseUrl } from "@/lib/appBaseUrl";
 
 type OrderStatus =
   | "pending"
@@ -915,6 +916,7 @@ export default function AdminOrdersPage() {
                                 {
                                   body: {
                                     orderId: order.id,
+                                    appBaseUrl: getClientAppBaseUrl(),
                                   },
                                 }
                               );
