@@ -69,6 +69,7 @@ import { formatDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
 import { getMapTilerStyleUrl } from "@/lib/maps";
 import { getProducts } from "@/data/products";
 import { buildReorderPlan } from "@/lib/reorder";
+import { getClientAppBaseUrl } from "@/lib/appBaseUrl";
 
 type MaplibreModule = typeof import("maplibre-gl");
 
@@ -553,6 +554,7 @@ export default function OrderTrackingPage() {
       const { data, error } = await supabase.functions.invoke("create-payfast-checkout", {
         body: {
           orderId: order.id,
+          appBaseUrl: getClientAppBaseUrl(),
         },
       });
 
