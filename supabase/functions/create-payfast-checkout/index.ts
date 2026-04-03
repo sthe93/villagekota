@@ -292,39 +292,40 @@ Deno.serve(async (req) => {
       signature,
     }).toString()}`;
 
-    const { error: updateError } = await supabaseAdmin
-      .from("orders")
-      .update({
-        payment_provider: "payfast",
-        payment_status: "pending",
-        payment_reference: body.orderId,
-      })
-      .eq("id", body.orderId);
+    if (orderId) {
+      const { error: updateError } = await supabaseAdmin
+        .from("orders")
+        .update({
+          payment_provider: "payfast",
+          payment_status: "pending",
+          payment_reference: orderId,
+        })
+        .eq("id", orderId);
 
-    if (updateError) {
-      return new Response(
-        JSON.stringify({ error: updateError.message }),
-        { status: 500, headers: corsHeaders }
-      );
-    }
+      if (updateError) {
+        return new Response(
+          JSON.stringify({ error: updateError.message }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
 
+      const { error: paymentLogError } = await supabaseAdmin
+        .from("payment_logs")
+        .insert({
+          order_id: orderId,
+          provider: "payfast",
+          provider_payment_id: orderId,
+          status: "pending",
+          amount: Number(amount),
+          raw_payload: { event: "checkout_created" },
+        });
 
-    const { error: paymentLogError } = await supabaseAdmin
-      .from("payment_logs")
-      .insert({
-        order_id: body.orderId,
-        provider: "payfast",
-        provider_payment_id: body.orderId,
-        status: "pending",
-        amount: Number(order.total || 0),
-        raw_payload: { event: "checkout_created" },
-      });
-
-    if (paymentLogError) {
-      return new Response(
-        JSON.stringify({ error: paymentLogError.message }),
-        { status: 500, headers: corsHeaders }
-      );
+      if (paymentLogError) {
+        return new Response(
+          JSON.stringify({ error: paymentLogError.message }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
     }
 
     return new Response(

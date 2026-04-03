@@ -576,11 +576,6 @@ export default function CheckoutPage() {
     const customerEmail = form.email.trim() || user.email || "";
     const customerPhone = getPhoneDigits(form.phone);
 
-    if (form.payment === "card") {
-      toast.error("Card checkout is temporarily disabled until post-payment order confirmation is enabled.");
-      return;
-    }
-
     if (form.payment === "voucher") {
       if (!voucherInfo || voucherInfo.type !== "prepaid") {
         toast.error("Apply a valid prepaid voucher before choosing voucher payment.");
@@ -721,9 +716,8 @@ export default function CheckoutPage() {
     {
       value: "card",
       label: "Card / PayFast",
-      description: "Disabled until payment-first checkout flow is released.",
+      description: "Secure online card payment via PayFast before order confirmation.",
       icon: CreditCard,
-      disabled: true,
     },
     {
       value: "eft",
