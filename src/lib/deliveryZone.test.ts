@@ -48,6 +48,13 @@ describe("getStarVillageDeliveryError", () => {
         lat: -26.2501,
         lng: 27.9202,
       })
+    ).toBeNull();
+
+    expect(
+      getStarVillageDeliveryError("Random address", {
+        lat: -26.2501,
+        lng: 27.9202,
+      })
     ).toBe("We currently deliver only to addresses inside Star Village.");
   });
 });

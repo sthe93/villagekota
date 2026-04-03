@@ -378,6 +378,7 @@ Deno.serve(async (req) => {
     if (
       destinationLat != null &&
       destinationLng != null &&
+      !deliveryZone.addressPattern.test(deliveryAddress) &&
       (deliveryZone.polygon && deliveryZone.polygon.length >= 3
         ? !isInsidePolygon({ lat: destinationLat, lng: destinationLng }, deliveryZone.polygon)
         : haversineDistanceMeters(deliveryZone.center, { lat: destinationLat, lng: destinationLng }) >

@@ -109,9 +109,10 @@ export function createDeliveryZonePolicy(config: DeliveryZoneConfig) {
     }
 
     const hasGeocodedDestination = destination.lat != null && destination.lng != null;
+    const matchesAddressPattern = isAddressInZone(trimmedAddress);
     const isOutsideZone = hasGeocodedDestination
-      ? !isCoordinatesInZone({ lat: destination.lat, lng: destination.lng })
-      : !isAddressInZone(trimmedAddress);
+      ? !isCoordinatesInZone({ lat: destination.lat, lng: destination.lng }) && !matchesAddressPattern
+      : !matchesAddressPattern;
 
     return isOutsideZone ? config.outOfZoneMessage : null;
   };
