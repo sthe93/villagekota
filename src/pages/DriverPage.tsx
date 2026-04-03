@@ -547,54 +547,31 @@ export default function DriverPage() {
 
     setActionOrderId(orderId);
     try {
-      const { data, error } = await supabase.functions.invoke("complete-driver-delivery", {
-        body: {
-          orderId,
-          confirmationCode,
-        },
-      });
-
-      if (error) {
-        const { data: rpcCompleted, error: rpcError } = await supabase.rpc(
-          "complete_delivery_order_with_code",
-          {
-            p_order_id: orderId,
-            p_driver_id: driver.id,
-            p_confirmation_code: confirmationCode,
-          }
-        );
-
-        if (rpcError) {
-          toast.error(rpcError.message || error.message || "Failed to complete delivery");
-          return;
+      const { data: rpcCompleted, error: rpcError } = await supabase.rpc(
+        "complete_delivery_order_with_code",
+        {
+          p_order_id: orderId,
+          p_driver_id: driver.id,
+          p_confirmation_code: confirmationCode,
         }
+      );
 
-        if (!rpcCompleted) {
-          toast.error("This delivery cannot be completed yet.");
-          await loadDriverAndOrders();
-          return;
-        }
+      if (rpcError) {
+        toast.error(rpcError.message || "Failed to complete delivery");
+        return;
+      }
 
-        if (trackingOrderId === orderId) {
-          stopLiveTracking();
-        }
-
-        toast.success("Delivery completed");
-        setDeliveryCodes((prev) => {
-          const next = { ...prev };
-          delete next[orderId];
-          return next;
-        });
-        setConfirmingOrderId(null);
+      if (!rpcCompleted) {
+        toast.error("PIN did not match, or this order is not ready to complete yet.");
         await loadDriverAndOrders();
         return;
       }
 
-      if (!data?.success) {
-        toast.error(data?.error || "This delivery cannot be completed yet.");
-        await loadDriverAndOrders();
-        return;
-      }
+      void supabase.functions
+        .invoke("send-order-receipt", {
+          body: { orderId },
+        })
+        .catch(() => undefined);
 
       if (trackingOrderId === orderId) {
         stopLiveTracking();

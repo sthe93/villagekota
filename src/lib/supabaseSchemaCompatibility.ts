@@ -44,6 +44,15 @@ export function formatSupabaseError(error: unknown) {
   }
 
   const record = error as Record<string, unknown>;
+  const normalizedMessage = typeof record.message === "string" ? record.message.toLowerCase() : "";
+
+  if (
+    normalizedMessage.includes("card orders can only be created after confirmed payfast payment") ||
+    normalizedMessage.includes("card checkout is temporarily disabled")
+  ) {
+    return "Card checkout was updated. Please refresh, then tap Continue to PayFast again.";
+  }
+
   const parts = [record.message, record.details, record.hint, record.code]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { buildCheckoutFieldErrors } from "@/lib/checkoutValidation";
 
 export type CheckoutStep = 1 | 2 | 3;
 export type ExtendedPaymentMethod = "cash" | "card" | "eft" | "voucher";
@@ -10,12 +11,6 @@ export interface CheckoutFormState {
   address: string;
   notes: string;
   payment: ExtendedPaymentMethod;
-}
-
-const SOUTH_AFRICAN_PHONE_REGEX = /^0\d{9}$/;
-
-function getPhoneDigits(value: string) {
-  return value.replace(/\D/g, "");
 }
 
 interface UseCheckoutFlowParams {
@@ -56,28 +51,7 @@ export function useCheckoutFlow({
   };
 
   const fieldErrors = useMemo(() => {
-    const errors: Partial<Record<keyof CheckoutFormState, string>> = {};
-    const phoneDigits = getPhoneDigits(form.phone);
-
-    if (!form.name.trim()) {
-      errors.name = "Full name is required.";
-    }
-
-    if (!phoneDigits) {
-      errors.phone = "Cell phone number is required.";
-    } else if (!SOUTH_AFRICAN_PHONE_REGEX.test(phoneDigits)) {
-      errors.phone = "Enter a valid South African cell phone number (10 digits).";
-    }
-
-    if (!form.address.trim()) {
-      errors.address = "Delivery address is required.";
-    }
-
-    if (form.payment === "card" && !form.email.trim()) {
-      errors.email = "Email is required for card payments.";
-    }
-
-    return errors;
+    return buildCheckoutFieldErrors(form, { lat: null, lng: null });
   }, [form]);
 
   const canContinueFromDelivery = Boolean(

@@ -32,6 +32,14 @@ describe("isSchemaCompatibilityError", () => {
 
 
 describe("formatSupabaseError", () => {
+  it("returns a refresh instruction for legacy card checkout block messages", () => {
+    expect(
+      formatSupabaseError({
+        message: "Card orders can only be created after confirmed PayFast payment.",
+      })
+    ).toBe("Card checkout was updated. Please refresh, then tap Continue to PayFast again.");
+  });
+
   it("joins message, details, hint, and code when present", () => {
     expect(
       formatSupabaseError({
