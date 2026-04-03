@@ -30,6 +30,8 @@ type CreateOrderRequest = {
   voucherCode?: string | null;
   voucherSource?: VoucherSource | null;
   voucherProvider?: VoucherProvider | null;
+  cardPaymentConfirmed?: boolean;
+  cardPaymentReference?: string | null;
 };
 
 type ProductRow = {
@@ -94,6 +96,9 @@ type PreparedItem = {
 
 const DELIVERY_FEE = 25;
 const FREE_DELIVERY_THRESHOLD = 150;
+const STAR_VILLAGE_ADDRESS_PATTERN = /\bstar\s+village\b/i;
+const STAR_VILLAGE_CENTER = { lat: -26.2856, lng: 27.7594 };
+const STAR_VILLAGE_RADIUS_METERS = 2200;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -120,6 +125,31 @@ function normalizeVoucherCode(value: string | null | undefined) {
   return (value || "").replace(/\s+/g, "").trim().toUpperCase();
 }
 
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function haversineDistanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const earthRadiusMeters = 6371000;
+  const deltaLat = toRadians(b.lat - a.lat);
+  const deltaLng = toRadians(b.lng - a.lng);
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+  const inner =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const arc = 2 * Math.atan2(Math.sqrt(inner), Math.sqrt(1 - inner));
+  return earthRadiusMeters * arc;
+}
+
+function isWithinStarVillageGeofence(destination: { lat: number; lng: number }) {
+  return haversineDistanceMeters(STAR_VILLAGE_CENTER, destination) <= STAR_VILLAGE_RADIUS_METERS;
+}
+
+function isStarVillageAddress(address: string) {
+  return STAR_VILLAGE_ADDRESS_PATTERN.test(address.trim());
+}
+
 function normalizePhone(value: string | null | undefined) {
   return (value || "").replace(/\D/g, "");
 }
@@ -133,11 +163,12 @@ function buildOrderPaymentState(params: {
   voucherSource: VoucherSource | null;
   voucherProvider: VoucherProvider | null;
   adjustedTotal: number;
+  cardPaymentConfirmed: boolean;
 }) {
   if (params.paymentMethod === "card") {
     return {
       paymentProvider: "payfast",
-      paymentStatus: "pending",
+      paymentStatus: params.cardPaymentConfirmed ? "paid" : "pending",
     };
   }
 
@@ -250,19 +281,39 @@ Deno.serve(async (req) => {
     const customerPhone = normalizePhone(body.customerPhone);
     const customerEmail = body.customerEmail?.trim() || user.email || null;
     const deliveryAddress = body.deliveryAddress?.trim();
+    const destinationLat = typeof body.destinationLat === "number" ? body.destinationLat : null;
+    const destinationLng = typeof body.destinationLng === "number" ? body.destinationLng : null;
     const paymentMethod = body.paymentMethod || "cash";
     const items = Array.isArray(body.items) ? body.items : [];
     const voucherCode = normalizeVoucherCode(body.voucherCode);
     const voucherSource = body.voucherSource || null;
     const voucherProvider = body.voucherProvider || null;
+    const cardPaymentConfirmed = body.cardPaymentConfirmed === true;
+    const cardPaymentReference = (body.cardPaymentReference || "").trim() || null;
 
     if (!customerName) throw new Error("Full name is required");
     if (!/^0\d{9}$/.test(customerPhone)) {
       throw new Error("Enter a valid South African cell phone number with 10 digits.");
     }
     if (!deliveryAddress) throw new Error("Delivery address is required");
+    const hasDestinationCoordinates = destinationLat != null && destinationLng != null;
+    if (
+      destinationLat != null &&
+      destinationLng != null &&
+      !isWithinStarVillageGeofence({ lat: destinationLat, lng: destinationLng })
+    ) {
+      throw new Error("The selected address is outside our Star Village delivery zone.");
+    }
+    if (!hasDestinationCoordinates && !isStarVillageAddress(deliveryAddress)) {
+      throw new Error(
+        "Please choose a suggested address inside Star Village so we can verify your delivery location."
+      );
+    }
     if (paymentMethod === "card" && !customerEmail) {
       throw new Error("Email is required for card payments.");
+    }
+    if (paymentMethod === "card" && !cardPaymentConfirmed) {
+      throw new Error("Card orders can only be created after confirmed PayFast payment.");
     }
     if (items.length === 0) throw new Error("Your cart is empty");
 
@@ -504,6 +555,7 @@ Deno.serve(async (req) => {
       voucherSource,
       voucherProvider: voucherSource === "provider" ? voucherProvider : ((localVoucher?.provider as VoucherProvider | null) ?? null),
       adjustedTotal,
+      cardPaymentConfirmed,
     });
 
     const itemNotes = preparedItems
@@ -538,6 +590,7 @@ Deno.serve(async (req) => {
       payment_method: paymentMethod,
       payment_provider: paymentState.paymentProvider,
       payment_status: paymentState.paymentStatus,
+      payment_reference: paymentMethod === "card" ? cardPaymentReference : null,
       subtotal,
       delivery_fee: deliveryFee,
       discount_amount: discountAmount,
