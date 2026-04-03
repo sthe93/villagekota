@@ -185,6 +185,8 @@ interface ManagedUser {
   assignedDriver: Driver | null;
 }
 
+type PolygonPoint = [number, number];
+
 type AdminTab =
   | "dashboard"
   | "orders"
