@@ -3,6 +3,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { formatSupabaseError } from "@/lib/supabaseSchemaCompatibility";
+import { getClientAppBaseUrl } from "@/lib/appBaseUrl";
 import { toast } from "@/components/ui/sonner";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -643,6 +644,7 @@ export default function CheckoutPage() {
               draftAmount: adjustedTotal,
               customerName: form.name.trim(),
               customerEmail,
+              appBaseUrl: getClientAppBaseUrl(),
             },
           }
         );

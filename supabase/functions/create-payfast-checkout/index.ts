@@ -8,6 +8,7 @@ type Payload = {
   draftAmount?: number;
   customerName?: string;
   customerEmail?: string;
+  appBaseUrl?: string;
 };
 
 const corsHeadersBase = {
@@ -121,22 +122,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    const appBaseUrl =
-      configuredAppBaseUrl &&
-      requestOrigin &&
-      configuredAppOrigin === requestOrigin
-        ? configuredAppBaseUrl
-        : configuredAppBaseUrl || requestOrigin;
-
-    if (!appBaseUrl) {
-      return new Response(
-        JSON.stringify({
-          error: "APP_BASE_URL is not configured and no valid request origin was provided",
-        }),
-        { status: 500, headers: corsHeaders }
-      );
-    }
-
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(
@@ -167,6 +152,27 @@ Deno.serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
     const body = (await req.json()) as Payload;
+    const requestAppBaseUrl = normalizeAppBaseUrl(body.appBaseUrl);
+    const requestAppOrigin = normalizeOrigin(requestAppBaseUrl);
+
+    const appBaseUrl =
+      requestAppBaseUrl && (!requestOrigin || requestAppOrigin === requestOrigin)
+        ? requestAppBaseUrl
+        : configuredAppBaseUrl &&
+            requestOrigin &&
+            configuredAppOrigin === requestOrigin
+          ? configuredAppBaseUrl
+          : configuredAppBaseUrl || requestOrigin;
+
+    if (!appBaseUrl) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "No valid app base URL was resolved. Set APP_BASE_URL or pass appBaseUrl in the request body.",
+        }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
 
     const isDraftCardSession = Boolean(body.cardSessionId);
     const orderId = body.orderId?.trim() || null;
