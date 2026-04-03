@@ -31,6 +31,9 @@ import {
   ChevronRight,
 } from "lucide-react";
 import Footer from "@/components/Footer";
+import Map, { Layer, Marker, NavigationControl, Source } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { getMapTilerStyleUrl } from "@/lib/maps";
 
 interface DbProduct {
   id: string;
@@ -88,6 +91,41 @@ interface Driver {
   is_active: boolean;
   auth_user_id: string | null;
 }
+
+interface DeliveryZoneSettings {
+  id: string;
+  zone_name: string;
+  center_lat: number;
+  center_lng: number;
+  radius_meters: number;
+  address_pattern: string;
+  out_of_zone_message: string;
+  is_active: boolean;
+  polygon_coordinates: Array<[number, number]> | null;
+}
+
+type GeoJsonLike =
+  | {
+      type?: "FeatureCollection";
+      features?: Array<{
+        type?: "Feature";
+        geometry?: {
+          type?: string;
+          coordinates?: unknown;
+        } | null;
+      }>;
+    }
+  | {
+      type?: "Feature";
+      geometry?: {
+        type?: string;
+        coordinates?: unknown;
+      } | null;
+    }
+  | {
+      type?: string;
+      coordinates?: unknown;
+    };
 
 interface UserProfile {
   id: string;
@@ -154,7 +192,8 @@ type AdminTab =
   | "categories"
   | "vouchers"
   | "customers"
-  | "drivers";
+  | "drivers"
+  | "delivery_zone";
 
 const statusColors: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700 border-amber-200",
@@ -191,6 +230,8 @@ const textareaClassName =
 
 const selectClassName =
   "w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary";
+
+const DELIVERY_ZONE_MAP_STYLE = getMapTilerStyleUrl();
 
 function Badge({
   children,
@@ -295,6 +336,7 @@ export default function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [deliveryZoneSettings, setDeliveryZoneSettings] = useState<DeliveryZoneSettings | null>(null);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [userRoles, setUserRoles] = useState<UserRoleRow[]>([]);
   const [orderItems, setOrderItems] = useState<OrderItemRow[]>([]);
@@ -319,6 +361,13 @@ export default function AdminPage() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [voucherSearch, setVoucherSearch] = useState("");
   const [driverSearch, setDriverSearch] = useState("");
+  const [savingDeliveryZone, setSavingDeliveryZone] = useState(false);
+  const [geoJsonInput, setGeoJsonInput] = useState("");
+  const [deliveryZoneMapView, setDeliveryZoneMapView] = useState({
+    longitude: 27.7594,
+    latitude: -26.2856,
+    zoom: 12,
+  });
 
   const [pageLoading, setPageLoading] = useState(false);
 
@@ -343,6 +392,7 @@ export default function AdminPage() {
         fetchCategories(),
         fetchVouchers(),
         fetchDrivers(),
+        fetchDeliveryZoneSettings(),
         fetchProfiles(),
         fetchUserRoles(),
         fetchOrderItems(),
@@ -393,6 +443,45 @@ export default function AdminPage() {
     if (error) toast.error(error.message);
     setDrivers((data || []) as Driver[]);
   };
+
+  const fetchDeliveryZoneSettings = async () => {
+    const { data, error } = await supabase
+      .from("delivery_zone_settings")
+      .select(
+        "id, zone_name, center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message, is_active, polygon_coordinates"
+      )
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    const nextSettings = (data as DeliveryZoneSettings | null) ?? {
+      id: "",
+      zone_name: "Star Village",
+      center_lat: -26.2856,
+      center_lng: 27.7594,
+      radius_meters: 2200,
+      address_pattern: "\\bstar\\s+village\\b",
+      out_of_zone_message: "We currently deliver only to addresses inside Star Village.",
+      is_active: true,
+      polygon_coordinates: null,
+    };
+
+    setDeliveryZoneSettings(nextSettings);
+  };
+
+  useEffect(() => {
+    if (!deliveryZoneSettings) return;
+
+    setDeliveryZoneMapView((prev) => ({
+      ...prev,
+      latitude: Number(deliveryZoneSettings.center_lat) || prev.latitude,
+      longitude: Number(deliveryZoneSettings.center_lng) || prev.longitude,
+    }));
+  }, [deliveryZoneSettings]);
 
   const fetchProfiles = async () => {
     const { data, error } = await supabase
@@ -586,6 +675,170 @@ export default function AdminPage() {
     else {
       toast.success("Driver deleted");
       fetchDrivers();
+    }
+  };
+
+  const handleSaveDeliveryZone = async () => {
+    if (!deliveryZoneSettings) {
+      toast.error("Delivery zone settings are not loaded yet.");
+      return;
+    }
+
+    if (!deliveryZoneSettings.zone_name?.trim()) {
+      toast.error("Zone name is required.");
+      return;
+    }
+
+    if (!deliveryZoneSettings.address_pattern?.trim()) {
+      toast.error("Address regex pattern is required.");
+      return;
+    }
+
+    if (Number(deliveryZoneSettings.radius_meters) <= 0) {
+      toast.error("Radius must be greater than 0 meters.");
+      return;
+    }
+
+    setSavingDeliveryZone(true);
+
+    try {
+      const polygonCoordinates =
+        deliveryZoneSettings.polygon_coordinates && deliveryZoneSettings.polygon_coordinates.length > 0
+          ? deliveryZoneSettings.polygon_coordinates
+          : null;
+
+      if (polygonCoordinates && polygonCoordinates.length < 3) {
+        toast.error("Polygon requires at least 3 points.");
+        return;
+      }
+
+      const payload = {
+        zone_name: deliveryZoneSettings.zone_name.trim(),
+        center_lat: Number(deliveryZoneSettings.center_lat),
+        center_lng: Number(deliveryZoneSettings.center_lng),
+        radius_meters: Math.round(Number(deliveryZoneSettings.radius_meters)),
+        address_pattern: deliveryZoneSettings.address_pattern.trim(),
+        out_of_zone_message:
+          deliveryZoneSettings.out_of_zone_message.trim() ||
+          "We currently deliver only to addresses inside Star Village.",
+        polygon_coordinates: polygonCoordinates,
+        is_active: true,
+        updated_by: user?.id ?? null,
+      };
+
+      if (deliveryZoneSettings.id) {
+        const { error } = await supabase
+          .from("delivery_zone_settings")
+          .update(payload)
+          .eq("id", deliveryZoneSettings.id);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("delivery_zone_settings").insert(payload);
+        if (error) throw error;
+      }
+
+      toast.success("Delivery zone settings updated.");
+      await fetchDeliveryZoneSettings();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save delivery zone settings.");
+    } finally {
+      setSavingDeliveryZone(false);
+    }
+  };
+
+  const handleConvertGeoJsonToPolygon = () => {
+    if (!geoJsonInput.trim()) {
+      toast.error("Paste GeoJSON first.");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(geoJsonInput) as GeoJsonLike;
+
+      const resolveGeometry = () => {
+        if (parsed?.type === "FeatureCollection" && Array.isArray(parsed.features)) {
+          return parsed.features.find((feature) => feature?.geometry)?.geometry || null;
+        }
+
+        if (parsed?.type === "Feature" && parsed.geometry) {
+          return parsed.geometry;
+        }
+
+        if ("coordinates" in parsed) {
+          return parsed as { type?: string; coordinates?: unknown };
+        }
+
+        return null;
+      };
+
+      const geometry = resolveGeometry();
+
+      if (!geometry || !Array.isArray(geometry.coordinates)) {
+        toast.error("GeoJSON does not include polygon coordinates.");
+        return;
+      }
+
+      const toLatLngPolygon = (coordinates: unknown): Array<[number, number]> | null => {
+        if (!Array.isArray(coordinates) || coordinates.length === 0) return null;
+
+        if (geometry.type === "Polygon") {
+          const ring = coordinates[0];
+          if (!Array.isArray(ring)) return null;
+
+          const points = ring
+            .map((point) => {
+              if (!Array.isArray(point) || point.length < 2) return null;
+              const lng = Number(point[0]);
+              const lat = Number(point[1]);
+              if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+              return [lat, lng] as [number, number];
+            })
+            .filter((point): point is [number, number] => Boolean(point));
+
+          return points.length >= 3 ? points : null;
+        }
+
+        if (geometry.type === "MultiPolygon") {
+          const firstPolygon = coordinates[0];
+          if (!Array.isArray(firstPolygon) || firstPolygon.length === 0) return null;
+          const firstRing = firstPolygon[0];
+          if (!Array.isArray(firstRing)) return null;
+
+          const points = firstRing
+            .map((point) => {
+              if (!Array.isArray(point) || point.length < 2) return null;
+              const lng = Number(point[0]);
+              const lat = Number(point[1]);
+              if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+              return [lat, lng] as [number, number];
+            })
+            .filter((point): point is [number, number] => Boolean(point));
+
+          return points.length >= 3 ? points : null;
+        }
+
+        return null;
+      };
+
+      const converted = toLatLngPolygon(geometry.coordinates);
+
+      if (!converted) {
+        toast.error("Only Polygon/MultiPolygon GeoJSON with valid points is supported.");
+        return;
+      }
+
+      setDeliveryZoneSettings((prev) =>
+        prev
+          ? {
+              ...prev,
+              polygon_coordinates: converted,
+            }
+          : prev
+      );
+      toast.success("GeoJSON converted to polygon coordinates.");
+    } catch {
+      toast.error("Invalid GeoJSON JSON.");
     }
   };
 
@@ -906,6 +1159,27 @@ export default function AdminPage() {
 
   const maxRevenue = Math.max(...salesData.map((s) => s.revenue), 1);
 
+  const deliveryZonePolygonFeature = useMemo(() => {
+    const polygon = deliveryZoneSettings?.polygon_coordinates || [];
+    if (polygon.length < 3) return null;
+
+    const ring = polygon.map(([lat, lng]) => [lng, lat]);
+    const [firstLng, firstLat] = ring[0];
+    const [lastLng, lastLat] = ring[ring.length - 1];
+
+    const closedRing =
+      firstLng === lastLng && firstLat === lastLat ? ring : [...ring, [firstLng, firstLat]];
+
+    return {
+      type: "Feature" as const,
+      geometry: {
+        type: "Polygon" as const,
+        coordinates: [closedRing],
+      },
+      properties: {},
+    };
+  }, [deliveryZoneSettings?.polygon_coordinates]);
+
   const tabs = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "orders", label: "Orders", icon: ShoppingBag },
@@ -914,6 +1188,7 @@ export default function AdminPage() {
     { key: "vouchers", label: "Vouchers", icon: TicketPercent },
     { key: "customers", label: "Users", icon: Users },
     { key: "drivers", label: "Drivers", icon: Bike },
+    { key: "delivery_zone", label: "Delivery Zone", icon: MapPin },
   ] as const;
 
   if (loading || pageLoading) {
@@ -2466,6 +2741,274 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "delivery_zone" && (
+          <div className="mx-auto max-w-3xl space-y-4">
+            <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
+              <div className="mb-4">
+                <h2 className="font-display text-2xl text-foreground">Delivery Geofencing</h2>
+                <p className="text-sm text-muted-foreground">
+                  Configure the center point, radius, and address pattern that define where delivery is allowed.
+                </p>
+              </div>
+
+              {!deliveryZoneSettings ? (
+                <p className="text-sm text-muted-foreground">Loading active delivery zone settings...</p>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Zone Name
+                    </label>
+                    <input
+                      type="text"
+                      value={deliveryZoneSettings.zone_name}
+                      onChange={(e) =>
+                        setDeliveryZoneSettings((prev) =>
+                          prev ? { ...prev, zone_name: e.target.value } : prev
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Center Latitude
+                      </label>
+                      <input
+                        type="number"
+                        step="0.000001"
+                        value={deliveryZoneSettings.center_lat}
+                        onChange={(e) =>
+                          setDeliveryZoneSettings((prev) =>
+                            prev ? { ...prev, center_lat: Number(e.target.value) } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Center Longitude
+                      </label>
+                      <input
+                        type="number"
+                        step="0.000001"
+                        value={deliveryZoneSettings.center_lng}
+                        onChange={(e) =>
+                          setDeliveryZoneSettings((prev) =>
+                            prev ? { ...prev, center_lng: Number(e.target.value) } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Radius (meters)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={deliveryZoneSettings.radius_meters}
+                      onChange={(e) =>
+                        setDeliveryZoneSettings((prev) =>
+                          prev ? { ...prev, radius_meters: Number(e.target.value) } : prev
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-background p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Draw delivery zone on map
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeliveryZoneSettings((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    polygon_coordinates: (prev.polygon_coordinates || []).slice(0, -1),
+                                  }
+                                : prev
+                            )
+                          }
+                          className="rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground hover:bg-muted"
+                        >
+                          Undo Point
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeliveryZoneSettings((prev) =>
+                              prev ? { ...prev, polygon_coordinates: [] } : prev
+                            )
+                          }
+                          className="rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground hover:bg-muted"
+                        >
+                          Clear Polygon
+                        </button>
+                      </div>
+                    </div>
+
+                    <Map
+                      {...deliveryZoneMapView}
+                      onMove={(evt) => setDeliveryZoneMapView(evt.viewState)}
+                      onClick={(evt) => {
+                        const lat = Number(evt.lngLat.lat.toFixed(6));
+                        const lng = Number(evt.lngLat.lng.toFixed(6));
+
+                        setDeliveryZoneSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                polygon_coordinates: [...(prev.polygon_coordinates || []), [lat, lng]],
+                              }
+                            : prev
+                        );
+                      }}
+                      mapStyle={DELIVERY_ZONE_MAP_STYLE}
+                      reuseMaps
+                      style={{ width: "100%", height: 320 }}
+                    >
+                      <NavigationControl position="top-right" />
+
+                      {deliveryZonePolygonFeature && (
+                        <Source id="delivery-zone-polygon" type="geojson" data={deliveryZonePolygonFeature}>
+                          <Layer
+                            id="delivery-zone-fill"
+                            type="fill"
+                            paint={{
+                              "fill-color": "#ef4444",
+                              "fill-opacity": 0.25,
+                            }}
+                          />
+                          <Layer
+                            id="delivery-zone-line"
+                            type="line"
+                            paint={{
+                              "line-color": "#b91c1c",
+                              "line-width": 2.5,
+                            }}
+                          />
+                        </Source>
+                      )}
+
+                      {(deliveryZoneSettings.polygon_coordinates || []).map(([lat, lng], index) => (
+                        <Marker key={`${lat}-${lng}-${index}`} longitude={lng} latitude={lat} anchor="center">
+                          <div className="h-3 w-3 rounded-full border border-white bg-red-600 shadow" />
+                        </Marker>
+                      ))}
+                    </Map>
+
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Click map to add polygon points in order. Use at least 3 points, then save settings.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Polygon Coordinates (optional)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={JSON.stringify(deliveryZoneSettings.polygon_coordinates || [], null, 2)}
+                      onChange={(e) => {
+                        try {
+                          const parsed = JSON.parse(e.target.value) as Array<[number, number]>;
+                          setDeliveryZoneSettings((prev) =>
+                            prev ? { ...prev, polygon_coordinates: Array.isArray(parsed) ? parsed : [] } : prev
+                          );
+                        } catch {
+                          // keep current state until valid JSON is provided
+                        }
+                      }}
+                      className={textareaClassName}
+                      placeholder='[[ -26.30, 27.75 ], [ -26.31, 27.77 ], [ -26.29, 27.78 ]]'
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Add polygon points as JSON in <code>[lat, lng]</code> format. When provided, polygon overrides radius checks.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      GeoJSON (optional)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={geoJsonInput}
+                      onChange={(e) => setGeoJsonInput(e.target.value)}
+                      className={textareaClassName}
+                      placeholder='Paste GeoJSON Feature, FeatureCollection, Polygon, or MultiPolygon here...'
+                    />
+                    <button
+                      type="button"
+                      onClick={handleConvertGeoJsonToPolygon}
+                      className="mt-2 inline-flex items-center justify-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Convert GeoJSON → Polygon
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Address Pattern (Regex)
+                    </label>
+                    <input
+                      type="text"
+                      value={deliveryZoneSettings.address_pattern}
+                      onChange={(e) =>
+                        setDeliveryZoneSettings((prev) =>
+                          prev ? { ...prev, address_pattern: e.target.value } : prev
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Example: <code>\\bstar\\s+village\\b</code>
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Out-of-zone Message
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={deliveryZoneSettings.out_of_zone_message}
+                      onChange={(e) =>
+                        setDeliveryZoneSettings((prev) =>
+                          prev ? { ...prev, out_of_zone_message: e.target.value } : prev
+                        )
+                      }
+                      className={textareaClassName}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveDeliveryZone}
+                    disabled={savingDeliveryZone}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+                  >
+                    {savingDeliveryZone ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Save Delivery Zone
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
