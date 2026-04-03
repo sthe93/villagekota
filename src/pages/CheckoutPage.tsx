@@ -39,9 +39,11 @@ import {
 } from "@/lib/savedAddresses";
 import { trackEvent } from "@/lib/analytics";
 import {
+  applyDeliveryZoneSettings,
   isStarVillageAddress,
   isWithinStarVillageGeofence,
   STAR_VILLAGE_DELIVERY_MESSAGE,
+  type DeliveryZoneSettingsRow,
 } from "@/lib/deliveryZone";
 import {
   buildCheckoutFieldErrors,
@@ -207,6 +209,37 @@ export default function CheckoutPage() {
       active = false;
     };
   }, [refreshSavedAddresses]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let mounted = true;
+
+    const loadDeliveryZoneSettings = async () => {
+      const { data, error } = await supabase
+        .from("delivery_zone_settings")
+        .select(
+          "id, zone_name, center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message, is_active"
+        )
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (!mounted) return;
+
+      if (error) {
+        toast.error(error.message || "Failed to load delivery zone settings.");
+        return;
+      }
+
+      applyDeliveryZoneSettings((data as DeliveryZoneSettingsRow | null) ?? null);
+    };
+
+    void loadDeliveryZoneSettings();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
 
   const updateField = <K extends keyof typeof form>(field: K, value: (typeof form)[K]) => {
     update(field, value);

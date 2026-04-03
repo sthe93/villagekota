@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyDeliveryZoneSettings,
   createDeliveryZonePolicy,
   getStarVillageDeliveryError,
   isStarVillageAddress,
@@ -77,5 +78,26 @@ describe("createDeliveryZonePolicy", () => {
 
     const { getDeliveryAddressError } = policy;
     expect(getDeliveryAddressError("Unknown", { lat: 1, lng: 1 })).toBe("Outside custom zone");
+  });
+});
+
+describe("applyDeliveryZoneSettings", () => {
+  it("applies active delivery zone settings and can reset to defaults", () => {
+    applyDeliveryZoneSettings({
+      id: "zone-1",
+      zone_name: "Custom Zone",
+      center_lat: 0,
+      center_lng: 0,
+      radius_meters: 1000,
+      address_pattern: "custom\\s+zone",
+      out_of_zone_message: "Outside custom zone",
+      is_active: true,
+    });
+
+    expect(isStarVillageAddress("15 Custom Zone")).toBe(true);
+    expect(isWithinStarVillageGeofence({ lat: 0.001, lng: 0.001 })).toBe(true);
+
+    applyDeliveryZoneSettings(null);
+    expect(isStarVillageAddress("123 Durban Road, Johannesburg")).toBe(false);
   });
 });

@@ -15,12 +15,25 @@ export type DeliveryZoneConfig = {
   outOfZoneMessage: string;
 };
 
+export type DeliveryZoneSettingsRow = {
+  id: string;
+  zone_name: string;
+  center_lat: number;
+  center_lng: number;
+  radius_meters: number;
+  address_pattern: string;
+  out_of_zone_message: string;
+  is_active: boolean;
+};
+
 const DEFAULT_CONFIG: DeliveryZoneConfig = {
   addressPattern: /\bstar\s+village\b/i,
   center: { lat: -26.2856, lng: 27.7594 },
   radiusMeters: 2200,
   outOfZoneMessage: "We currently deliver only to addresses inside Star Village.",
 };
+
+let activeConfig: DeliveryZoneConfig = DEFAULT_CONFIG;
 
 export const STAR_VILLAGE_DELIVERY_MESSAGE = DEFAULT_CONFIG.outOfZoneMessage;
 
@@ -67,19 +80,45 @@ export function createDeliveryZonePolicy(config: DeliveryZoneConfig) {
   };
 }
 
-const starVillagePolicy = createDeliveryZonePolicy(DEFAULT_CONFIG);
+function buildPolicy() {
+  return createDeliveryZonePolicy(activeConfig);
+}
+
+export function applyDeliveryZoneSettings(settings: DeliveryZoneSettingsRow | null | undefined) {
+  if (!settings || !settings.is_active) {
+    activeConfig = DEFAULT_CONFIG;
+    return;
+  }
+
+  const nextPattern = settings.address_pattern?.trim();
+  const radius = Number(settings.radius_meters || 0);
+  const lat = Number(settings.center_lat);
+  const lng = Number(settings.center_lng);
+
+  if (!nextPattern || !Number.isFinite(radius) || radius <= 0 || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    activeConfig = DEFAULT_CONFIG;
+    return;
+  }
+
+  activeConfig = {
+    addressPattern: new RegExp(nextPattern, "i"),
+    center: { lat, lng },
+    radiusMeters: radius,
+    outOfZoneMessage: settings.out_of_zone_message?.trim() || DEFAULT_CONFIG.outOfZoneMessage,
+  };
+}
 
 export function isStarVillageAddress(address: string): boolean {
-  return starVillagePolicy.isAddressInZone(address);
+  return buildPolicy().isAddressInZone(address);
 }
 
 export function isWithinStarVillageGeofence(destination: Coordinates) {
-  return starVillagePolicy.isCoordinatesInZone(destination);
+  return buildPolicy().isCoordinatesInZone(destination);
 }
 
 export function getStarVillageDeliveryError(
   address: string,
   destination: DestinationCoords
 ): string | null {
-  return starVillagePolicy.getDeliveryAddressError(address, destination);
+  return buildPolicy().getDeliveryAddressError(address, destination);
 }
