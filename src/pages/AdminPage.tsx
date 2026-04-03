@@ -31,7 +31,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import Footer from "@/components/Footer";
-import Map, { Layer, Marker, NavigationControl, Source } from "react-map-gl/maplibre";
+import MapView, { Layer, Marker, NavigationControl, Source } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { getMapTilerStyleUrl } from "@/lib/maps";
 
@@ -2864,7 +2864,7 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    <Map
+                    <MapView
                       {...deliveryZoneMapView}
                       onMove={(evt) => setDeliveryZoneMapView(evt.viewState)}
                       onClick={(evt) => {
@@ -2912,7 +2912,7 @@ export default function AdminPage() {
                           <div className="h-3 w-3 rounded-full border border-white bg-red-600 shadow" />
                         </Marker>
                       ))}
-                    </Map>
+                    </MapView>
 
                     <p className="mt-2 text-xs text-muted-foreground">
                       Click map to add polygon points in order. Use at least 3 points, then save settings.
