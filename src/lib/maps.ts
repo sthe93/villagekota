@@ -50,6 +50,29 @@ export function normalizeSouthAfricaAddressQuery(query: string) {
   return query.replace(/\s+/g, " ").trim();
 }
 
+const STAR_VILLAGE_HINT = "Star Village, Soweto";
+const STAR_VILLAGE_PROXIMITY = "27.8585,-26.3188";
+
+function getAddressQueryVariants(query: string) {
+  const normalizedQuery = normalizeSouthAfricaAddressQuery(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const lowerQuery = normalizedQuery.toLowerCase();
+  const includesStarVillageHint =
+    lowerQuery.includes("star village") ||
+    lowerQuery.includes("soweto") ||
+    lowerQuery.includes("johannesburg");
+
+  if (includesStarVillageHint) {
+    return [normalizedQuery];
+  }
+
+  return [normalizedQuery, `${normalizedQuery}, ${STAR_VILLAGE_HINT}`];
+}
+
 function buildMapTilerUrl(query: string, limit: number) {
   const key = getMapTilerKey();
   const normalizedQuery = normalizeSouthAfricaAddressQuery(query);
@@ -60,7 +83,30 @@ function buildMapTilerUrl(query: string, limit: number) {
 
   return `https://api.maptiler.com/geocoding/${encodeURIComponent(
     normalizedQuery
-  )}.json?limit=${limit}&country=za&key=${key}`;
+  )}.json?limit=${limit}&country=za&proximity=${STAR_VILLAGE_PROXIMITY}&key=${key}`;
+}
+
+function rankAddressSuggestion(placeName: string, inputTokens: string[]) {
+  const normalizedPlaceName = placeName.toLowerCase();
+
+  const matchedTokenCount = inputTokens.reduce(
+    (count, token) => (normalizedPlaceName.includes(token) ? count + 1 : count),
+    0
+  );
+  const includesHouseNumber = inputTokens.some((token) => /^\d{3,}$/.test(token));
+  const includesHouseNumberMatch =
+    includesHouseNumber &&
+    inputTokens.some((token) => /^\d{3,}$/.test(token) && normalizedPlaceName.includes(token));
+  const includesStarVillageArea =
+    normalizedPlaceName.includes("star village") ||
+    normalizedPlaceName.includes("protea") ||
+    normalizedPlaceName.includes("soweto");
+
+  let score = matchedTokenCount;
+  if (includesHouseNumberMatch) score += 4;
+  if (includesStarVillageArea) score += 2;
+
+  return score;
 }
 
 export function parseAddressSuggestions(payload: unknown): AddressSuggestion[] {
@@ -91,35 +137,70 @@ export async function searchSouthAfricaAddresses(
   query: string,
   signal?: AbortSignal
 ) {
-  const url = buildMapTilerUrl(query, 5);
-  if (!url) return [];
+  const queryVariants = getAddressQueryVariants(query);
+  if (queryVariants.length === 0) return [];
 
-  const response = await fetch(url, { signal });
-  if (!response.ok) return [];
+  const inputTokens = normalizeSouthAfricaAddressQuery(query)
+    .toLowerCase()
+    .split(" ")
+    .filter((token) => token.length > 1);
 
-  const payload: unknown = await response.json();
-  return parseAddressSuggestions(payload);
+  const responses = await Promise.all(
+    queryVariants.map(async (variant) => {
+      const url = buildMapTilerUrl(variant, 6);
+      if (!url) return [] as AddressSuggestion[];
+
+      const response = await fetch(url, { signal });
+      if (!response.ok) return [] as AddressSuggestion[];
+
+      const payload: unknown = await response.json();
+      return parseAddressSuggestions(payload);
+    })
+  );
+
+  const uniqueSuggestions = new Map<string, AddressSuggestion>();
+
+  responses.flat().forEach((suggestion) => {
+    const dedupeKey = suggestion.place_name.toLowerCase();
+    if (!uniqueSuggestions.has(dedupeKey)) {
+      uniqueSuggestions.set(dedupeKey, suggestion);
+    }
+  });
+
+  return Array.from(uniqueSuggestions.values())
+    .sort(
+      (a, b) =>
+        rankAddressSuggestion(b.place_name, inputTokens) -
+        rankAddressSuggestion(a.place_name, inputTokens)
+    )
+    .slice(0, 6);
 }
 
 export async function geocodeSouthAfricaAddress(
   address: string,
   signal?: AbortSignal
 ) {
-  const url = buildMapTilerUrl(address, 1);
-  if (!url) return null;
+  const queryVariants = getAddressQueryVariants(address);
 
-  const response = await fetch(url, { signal });
-  if (!response.ok) return null;
+  for (const variant of queryVariants) {
+    const url = buildMapTilerUrl(variant, 1);
+    if (!url) continue;
 
-  const payload: unknown = await response.json();
-  const [first] = parseAddressSuggestions(payload);
+    const response = await fetch(url, { signal });
+    if (!response.ok) continue;
 
-  if (!first) return null;
+    const payload: unknown = await response.json();
+    const [first] = parseAddressSuggestions(payload);
 
-  return {
-    lat: first.lat,
-    lng: first.lng,
-  };
+    if (first) {
+      return {
+        lat: first.lat,
+        lng: first.lng,
+      };
+    }
+  }
+
+  return null;
 }
 
 export async function getSouthAfricaDrivingRouteMeta(
