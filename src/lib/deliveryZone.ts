@@ -13,6 +13,19 @@ export type DeliveryZoneConfig = {
   center: Coordinates;
   radiusMeters: number;
   outOfZoneMessage: string;
+  polygon?: Coordinates[] | null;
+};
+
+export type DeliveryZoneSettingsRow = {
+  id: string;
+  zone_name: string;
+  center_lat: number;
+  center_lng: number;
+  radius_meters: number;
+  address_pattern: string;
+  out_of_zone_message: string;
+  is_active: boolean;
+  polygon_coordinates?: unknown;
 };
 
 export type DeliveryZoneSettingsRow = {
@@ -54,10 +67,51 @@ function haversineDistanceMeters(a: Coordinates, b: Coordinates) {
   return earthRadiusMeters * arc;
 }
 
+function isInsidePolygon(point: Coordinates, polygon: Coordinates[]) {
+  if (polygon.length < 3) return false;
+
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+
+    const intersects =
+      yi > point.lat !== yj > point.lat &&
+      point.lng < ((xj - xi) * (point.lat - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+
+    if (intersects) inside = !inside;
+  }
+
+  return inside;
+}
+
+function parsePolygonCoordinates(value: unknown): Coordinates[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const parsed = value
+    .map((entry) => {
+      if (!Array.isArray(entry) || entry.length < 2) return null;
+      const lat = Number(entry[0]);
+      const lng = Number(entry[1]);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+      return { lat, lng };
+    })
+    .filter((entry): entry is Coordinates => Boolean(entry));
+
+  return parsed.length >= 3 ? parsed : null;
+}
+
 export function createDeliveryZonePolicy(config: DeliveryZoneConfig) {
   const isAddressInZone = (address: string) => config.addressPattern.test(address.trim());
   const isCoordinatesInZone = (destination: Coordinates) =>
-    haversineDistanceMeters(config.center, destination) <= config.radiusMeters;
+    config.polygon && config.polygon.length >= 3
+      ? isInsidePolygon(destination, config.polygon)
+      : haversineDistanceMeters(config.center, destination) <= config.radiusMeters;
 
   const getDeliveryAddressError = (address: string, destination: DestinationCoords) => {
     const trimmedAddress = address.trim();
@@ -105,6 +159,7 @@ export function applyDeliveryZoneSettings(settings: DeliveryZoneSettingsRow | nu
     center: { lat, lng },
     radiusMeters: radius,
     outOfZoneMessage: settings.out_of_zone_message?.trim() || DEFAULT_CONFIG.outOfZoneMessage,
+    polygon: parsePolygonCoordinates(settings.polygon_coordinates),
   };
 }
 

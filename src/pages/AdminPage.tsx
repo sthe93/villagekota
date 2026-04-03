@@ -98,6 +98,7 @@ interface DeliveryZoneSettings {
   address_pattern: string;
   out_of_zone_message: string;
   is_active: boolean;
+  polygon_coordinates: Array<[number, number]> | null;
 }
 
 interface UserProfile {
@@ -413,7 +414,7 @@ export default function AdminPage() {
     const { data, error } = await supabase
       .from("delivery_zone_settings")
       .select(
-        "id, zone_name, center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message, is_active"
+        "id, zone_name, center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message, is_active, polygon_coordinates"
       )
       .eq("is_active", true)
       .maybeSingle();
@@ -423,7 +424,19 @@ export default function AdminPage() {
       return;
     }
 
-    setDeliveryZoneSettings((data as DeliveryZoneSettings | null) ?? null);
+    const nextSettings = (data as DeliveryZoneSettings | null) ?? {
+      id: "",
+      zone_name: "Star Village",
+      center_lat: -26.2856,
+      center_lng: 27.7594,
+      radius_meters: 2200,
+      address_pattern: "\\bstar\\s+village\\b",
+      out_of_zone_message: "We currently deliver only to addresses inside Star Village.",
+      is_active: true,
+      polygon_coordinates: null,
+    };
+
+    setDeliveryZoneSettings(nextSettings);
   };
 
   const fetchProfiles = async () => {
@@ -645,6 +658,16 @@ export default function AdminPage() {
     setSavingDeliveryZone(true);
 
     try {
+      const polygonCoordinates =
+        deliveryZoneSettings.polygon_coordinates && deliveryZoneSettings.polygon_coordinates.length > 0
+          ? deliveryZoneSettings.polygon_coordinates
+          : null;
+
+      if (polygonCoordinates && polygonCoordinates.length < 3) {
+        toast.error("Polygon requires at least 3 points.");
+        return;
+      }
+
       const payload = {
         zone_name: deliveryZoneSettings.zone_name.trim(),
         center_lat: Number(deliveryZoneSettings.center_lat),
@@ -654,6 +677,7 @@ export default function AdminPage() {
         out_of_zone_message:
           deliveryZoneSettings.out_of_zone_message.trim() ||
           "We currently deliver only to addresses inside Star Village.",
+        polygon_coordinates: polygonCoordinates,
         is_active: true,
         updated_by: user?.id ?? null,
       };
@@ -2640,6 +2664,31 @@ export default function AdminPage() {
                       }
                       className={inputClassName}
                     />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Polygon Coordinates (optional)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={JSON.stringify(deliveryZoneSettings.polygon_coordinates || [], null, 2)}
+                      onChange={(e) => {
+                        try {
+                          const parsed = JSON.parse(e.target.value) as Array<[number, number]>;
+                          setDeliveryZoneSettings((prev) =>
+                            prev ? { ...prev, polygon_coordinates: Array.isArray(parsed) ? parsed : [] } : prev
+                          );
+                        } catch {
+                          // keep current state until valid JSON is provided
+                        }
+                      }}
+                      className={textareaClassName}
+                      placeholder='[[ -26.30, 27.75 ], [ -26.31, 27.77 ], [ -26.29, 27.78 ]]'
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Add polygon points as JSON in <code>[lat, lng]</code> format. When provided, polygon overrides radius checks.
+                    </p>
                   </div>
 
                   <div>

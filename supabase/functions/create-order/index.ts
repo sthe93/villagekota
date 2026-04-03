@@ -100,6 +100,7 @@ type DeliveryZoneSettingsRow = {
   radius_meters: number;
   address_pattern: string;
   out_of_zone_message: string;
+  polygon_coordinates: unknown;
 };
 
 const DELIVERY_FEE = 25;
@@ -151,10 +152,49 @@ function haversineDistanceMeters(a: { lat: number; lng: number }, b: { lat: numb
   return earthRadiusMeters * arc;
 }
 
+function isInsidePolygon(point: { lat: number; lng: number }, polygon: Array<{ lat: number; lng: number }>) {
+  if (polygon.length < 3) return false;
+
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+    const intersects =
+      yi > point.lat !== yj > point.lat &&
+      point.lng < ((xj - xi) * (point.lat - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+
+    if (intersects) inside = !inside;
+  }
+
+  return inside;
+}
+
+function parsePolygonCoordinates(value: unknown) {
+  if (!Array.isArray(value)) return null;
+
+  const parsed = value
+    .map((entry) => {
+      if (!Array.isArray(entry) || entry.length < 2) return null;
+
+      const lat = Number(entry[0]);
+      const lng = Number(entry[1]);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+      return { lat, lng };
+    })
+    .filter((entry): entry is { lat: number; lng: number } => Boolean(entry));
+
+  return parsed.length >= 3 ? parsed : null;
+}
+
 async function loadDeliveryZoneSettings(supabaseAdmin: ReturnType<typeof createClient>) {
   const { data } = await supabaseAdmin
     .from("delivery_zone_settings")
-    .select("center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message")
+    .select("center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message, polygon_coordinates")
     .eq("is_active", true)
     .maybeSingle();
 
@@ -171,6 +211,7 @@ async function loadDeliveryZoneSettings(supabaseAdmin: ReturnType<typeof createC
       radiusMeters: STAR_VILLAGE_RADIUS_METERS,
       addressPattern: STAR_VILLAGE_ADDRESS_PATTERN,
       outOfZoneMessage: STAR_VILLAGE_OUT_OF_ZONE_MESSAGE,
+      polygon: null as Array<{ lat: number; lng: number }> | null,
     };
   }
 
@@ -181,6 +222,7 @@ async function loadDeliveryZoneSettings(supabaseAdmin: ReturnType<typeof createC
     radiusMeters: Number(settings.radius_meters),
     addressPattern: new RegExp(patternText, "i"),
     outOfZoneMessage: settings.out_of_zone_message?.trim() || STAR_VILLAGE_OUT_OF_ZONE_MESSAGE,
+    polygon: parsePolygonCoordinates(settings.polygon_coordinates),
   };
 }
 
@@ -336,8 +378,10 @@ Deno.serve(async (req) => {
     if (
       destinationLat != null &&
       destinationLng != null &&
-      haversineDistanceMeters(deliveryZone.center, { lat: destinationLat, lng: destinationLng }) >
-        deliveryZone.radiusMeters
+      (deliveryZone.polygon && deliveryZone.polygon.length >= 3
+        ? !isInsidePolygon({ lat: destinationLat, lng: destinationLng }, deliveryZone.polygon)
+        : haversineDistanceMeters(deliveryZone.center, { lat: destinationLat, lng: destinationLng }) >
+          deliveryZone.radiusMeters)
     ) {
       throw new Error(deliveryZone.outOfZoneMessage);
     }

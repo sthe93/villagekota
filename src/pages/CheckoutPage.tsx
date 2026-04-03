@@ -219,7 +219,7 @@ export default function CheckoutPage() {
       const { data, error } = await supabase
         .from("delivery_zone_settings")
         .select(
-          "id, zone_name, center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message, is_active"
+          "id, zone_name, center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message, is_active, polygon_coordinates"
         )
         .eq("is_active", true)
         .maybeSingle();
