@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { normalizeSouthAfricaAddressQuery, parseAddressSuggestions } from "./maps";
+import {
+  geocodeSouthAfricaAddress,
+  normalizeSouthAfricaAddressQuery,
+  parseAddressSuggestions,
+  searchSouthAfricaAddresses,
+} from "./maps";
 
 describe("parseAddressSuggestions", () => {
   it("returns normalized address suggestions with lat/lng", () => {
@@ -44,5 +49,81 @@ describe("normalizeSouthAfricaAddressQuery", () => {
     expect(normalizeSouthAfricaAddressQuery("37547 Pekwa Crescent\nProtea Glen  ")).toBe(
       "37547 Pekwa Crescent Protea Glen"
     );
+  });
+});
+
+describe("searchSouthAfricaAddresses", () => {
+  it("prioritizes house-number matches near Star Village", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          features: [
+            {
+              id: "first",
+              place_name: "Pekwa Crescent, Protea Glen, Soweto, South Africa",
+              center: [27.85, -26.31],
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          features: [
+            {
+              id: "second",
+              place_name: "37547 Pekwa Crescent, Star Village, Soweto, South Africa",
+              center: [27.851, -26.312],
+            },
+          ],
+        }),
+      });
+
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const results = await searchSouthAfricaAddresses("37547 pekwa crescent");
+      expect(results[0]?.place_name).toContain("37547");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("geocodeSouthAfricaAddress", () => {
+  it("falls back to a Star Village hinted query when needed", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ features: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          features: [
+            {
+              id: "fallback",
+              place_name: "37547 Pekwa Crescent, Star Village, Soweto, South Africa",
+              center: [27.851, -26.312],
+            },
+          ],
+        }),
+      });
+
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const destination = await geocodeSouthAfricaAddress("37547 pekwa crescent");
+      expect(destination).toEqual({ lat: -26.312, lng: 27.851 });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

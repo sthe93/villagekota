@@ -1,14 +1,46 @@
 import { CheckCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import PaymentResultCard from "@/components/payment/PaymentResultCard";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/sonner";
+import { useAuth } from "@/context/AuthContext";
+
+async function extractFunctionErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "Failed to finalize paid order.";
+  }
+
+  const edgeError = error as Error & {
+    context?: {
+      clone?: () => {
+        json?: () => Promise<{ error?: string }>;
+      };
+      json?: () => Promise<{ error?: string }>;
+    };
+  };
+
+  try {
+    const payload =
+      (await edgeError.context?.clone?.().json?.()) || (await edgeError.context?.json?.());
+
+    if (payload?.error) {
+      return payload.error;
+    }
+  } catch {
+    // ignore parse errors and fall back to generic message
+  }
+
+  return edgeError.message || "Failed to finalize paid order.";
+}
 
 export default function PaymentSuccessPage() {
+  const { user, session, loading } = useAuth();
   const [searchParams] = useSearchParams();
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
+  const authPromptedRef = useRef(false);
+  const finalizeAttemptedRef = useRef<string | null>(null);
 
   const orderId = useMemo(() => searchParams.get("orderId"), [searchParams]);
   const cardSessionId = useMemo(() => searchParams.get("cardSessionId"), [searchParams]);
@@ -19,12 +51,26 @@ export default function PaymentSuccessPage() {
 
   useEffect(() => {
     if (orderId || !cardSessionId || !payfastReference) return;
+    if (loading) return;
+    if (!user || !session?.access_token) {
+      if (!authPromptedRef.current) {
+        toast.error("Please sign in again so we can finalize your paid order.");
+        authPromptedRef.current = true;
+      }
+      return;
+    }
+    authPromptedRef.current = false;
+
+    if (finalizeAttemptedRef.current === cardSessionId) {
+      return;
+    }
 
     const storageKey = `pending_card_order:${cardSessionId}`;
     const pendingPayloadRaw = window.localStorage.getItem(storageKey);
     if (!pendingPayloadRaw) return;
 
     const finalizeCardOrder = async () => {
+      finalizeAttemptedRef.current = cardSessionId;
       setFinalizing(true);
       try {
         const pendingPayload = JSON.parse(pendingPayloadRaw) as Record<string, unknown>;
@@ -35,10 +81,15 @@ export default function PaymentSuccessPage() {
             cardPaymentConfirmed: true,
             cardPaymentReference: payfastReference,
           },
+          headers: session?.access_token
+            ? {
+                Authorization: `Bearer ${session.access_token}`,
+              }
+            : undefined,
         });
 
         if (error) {
-          throw new Error(error.message || "Failed to finalize paid order.");
+          throw error;
         }
 
         const nextOrderId = (createdOrder as { orderId?: string } | null)?.orderId;
@@ -49,14 +100,15 @@ export default function PaymentSuccessPage() {
         window.localStorage.removeItem(storageKey);
         setCreatedOrderId(nextOrderId);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to finalize paid order.");
+        finalizeAttemptedRef.current = null;
+        toast.error(await extractFunctionErrorMessage(error));
       } finally {
         setFinalizing(false);
       }
     };
 
     void finalizeCardOrder();
-  }, [cardSessionId, orderId, payfastReference]);
+  }, [cardSessionId, loading, orderId, payfastReference, session?.access_token, user]);
 
   const resolvedOrderId = createdOrderId || orderId;
 
