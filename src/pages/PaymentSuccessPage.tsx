@@ -89,7 +89,7 @@ export default function PaymentSuccessPage() {
         });
 
         if (error) {
-          throw new Error(error.message || "Failed to finalize paid order.");
+          throw error;
         }
 
         const nextOrderId = (createdOrder as { orderId?: string } | null)?.orderId;
