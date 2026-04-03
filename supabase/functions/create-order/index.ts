@@ -94,11 +94,20 @@ type PreparedItem = {
   selectedOptions: PreparedSelectedOption[];
 };
 
+type DeliveryZoneSettingsRow = {
+  center_lat: number;
+  center_lng: number;
+  radius_meters: number;
+  address_pattern: string;
+  out_of_zone_message: string;
+};
+
 const DELIVERY_FEE = 25;
 const FREE_DELIVERY_THRESHOLD = 150;
 const STAR_VILLAGE_ADDRESS_PATTERN = /\bstar\s+village\b/i;
 const STAR_VILLAGE_CENTER = { lat: -26.2856, lng: 27.7594 };
 const STAR_VILLAGE_RADIUS_METERS = 2200;
+const STAR_VILLAGE_OUT_OF_ZONE_MESSAGE = "The selected address is outside our Star Village delivery zone.";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -142,12 +151,37 @@ function haversineDistanceMeters(a: { lat: number; lng: number }, b: { lat: numb
   return earthRadiusMeters * arc;
 }
 
-function isWithinStarVillageGeofence(destination: { lat: number; lng: number }) {
-  return haversineDistanceMeters(STAR_VILLAGE_CENTER, destination) <= STAR_VILLAGE_RADIUS_METERS;
-}
+async function loadDeliveryZoneSettings(supabaseAdmin: ReturnType<typeof createClient>) {
+  const { data } = await supabaseAdmin
+    .from("delivery_zone_settings")
+    .select("center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message")
+    .eq("is_active", true)
+    .maybeSingle();
 
-function isStarVillageAddress(address: string) {
-  return STAR_VILLAGE_ADDRESS_PATTERN.test(address.trim());
+  const settings = data as DeliveryZoneSettingsRow | null;
+  if (
+    !settings ||
+    !Number.isFinite(Number(settings.center_lat)) ||
+    !Number.isFinite(Number(settings.center_lng)) ||
+    !Number.isFinite(Number(settings.radius_meters)) ||
+    Number(settings.radius_meters) <= 0
+  ) {
+    return {
+      center: STAR_VILLAGE_CENTER,
+      radiusMeters: STAR_VILLAGE_RADIUS_METERS,
+      addressPattern: STAR_VILLAGE_ADDRESS_PATTERN,
+      outOfZoneMessage: STAR_VILLAGE_OUT_OF_ZONE_MESSAGE,
+    };
+  }
+
+  const patternText = settings.address_pattern?.trim() || STAR_VILLAGE_ADDRESS_PATTERN.source;
+
+  return {
+    center: { lat: Number(settings.center_lat), lng: Number(settings.center_lng) },
+    radiusMeters: Number(settings.radius_meters),
+    addressPattern: new RegExp(patternText, "i"),
+    outOfZoneMessage: settings.out_of_zone_message?.trim() || STAR_VILLAGE_OUT_OF_ZONE_MESSAGE,
+  };
 }
 
 function normalizePhone(value: string | null | undefined) {
@@ -290,6 +324,8 @@ Deno.serve(async (req) => {
     const voucherProvider = body.voucherProvider || null;
     const cardPaymentConfirmed = body.cardPaymentConfirmed === true;
     const cardPaymentReference = (body.cardPaymentReference || "").trim() || null;
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const deliveryZone = await loadDeliveryZoneSettings(supabaseAdmin);
 
     if (!customerName) throw new Error("Full name is required");
     if (!/^0\d{9}$/.test(customerPhone)) {
@@ -300,11 +336,12 @@ Deno.serve(async (req) => {
     if (
       destinationLat != null &&
       destinationLng != null &&
-      !isWithinStarVillageGeofence({ lat: destinationLat, lng: destinationLng })
+      haversineDistanceMeters(deliveryZone.center, { lat: destinationLat, lng: destinationLng }) >
+        deliveryZone.radiusMeters
     ) {
-      throw new Error("The selected address is outside our Star Village delivery zone.");
+      throw new Error(deliveryZone.outOfZoneMessage);
     }
-    if (!hasDestinationCoordinates && !isStarVillageAddress(deliveryAddress)) {
+    if (!hasDestinationCoordinates && !deliveryZone.addressPattern.test(deliveryAddress)) {
       throw new Error(
         "Please choose a suggested address inside Star Village so we can verify your delivery location."
       );
@@ -316,8 +353,6 @@ Deno.serve(async (req) => {
       throw new Error("Card orders can only be created after confirmed PayFast payment.");
     }
     if (items.length === 0) throw new Error("Your cart is empty");
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
     const productIds = [...new Set(items.map((item) => item.productId?.trim()).filter(Boolean))] as string[];
     const { data: productsData, error: productsError } = await supabaseAdmin
