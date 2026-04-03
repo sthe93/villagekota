@@ -159,6 +159,8 @@ interface ManagedUser {
   assignedDriver: Driver | null;
 }
 
+type PolygonPoint = [number, number];
+
 type AdminTab =
   | "dashboard"
   | "orders"
@@ -334,6 +336,7 @@ export default function AdminPage() {
   const [voucherSearch, setVoucherSearch] = useState("");
   const [driverSearch, setDriverSearch] = useState("");
   const [savingDeliveryZone, setSavingDeliveryZone] = useState(false);
+  const [geoJsonInput, setGeoJsonInput] = useState("");
 
   const [pageLoading, setPageLoading] = useState(false);
 
@@ -700,6 +703,67 @@ export default function AdminPage() {
       toast.error(error instanceof Error ? error.message : "Failed to save delivery zone settings.");
     } finally {
       setSavingDeliveryZone(false);
+    }
+  };
+
+  const handleConvertGeoJsonToPolygon = () => {
+    if (!geoJsonInput.trim()) {
+      toast.error("Paste GeoJSON before converting.");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(geoJsonInput) as {
+        type?: string;
+        geometry?: { type?: string; coordinates?: unknown };
+        coordinates?: unknown;
+      };
+
+      const geometry = parsed.type === "Feature" ? parsed.geometry : parsed;
+      const coordinates = geometry?.coordinates;
+      const geometryType = geometry?.type;
+
+      let rings: unknown = null;
+      if (geometryType === "Polygon") {
+        rings = coordinates;
+      } else if (geometryType === "MultiPolygon" && Array.isArray(coordinates)) {
+        rings = coordinates[0];
+      }
+
+      const outerRing = Array.isArray(rings) ? (rings[0] as unknown[] | undefined) : undefined;
+      if (!outerRing || !Array.isArray(outerRing) || outerRing.length < 3) {
+        toast.error("GeoJSON polygon must include at least 3 coordinate points.");
+        return;
+      }
+
+      const convertedPoints = outerRing
+        .map((entry) => {
+          if (!Array.isArray(entry) || entry.length < 2) return null;
+          const lng = Number(entry[0]);
+          const lat = Number(entry[1]);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+          return [lat, lng] as PolygonPoint;
+        })
+        .filter((entry): entry is PolygonPoint => Boolean(entry));
+
+      if (convertedPoints.length < 3) {
+        toast.error("Could not parse enough valid GeoJSON points.");
+        return;
+      }
+
+      const first = convertedPoints[0];
+      const last = convertedPoints[convertedPoints.length - 1];
+      const normalizedPoints =
+        first[0] === last[0] && first[1] === last[1]
+          ? convertedPoints.slice(0, convertedPoints.length - 1)
+          : convertedPoints;
+
+      setDeliveryZoneSettings((prev) =>
+        prev ? { ...prev, polygon_coordinates: normalizedPoints } : prev
+      );
+      toast.success("GeoJSON converted to polygon points.");
+    } catch {
+      toast.error("Invalid GeoJSON. Paste a valid Polygon or Feature.");
     }
   };
 
@@ -2689,6 +2753,31 @@ export default function AdminPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       Add polygon points as JSON in <code>[lat, lng]</code> format. When provided, polygon overrides radius checks.
                     </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-background/50 p-4">
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      GeoJSON (optional helper)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={geoJsonInput}
+                      onChange={(e) => setGeoJsonInput(e.target.value)}
+                      className={textareaClassName}
+                      placeholder='{"type":"Polygon","coordinates":[[[27.75,-26.30],[27.78,-26.30],[27.78,-26.28],[27.75,-26.28],[27.75,-26.30]]]}'
+                    />
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleConvertGeoJsonToPolygon}
+                        className="rounded-xl border border-border bg-card px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                      >
+                        Convert GeoJSON to Polygon
+                      </button>
+                      <p className="text-xs text-muted-foreground">
+                        Accepts GeoJSON <code>Polygon</code>, <code>MultiPolygon</code>, or <code>Feature</code>.
+                      </p>
+                    </div>
                   </div>
 
                   <div>

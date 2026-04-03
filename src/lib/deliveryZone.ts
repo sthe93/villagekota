@@ -28,17 +28,6 @@ export type DeliveryZoneSettingsRow = {
   polygon_coordinates?: unknown;
 };
 
-export type DeliveryZoneSettingsRow = {
-  id: string;
-  zone_name: string;
-  center_lat: number;
-  center_lng: number;
-  radius_meters: number;
-  address_pattern: string;
-  out_of_zone_message: string;
-  is_active: boolean;
-};
-
 const DEFAULT_CONFIG: DeliveryZoneConfig = {
   addressPattern: /\bstar\s+village\b/i,
   center: { lat: -26.2856, lng: 27.7594 },
