@@ -31,6 +31,9 @@ import {
   ChevronRight,
 } from "lucide-react";
 import Footer from "@/components/Footer";
+import Map, { Layer, Marker, NavigationControl, Source } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { getMapTilerStyleUrl } from "@/lib/maps";
 
 interface DbProduct {
   id: string;
@@ -100,6 +103,29 @@ interface DeliveryZoneSettings {
   is_active: boolean;
   polygon_coordinates: Array<[number, number]> | null;
 }
+
+type GeoJsonLike =
+  | {
+      type?: "FeatureCollection";
+      features?: Array<{
+        type?: "Feature";
+        geometry?: {
+          type?: string;
+          coordinates?: unknown;
+        } | null;
+      }>;
+    }
+  | {
+      type?: "Feature";
+      geometry?: {
+        type?: string;
+        coordinates?: unknown;
+      } | null;
+    }
+  | {
+      type?: string;
+      coordinates?: unknown;
+    };
 
 interface UserProfile {
   id: string;
@@ -206,6 +232,8 @@ const textareaClassName =
 
 const selectClassName =
   "w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary";
+
+const DELIVERY_ZONE_MAP_STYLE = getMapTilerStyleUrl();
 
 function Badge({
   children,
@@ -337,6 +365,11 @@ export default function AdminPage() {
   const [driverSearch, setDriverSearch] = useState("");
   const [savingDeliveryZone, setSavingDeliveryZone] = useState(false);
   const [geoJsonInput, setGeoJsonInput] = useState("");
+  const [deliveryZoneMapView, setDeliveryZoneMapView] = useState({
+    longitude: 27.7594,
+    latitude: -26.2856,
+    zoom: 12,
+  });
 
   const [pageLoading, setPageLoading] = useState(false);
 
@@ -441,6 +474,16 @@ export default function AdminPage() {
 
     setDeliveryZoneSettings(nextSettings);
   };
+
+  useEffect(() => {
+    if (!deliveryZoneSettings) return;
+
+    setDeliveryZoneMapView((prev) => ({
+      ...prev,
+      latitude: Number(deliveryZoneSettings.center_lat) || prev.latitude,
+      longitude: Number(deliveryZoneSettings.center_lng) || prev.longitude,
+    }));
+  }, [deliveryZoneSettings]);
 
   const fetchProfiles = async () => {
     const { data, error } = await supabase
@@ -708,62 +751,96 @@ export default function AdminPage() {
 
   const handleConvertGeoJsonToPolygon = () => {
     if (!geoJsonInput.trim()) {
-      toast.error("Paste GeoJSON before converting.");
+      toast.error("Paste GeoJSON first.");
       return;
     }
 
     try {
-      const parsed = JSON.parse(geoJsonInput) as {
-        type?: string;
-        geometry?: { type?: string; coordinates?: unknown };
-        coordinates?: unknown;
+      const parsed = JSON.parse(geoJsonInput) as GeoJsonLike;
+
+      const resolveGeometry = () => {
+        if (parsed?.type === "FeatureCollection" && Array.isArray(parsed.features)) {
+          return parsed.features.find((feature) => feature?.geometry)?.geometry || null;
+        }
+
+        if (parsed?.type === "Feature" && parsed.geometry) {
+          return parsed.geometry;
+        }
+
+        if ("coordinates" in parsed) {
+          return parsed as { type?: string; coordinates?: unknown };
+        }
+
+        return null;
       };
 
-      const geometry = parsed.type === "Feature" ? parsed.geometry : parsed;
-      const coordinates = geometry?.coordinates;
-      const geometryType = geometry?.type;
+      const geometry = resolveGeometry();
 
-      let rings: unknown = null;
-      if (geometryType === "Polygon") {
-        rings = coordinates;
-      } else if (geometryType === "MultiPolygon" && Array.isArray(coordinates)) {
-        rings = coordinates[0];
-      }
-
-      const outerRing = Array.isArray(rings) ? (rings[0] as unknown[] | undefined) : undefined;
-      if (!outerRing || !Array.isArray(outerRing) || outerRing.length < 3) {
-        toast.error("GeoJSON polygon must include at least 3 coordinate points.");
+      if (!geometry || !Array.isArray(geometry.coordinates)) {
+        toast.error("GeoJSON does not include polygon coordinates.");
         return;
       }
 
-      const convertedPoints = outerRing
-        .map((entry) => {
-          if (!Array.isArray(entry) || entry.length < 2) return null;
-          const lng = Number(entry[0]);
-          const lat = Number(entry[1]);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-          return [lat, lng] as PolygonPoint;
-        })
-        .filter((entry): entry is PolygonPoint => Boolean(entry));
+      const toLatLngPolygon = (coordinates: unknown): Array<[number, number]> | null => {
+        if (!Array.isArray(coordinates) || coordinates.length === 0) return null;
 
-      if (convertedPoints.length < 3) {
-        toast.error("Could not parse enough valid GeoJSON points.");
+        if (geometry.type === "Polygon") {
+          const ring = coordinates[0];
+          if (!Array.isArray(ring)) return null;
+
+          const points = ring
+            .map((point) => {
+              if (!Array.isArray(point) || point.length < 2) return null;
+              const lng = Number(point[0]);
+              const lat = Number(point[1]);
+              if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+              return [lat, lng] as [number, number];
+            })
+            .filter((point): point is [number, number] => Boolean(point));
+
+          return points.length >= 3 ? points : null;
+        }
+
+        if (geometry.type === "MultiPolygon") {
+          const firstPolygon = coordinates[0];
+          if (!Array.isArray(firstPolygon) || firstPolygon.length === 0) return null;
+          const firstRing = firstPolygon[0];
+          if (!Array.isArray(firstRing)) return null;
+
+          const points = firstRing
+            .map((point) => {
+              if (!Array.isArray(point) || point.length < 2) return null;
+              const lng = Number(point[0]);
+              const lat = Number(point[1]);
+              if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+              return [lat, lng] as [number, number];
+            })
+            .filter((point): point is [number, number] => Boolean(point));
+
+          return points.length >= 3 ? points : null;
+        }
+
+        return null;
+      };
+
+      const converted = toLatLngPolygon(geometry.coordinates);
+
+      if (!converted) {
+        toast.error("Only Polygon/MultiPolygon GeoJSON with valid points is supported.");
         return;
       }
-
-      const first = convertedPoints[0];
-      const last = convertedPoints[convertedPoints.length - 1];
-      const normalizedPoints =
-        first[0] === last[0] && first[1] === last[1]
-          ? convertedPoints.slice(0, convertedPoints.length - 1)
-          : convertedPoints;
 
       setDeliveryZoneSettings((prev) =>
-        prev ? { ...prev, polygon_coordinates: normalizedPoints } : prev
+        prev
+          ? {
+              ...prev,
+              polygon_coordinates: converted,
+            }
+          : prev
       );
-      toast.success("GeoJSON converted to polygon points.");
+      toast.success("GeoJSON converted to polygon coordinates.");
     } catch {
-      toast.error("Invalid GeoJSON. Paste a valid Polygon or Feature.");
+      toast.error("Invalid GeoJSON JSON.");
     }
   };
 
@@ -1083,6 +1160,27 @@ export default function AdminPage() {
   }, [orders]);
 
   const maxRevenue = Math.max(...salesData.map((s) => s.revenue), 1);
+
+  const deliveryZonePolygonFeature = useMemo(() => {
+    const polygon = deliveryZoneSettings?.polygon_coordinates || [];
+    if (polygon.length < 3) return null;
+
+    const ring = polygon.map(([lat, lng]) => [lng, lat]);
+    const [firstLng, firstLat] = ring[0];
+    const [lastLng, lastLat] = ring[ring.length - 1];
+
+    const closedRing =
+      firstLng === lastLng && firstLat === lastLat ? ring : [...ring, [firstLng, firstLat]];
+
+    return {
+      type: "Feature" as const,
+      geometry: {
+        type: "Polygon" as const,
+        coordinates: [closedRing],
+      },
+      properties: {},
+    };
+  }, [deliveryZoneSettings?.polygon_coordinates]);
 
   const tabs = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -2730,6 +2828,97 @@ export default function AdminPage() {
                     />
                   </div>
 
+                  <div className="rounded-2xl border border-border bg-background p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Draw delivery zone on map
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeliveryZoneSettings((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    polygon_coordinates: (prev.polygon_coordinates || []).slice(0, -1),
+                                  }
+                                : prev
+                            )
+                          }
+                          className="rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground hover:bg-muted"
+                        >
+                          Undo Point
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeliveryZoneSettings((prev) =>
+                              prev ? { ...prev, polygon_coordinates: [] } : prev
+                            )
+                          }
+                          className="rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground hover:bg-muted"
+                        >
+                          Clear Polygon
+                        </button>
+                      </div>
+                    </div>
+
+                    <Map
+                      {...deliveryZoneMapView}
+                      onMove={(evt) => setDeliveryZoneMapView(evt.viewState)}
+                      onClick={(evt) => {
+                        const lat = Number(evt.lngLat.lat.toFixed(6));
+                        const lng = Number(evt.lngLat.lng.toFixed(6));
+
+                        setDeliveryZoneSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                polygon_coordinates: [...(prev.polygon_coordinates || []), [lat, lng]],
+                              }
+                            : prev
+                        );
+                      }}
+                      mapStyle={DELIVERY_ZONE_MAP_STYLE}
+                      reuseMaps
+                      style={{ width: "100%", height: 320 }}
+                    >
+                      <NavigationControl position="top-right" />
+
+                      {deliveryZonePolygonFeature && (
+                        <Source id="delivery-zone-polygon" type="geojson" data={deliveryZonePolygonFeature}>
+                          <Layer
+                            id="delivery-zone-fill"
+                            type="fill"
+                            paint={{
+                              "fill-color": "#ef4444",
+                              "fill-opacity": 0.25,
+                            }}
+                          />
+                          <Layer
+                            id="delivery-zone-line"
+                            type="line"
+                            paint={{
+                              "line-color": "#b91c1c",
+                              "line-width": 2.5,
+                            }}
+                          />
+                        </Source>
+                      )}
+
+                      {(deliveryZoneSettings.polygon_coordinates || []).map(([lat, lng], index) => (
+                        <Marker key={`${lat}-${lng}-${index}`} longitude={lng} latitude={lat} anchor="center">
+                          <div className="h-3 w-3 rounded-full border border-white bg-red-600 shadow" />
+                        </Marker>
+                      ))}
+                    </Map>
+
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Click map to add polygon points in order. Use at least 3 points, then save settings.
+                    </p>
+                  </div>
+
                   <div>
                     <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Polygon Coordinates (optional)
@@ -2755,29 +2944,24 @@ export default function AdminPage() {
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-border bg-background/50 p-4">
+                  <div>
                     <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      GeoJSON (optional helper)
+                      GeoJSON (optional)
                     </label>
                     <textarea
                       rows={4}
                       value={geoJsonInput}
                       onChange={(e) => setGeoJsonInput(e.target.value)}
                       className={textareaClassName}
-                      placeholder='{"type":"Polygon","coordinates":[[[27.75,-26.30],[27.78,-26.30],[27.78,-26.28],[27.75,-26.28],[27.75,-26.30]]]}'
+                      placeholder='Paste GeoJSON Feature, FeatureCollection, Polygon, or MultiPolygon here...'
                     />
-                    <div className="mt-3 flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={handleConvertGeoJsonToPolygon}
-                        className="rounded-xl border border-border bg-card px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                      >
-                        Convert GeoJSON to Polygon
-                      </button>
-                      <p className="text-xs text-muted-foreground">
-                        Accepts GeoJSON <code>Polygon</code>, <code>MultiPolygon</code>, or <code>Feature</code>.
-                      </p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleConvertGeoJsonToPolygon}
+                      className="mt-2 inline-flex items-center justify-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Convert GeoJSON → Polygon
+                    </button>
                   </div>
 
                   <div>
