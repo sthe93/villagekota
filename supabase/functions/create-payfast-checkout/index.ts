@@ -3,13 +3,18 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import CryptoJS from "npm:crypto-js";
 
 type Payload = {
-  orderId: string;
+  orderId?: string;
+  cardSessionId?: string;
+  draftAmount?: number;
+  customerName?: string;
+  customerEmail?: string;
 };
 
 const corsHeadersBase = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
+  Vary: "Origin",
 };
 
 function sanitizeValue(value: string) {
@@ -142,63 +147,91 @@ Deno.serve(async (req) => {
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
     const body = (await req.json()) as Payload;
 
-    if (!body.orderId) {
+    const isDraftCardSession = Boolean(body.cardSessionId);
+    const orderId = body.orderId?.trim() || null;
+
+    let customerEmail = "";
+    let customerName = "";
+    let amount = "0.00";
+    let paymentReference = "";
+
+    if (!isDraftCardSession && !orderId) {
       return new Response(
-        JSON.stringify({ error: "orderId is required" }),
+        JSON.stringify({ error: "orderId or cardSessionId is required" }),
         { status: 400, headers: corsHeaders }
       );
     }
 
-    const [{ data: order, error: orderError }, { data: adminRole, error: adminRoleError }] =
-      await Promise.all([
-        supabaseAdmin
-          .from("orders")
-          .select("id, user_id, customer_name, customer_email, total, payment_method")
-          .eq("id", body.orderId)
-          .maybeSingle(),
-        supabaseAdmin
-          .from("user_roles")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("role", "admin")
-          .maybeSingle(),
-      ]);
+    if (isDraftCardSession) {
+      const draftAmount = Number(body.draftAmount || 0);
+      customerEmail = (body.customerEmail || "").trim();
+      customerName = (body.customerName || "").trim();
+      paymentReference = body.cardSessionId!.trim();
 
-    if (orderError || !order) {
-      return new Response(
-        JSON.stringify({ error: orderError?.message || "Order not found" }),
-        { status: 404, headers: corsHeaders }
-      );
-    }
+      if (!customerEmail || !customerName || !paymentReference || draftAmount <= 0) {
+        return new Response(
+          JSON.stringify({ error: "cardSessionId, customerEmail, customerName and draftAmount are required" }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
 
-    if (adminRoleError) {
-      return new Response(
-        JSON.stringify({ error: adminRoleError.message }),
-        { status: 500, headers: corsHeaders }
-      );
-    }
+      amount = draftAmount.toFixed(2);
+    } else {
+      const [{ data: order, error: orderError }, { data: adminRole, error: adminRoleError }] =
+        await Promise.all([
+          supabaseAdmin
+            .from("orders")
+            .select("id, user_id, customer_name, customer_email, total, payment_method")
+            .eq("id", orderId)
+            .maybeSingle(),
+          supabaseAdmin
+            .from("user_roles")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("role", "admin")
+            .maybeSingle(),
+        ]);
 
-    const isAdmin = !!adminRole;
-    if (order.user_id !== user.id && !isAdmin) {
-      return new Response(
-        JSON.stringify({ error: "You do not have access to this order" }),
-        { status: 403, headers: corsHeaders }
-      );
-    }
+      if (orderError || !order) {
+        return new Response(
+          JSON.stringify({ error: orderError?.message || "Order not found" }),
+          { status: 404, headers: corsHeaders }
+        );
+      }
 
-    const customerEmail = order.customer_email?.trim() || "";
-    if (!customerEmail) {
-      return new Response(
-        JSON.stringify({ error: "This order does not have a customer email" }),
-        { status: 400, headers: corsHeaders }
-      );
-    }
+      if (adminRoleError) {
+        return new Response(
+          JSON.stringify({ error: adminRoleError.message }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
 
-    if (String(order.payment_method || "").toLowerCase() !== "card") {
-      return new Response(
-        JSON.stringify({ error: "Only card orders can start PayFast checkout" }),
-        { status: 409, headers: corsHeaders }
-      );
+      const isAdmin = !!adminRole;
+      if (order.user_id !== user.id && !isAdmin) {
+        return new Response(
+          JSON.stringify({ error: "You do not have access to this order" }),
+          { status: 403, headers: corsHeaders }
+        );
+      }
+
+      customerEmail = order.customer_email?.trim() || "";
+      customerName = order.customer_name?.trim() || "";
+      amount = Number(order.total || 0).toFixed(2);
+      paymentReference = order.id;
+
+      if (!customerEmail) {
+        return new Response(
+          JSON.stringify({ error: "This order does not have a customer email" }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      if (String(order.payment_method || "").toLowerCase() !== "card") {
+        return new Response(
+          JSON.stringify({ error: "Only card orders can start PayFast checkout" }),
+          { status: 409, headers: corsHeaders }
+        );
+      }
     }
 
     if (
@@ -215,12 +248,25 @@ Deno.serve(async (req) => {
       );
     }
 
-    const amount = Number(order.total || 0).toFixed(2);
+    const successParams = new URLSearchParams();
+    const cancelParams = new URLSearchParams();
 
-    const returnUrl = `${appBaseUrl}/payment/success?orderId=${encodeURIComponent(body.orderId)}`;
-    const cancelUrl = `${appBaseUrl}/payment/cancel?orderId=${encodeURIComponent(body.orderId)}`;
+    if (orderId) {
+      successParams.set("orderId", orderId);
+      cancelParams.set("orderId", orderId);
+    }
+
+    if (body.cardSessionId) {
+      successParams.set("cardSessionId", body.cardSessionId);
+      cancelParams.set("cardSessionId", body.cardSessionId);
+    }
+
+    const returnUrl = `${appBaseUrl}/payment/success?${successParams.toString()}`;
+    const cancelUrl = `${appBaseUrl}/payment/cancel?${cancelParams.toString()}`;
     const notifyUrl = `${supabaseUrl}/functions/v1/payfast-notify`;
-    const itemName = `Village Eats Order #${body.orderId.slice(0, 8).toUpperCase()}`;
+    const itemName = orderId
+      ? `Village Eats Order #${orderId.slice(0, 8).toUpperCase()}`
+      : "Village Eats Card Checkout";
 
     const paymentData: Record<string, string> = {
       merchant_id: merchantId,
@@ -228,9 +274,9 @@ Deno.serve(async (req) => {
       return_url: returnUrl,
       cancel_url: cancelUrl,
       notify_url: notifyUrl,
-      name_first: order.customer_name,
+      name_first: customerName,
       email_address: customerEmail,
-      m_payment_id: body.orderId,
+      m_payment_id: paymentReference,
       amount,
       item_name: itemName,
     };
