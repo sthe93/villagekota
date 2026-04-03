@@ -3,6 +3,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { formatSupabaseError } from "@/lib/supabaseSchemaCompatibility";
+import { getClientAppBaseUrl } from "@/lib/appBaseUrl";
 import { toast } from "@/components/ui/sonner";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -38,9 +39,11 @@ import {
 } from "@/lib/savedAddresses";
 import { trackEvent } from "@/lib/analytics";
 import {
+  applyDeliveryZoneSettings,
   isStarVillageAddress,
   isWithinStarVillageGeofence,
   STAR_VILLAGE_DELIVERY_MESSAGE,
+  type DeliveryZoneSettingsRow,
 } from "@/lib/deliveryZone";
 import {
   buildCheckoutFieldErrors,
@@ -206,6 +209,62 @@ export default function CheckoutPage() {
       active = false;
     };
   }, [refreshSavedAddresses]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let mounted = true;
+
+    const loadDeliveryZoneSettings = async () => {
+      const { data, error } = await supabase
+        .from("delivery_zone_settings")
+        .select(
+          "id, zone_name, center_lat, center_lng, radius_meters, address_pattern, out_of_zone_message, is_active, polygon_coordinates"
+        )
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (!mounted) return;
+
+      if (error) {
+        toast.error(error.message || "Failed to load delivery zone settings.");
+        return;
+      }
+
+      applyDeliveryZoneSettings((data as DeliveryZoneSettingsRow | null) ?? null);
+    };
+
+    void loadDeliveryZoneSettings();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    const normalizedAddress = form.address.trim();
+    if (normalizedAddress.length < 10) return;
+    if (selectedDestination.lat != null && selectedDestination.lng != null) return;
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const geocoded = await geocodeSouthAfricaAddress(normalizedAddress, controller.signal);
+        if (!geocoded) return;
+
+        if (isWithinStarVillageGeofence({ lat: geocoded.lat, lng: geocoded.lng })) {
+          setSelectedDestination({ lat: geocoded.lat, lng: geocoded.lng });
+        }
+      } catch {
+        // ignore lookup failures for passive autocomplete geocoding
+      }
+    }, 550);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [form.address, selectedDestination.lat, selectedDestination.lng]);
 
   const updateField = <K extends keyof typeof form>(field: K, value: (typeof form)[K]) => {
     update(field, value);
@@ -576,11 +635,6 @@ export default function CheckoutPage() {
     const customerEmail = form.email.trim() || user.email || "";
     const customerPhone = getPhoneDigits(form.phone);
 
-    if (form.payment === "card") {
-      toast.error("Card checkout is temporarily disabled until post-payment order confirmation is enabled.");
-      return;
-    }
-
     if (form.payment === "voucher") {
       if (!voucherInfo || voucherInfo.type !== "prepaid") {
         toast.error("Apply a valid prepaid voucher before choosing voucher payment.");
@@ -648,6 +702,7 @@ export default function CheckoutPage() {
               draftAmount: adjustedTotal,
               customerName: form.name.trim(),
               customerEmail,
+              appBaseUrl: getClientAppBaseUrl(),
             },
           }
         );
@@ -721,9 +776,8 @@ export default function CheckoutPage() {
     {
       value: "card",
       label: "Card / PayFast",
-      description: "Disabled until payment-first checkout flow is released.",
+      description: "Secure online card payment via PayFast before order confirmation.",
       icon: CreditCard,
-      disabled: true,
     },
     {
       value: "eft",
