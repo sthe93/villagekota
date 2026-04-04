@@ -20,10 +20,12 @@ import {
   Home,
   ChevronDown,
   ChevronUp,
+  LocateFixed,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import {
   geocodeSouthAfricaAddress,
+  reverseGeocodeSouthAfricaCoordinates,
 } from "@/lib/maps";
 import {
   useCheckoutFlow,
@@ -120,7 +122,6 @@ export default function CheckoutPage() {
   const voucherInputRef = useRef<HTMLInputElement | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<CheckoutStep>(1);
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
@@ -131,6 +132,7 @@ export default function CheckoutPage() {
   const [newSavedAddressLabel, setNewSavedAddressLabel] = useState("");
   const [showSavedAddresses, setShowSavedAddresses] = useState(false);
   const [showVoucherSummary, setShowVoucherSummary] = useState(false);
+  const [locatingCurrentAddress, setLocatingCurrentAddress] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState<{
     lat: number | null;
     lng: number | null;
@@ -148,10 +150,6 @@ export default function CheckoutPage() {
     setTouched,
     update,
     markTouched: markCheckoutTouched,
-    fieldErrors: checkoutFieldErrors,
-    canContinueFromDelivery: canContinueDeliveryStep,
-    canContinueFromPayment: canContinuePaymentStep,
-    handleStepChange: handleCheckoutStepChange,
   } = useCheckoutFlow({
     initialForm: {
       name: profile?.display_name || "",
@@ -292,24 +290,24 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (checkoutFieldErrors.name) {
+    if (fieldErrors.name) {
       focusAndRevealField(nameInputRef.current);
       return;
     }
 
-    if (checkoutFieldErrors.phone) {
+    if (fieldErrors.phone) {
       focusAndRevealField(phoneInputRef.current);
       return;
     }
 
-    if (checkoutFieldErrors.address) {
+    if (fieldErrors.address) {
       focusAndRevealField(addressInputRef.current);
       return;
     }
   };
 
   const focusFirstInvalidForPayment = () => {
-    if (form.payment === "voucher" && !canContinuePaymentStep) {
+    if (form.payment === "voucher" && !canContinueFromPayment) {
       focusAndRevealField(voucherInputRef.current);
     }
   };
@@ -321,6 +319,58 @@ export default function CheckoutPage() {
       lng: address.destination_lng,
     });
     toast.success(`${address.label} added to checkout.`);
+  };
+
+  const handleUseCurrentLocation = async () => {
+    if (locatingCurrentAddress) return;
+
+    if (!navigator.geolocation) {
+      toast.error("Location services are not available on this device.");
+      return;
+    }
+
+    setLocatingCurrentAddress(true);
+
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 0,
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+
+      if (!isWithinStarVillageGeofence({ lat: latitude, lng: longitude })) {
+        setTouched((prev) => ({ ...prev, address: true }));
+        toast.error(STAR_VILLAGE_DELIVERY_MESSAGE);
+        return;
+      }
+
+      setSelectedDestination({ lat: latitude, lng: longitude });
+
+      const suggestion = await reverseGeocodeSouthAfricaCoordinates(latitude, longitude);
+      if (suggestion?.place_name) {
+        update("address", suggestion.place_name);
+        toast.success("Pinned your current location.");
+        return;
+      }
+
+      update(
+        "address",
+        `${latitude.toFixed(6)}, ${longitude.toFixed(6)} (Live location pin)`
+      );
+      toast.success("Pinned your current location.");
+    } catch (error) {
+      const message =
+        error instanceof GeolocationPositionError && error.code === error.PERMISSION_DENIED
+          ? "Please allow location access to use live pin."
+          : "Could not fetch your current location. Try again.";
+      toast.error(message);
+    } finally {
+      setLocatingCurrentAddress(false);
+    }
   };
 
   const getCheckoutValidationMessages = () => {
@@ -379,8 +429,8 @@ export default function CheckoutPage() {
   );
 
   const handleStepChange = (targetStep: CheckoutStep) => {
-    if (targetStep <= currentStep) {
-      setCurrentStep(targetStep);
+    if (targetStep <= checkoutStep) {
+      setCheckoutStep(targetStep);
       return;
     }
 
@@ -395,7 +445,7 @@ export default function CheckoutPage() {
       return;
     }
 
-    setCurrentStep(targetStep);
+    setCheckoutStep(targetStep);
   };
 
   const orderButtonLabel = useMemo(() => {
@@ -928,16 +978,7 @@ export default function CheckoutPage() {
                       key={item.step}
                       type="button"
                       onClick={() => {
-                        const error = handleCheckoutStepChange(item.step);
-                        if (!error) return;
-
-                        if (item.step === 3 && !canContinuePaymentStep) {
-                          focusFirstInvalidForPayment();
-                        } else if (item.step >= 2) {
-                          focusFirstInvalidForDelivery();
-                        }
-
-                        toast.error(error);
+                        handleStepChange(item.step);
                       }}
                       className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors ${
                         checkoutStep === item.step
@@ -986,14 +1027,14 @@ export default function CheckoutPage() {
                       onChange={(e) => updateField("name", e.target.value)}
                       onBlur={() => markCheckoutTouched("name")}
                       className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
-                        touched.name && checkoutFieldErrors.name
+                        touched.name && fieldErrors.name
                           ? "border-destructive focus:border-destructive"
                           : "border-border"
                       }`}
                       required
                     />
-                    {touched.name && checkoutFieldErrors.name && (
-                      <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.name}</p>
+                    {touched.name && fieldErrors.name && (
+                      <p className="mt-1 text-xs text-destructive">{fieldErrors.name}</p>
                     )}
                   </div>
 
@@ -1012,7 +1053,7 @@ export default function CheckoutPage() {
                         placeholder="0XXXXXXXXX"
                         inputMode="numeric"
                         className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
-                          touched.phone && checkoutFieldErrors.phone
+                          touched.phone && fieldErrors.phone
                             ? "border-destructive focus:border-destructive"
                             : "border-border"
                         }`}
@@ -1021,8 +1062,8 @@ export default function CheckoutPage() {
                       <p className="mt-2 text-xs text-muted-foreground">
                         South African cell phone numbers should be 10 digits.
                       </p>
-                      {touched.phone && checkoutFieldErrors.phone && (
-                        <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.phone}</p>
+                      {touched.phone && fieldErrors.phone && (
+                        <p className="mt-1 text-xs text-destructive">{fieldErrors.phone}</p>
                       )}
                     </div>
 
@@ -1038,13 +1079,13 @@ export default function CheckoutPage() {
                         onChange={(e) => updateField("email", e.target.value)}
                         onBlur={() => markCheckoutTouched("email")}
                         className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
-                          touched.email && checkoutFieldErrors.email
+                          touched.email && fieldErrors.email
                             ? "border-destructive focus:border-destructive"
                             : "border-border"
                         }`}
                       />
-                      {touched.email && checkoutFieldErrors.email && (
-                        <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.email}</p>
+                      {touched.email && fieldErrors.email && (
+                        <p className="mt-1 text-xs text-destructive">{fieldErrors.email}</p>
                       )}
                     </div>
                   </div>
@@ -1090,11 +1131,24 @@ export default function CheckoutPage() {
                       required
                       selected={selectedDestination.lat != null && selectedDestination.lng != null}
                       selectedMessage="Address suggestion selected"
-                      hasError={touched.address && Boolean(checkoutFieldErrors.address)}
+                      hasError={touched.address && Boolean(fieldErrors.address)}
                     />
                   </Suspense>
-                  {touched.address && checkoutFieldErrors.address && (
-                    <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
+                  <button
+                    type="button"
+                    onClick={() => void handleUseCurrentLocation()}
+                    disabled={locatingCurrentAddress}
+                    className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {locatingCurrentAddress ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <LocateFixed className="h-3.5 w-3.5" />
+                    )}
+                    Use my live location
+                  </button>
+                  {touched.address && fieldErrors.address && (
+                    <p className="mt-1 text-xs text-destructive">{fieldErrors.address}</p>
                   )}
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
@@ -1463,7 +1517,7 @@ export default function CheckoutPage() {
                             address: true,
                             email: form.payment === "card" ? true : prev.email,
                           }));
-                          if (!canContinueDeliveryStep) {
+                          if (!canContinueFromDelivery) {
                             focusFirstInvalidForDelivery();
                             toast.error(
                               !user
@@ -1476,7 +1530,7 @@ export default function CheckoutPage() {
                           return;
                         }
 
-                        if (!canContinuePaymentStep) {
+                        if (!canContinueFromPayment) {
                           focusFirstInvalidForPayment();
                           toast.error("Apply a valid prepaid voucher to continue with voucher payment.");
                           return;
