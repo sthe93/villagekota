@@ -1466,7 +1466,9 @@ export default function CheckoutPage() {
 
             <div
               className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 p-3 backdrop-blur md:p-4 xl:left-0"
-              style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+              style={{
+                paddingBottom: "calc(0.75rem + max(env(safe-area-inset-bottom), 56px))",
+              }}
             >
               <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
                 <div className="rounded-2xl border border-border bg-background px-4 py-3">
