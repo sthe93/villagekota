@@ -190,7 +190,7 @@ export default function OrderReviewDialog({
     return () => {
       active = false;
     };
-  }, [open, order, userId, items]);
+  }, [open, order?.id, userId]);
 
   const handleSave = async () => {
     if (!order || !userId) return;

@@ -197,14 +197,14 @@ export default function ProductCard({ product }: { product: Product }) {
         </div>
 
         <div className="flex flex-1 flex-col p-5">
-          <h3 className="font-display text-[1.45rem] leading-tight text-foreground">
+          <h3 className="font-display text-xl leading-tight text-foreground sm:text-[1.45rem]">
             {product.name}
           </h3>
 
           {hasCustomisation && (
-            <div className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-primary">
+            <div className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-primary sm:text-sm">
               <SlidersHorizontal className="h-4 w-4" />
-              Choose options, extras, or meal preferences
+              Customise your meal
             </div>
           )}
 
@@ -229,13 +229,13 @@ export default function ProductCard({ product }: { product: Product }) {
             )}
 
             {hasReviews && product.reviewCount >= 20 && !product.isPopular && (
-              <span className="rounded-full border border-border bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <span className="hidden rounded-full border border-border bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:inline-flex">
                 Customer favourite
               </span>
             )}
           </div>
 
-          <p className="mt-4 line-clamp-3 min-h-[72px] text-sm leading-6 text-muted-foreground font-body">
+          <p className="mt-4 line-clamp-2 min-h-[48px] text-sm leading-6 text-muted-foreground font-body sm:line-clamp-3 sm:min-h-[72px]">
             {product.description}
           </p>
 

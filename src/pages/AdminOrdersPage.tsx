@@ -192,8 +192,33 @@ function canAdminMoveOrderToStatus(
   nextStatus: OrderStatus
 ) {
   const currentStatus = normalizeValue(order.status);
+  const statusProgression: Record<string, number> = {
+    pending: 0,
+    confirmed: 1,
+    preparing: 2,
+    ready_for_delivery: 3,
+    on_the_way: 4,
+    arrived: 5,
+    delivered: 6,
+    cancelled: 7,
+  };
   const isCard = isCardPaymentMethod(order.payment_method);
   const isPaid = isPaidPaymentStatus(order.payment_status);
+
+  const currentStep = statusProgression[currentStatus];
+  const nextStep = statusProgression[nextStatus];
+
+  if (
+    Number.isFinite(currentStep) &&
+    Number.isFinite(nextStep) &&
+    nextStatus !== "cancelled" &&
+    nextStep < currentStep
+  ) {
+    return {
+      allowed: false,
+      message: "Order status can only move forward in the kitchen flow.",
+    };
+  }
 
   if (["on_the_way", "arrived", "delivered"].includes(nextStatus)) {
     return {
@@ -329,12 +354,19 @@ export default function AdminOrdersPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [orderItemsByOrderId, setOrderItemsByOrderId] = useState<Record<string, AdminOrderItem[]>>({});
   const [pageLoading, setPageLoading] = useState(true);
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<OrderStatus | "all">("all");
   const [search, setSearch] = useState("");
 
-  const loadOrders = useCallback(async () => {
-    setPageLoading(true);
+  const loadOrders = useCallback(async (options?: { background?: boolean }) => {
+    const background = options?.background ?? false;
+
+    if (background) {
+      setBackgroundRefreshing(true);
+    } else if (orders.length === 0) {
+      setPageLoading(true);
+    }
 
     const { data, error } = await supabase
       .from("orders")
@@ -376,6 +408,7 @@ export default function AdminOrdersPage() {
     if (error) {
       toast.error(error.message || "Failed to load orders");
       setPageLoading(false);
+      setBackgroundRefreshing(false);
       return;
     }
 
@@ -385,6 +418,7 @@ export default function AdminOrdersPage() {
     if (nextOrders.length === 0) {
       setOrderItemsByOrderId({});
       setPageLoading(false);
+      setBackgroundRefreshing(false);
       return;
     }
 
@@ -472,8 +506,9 @@ export default function AdminOrdersPage() {
       setOrderItemsByOrderId({});
     } finally {
       setPageLoading(false);
+      setBackgroundRefreshing(false);
     }
-  }, []);
+  }, [orders.length]);
 
   const loadDrivers = useCallback(async () => {
     const { data, error } = await supabase
@@ -505,7 +540,7 @@ export default function AdminOrdersPage() {
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
         () => {
-          void loadOrders();
+          void loadOrders({ background: true });
         }
       )
       .subscribe();
@@ -761,10 +796,11 @@ export default function AdminOrdersPage() {
 
           <button
             onClick={() => void loadOrders()}
+            disabled={backgroundRefreshing}
             className="inline-flex items-center gap-2 rounded-xl bg-secondary px-4 py-3 text-sm font-semibold text-secondary-foreground transition-opacity hover:opacity-90"
           >
-            <RefreshCw className="h-4 w-4" />
-            Refresh orders
+            <RefreshCw className={`h-4 w-4 ${backgroundRefreshing ? "animate-spin" : ""}`} />
+            {backgroundRefreshing ? "Refreshing..." : "Refresh orders"}
           </button>
         </div>
 

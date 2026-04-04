@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { supabase } from "@/integrations/supabase/client";
 import App from "./App.tsx";
 import "./index.css";
@@ -55,6 +56,13 @@ if (Capacitor.isNativePlatform()) {
     }
 
     window.location.href = targetUrl;
+  });
+
+  void LocalNotifications.addListener("localNotificationActionPerformed", (event) => {
+    const url = event.notification?.extra?.url;
+    if (typeof url === "string" && url.startsWith("/")) {
+      window.location.href = `${window.location.origin}${url}`;
+    }
   });
 }
 
