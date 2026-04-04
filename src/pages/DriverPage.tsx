@@ -618,11 +618,22 @@ export default function DriverPage() {
         return;
       }
 
-      void supabase.functions
-        .invoke("send-order-receipt", {
-          body: { orderId },
-        })
-        .catch(() => undefined);
+      try {
+        const { data: receiptData, error: receiptError } = await supabase.functions.invoke(
+          "send-order-receipt",
+          {
+            body: { orderId },
+          }
+        );
+
+        if (receiptError) {
+          toast.message("Delivery completed, but receipt email was not sent.");
+        } else if (receiptData?.skipped && receiptData?.reason === "missing_customer_email") {
+          toast.message("Delivery completed. Add customer email to enable receipt sending.");
+        }
+      } catch {
+        toast.message("Delivery completed, but receipt email could not be confirmed.");
+      }
 
       if (trackingOrderId === orderId) {
         stopLiveTracking();

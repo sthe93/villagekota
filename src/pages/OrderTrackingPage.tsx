@@ -1153,14 +1153,16 @@ export default function OrderTrackingPage() {
                             <p className="mb-1 text-muted-foreground">Customer</p>
                             <p className="font-medium text-foreground">{order.customer_name}</p>
                             {order.customer_phone && <p className="text-foreground">{order.customer_phone}</p>}
-                            {order.customer_email && <p className="break-all text-foreground">{order.customer_email}</p>}
+                            {order.customer_email && (
+                              <p className="hidden break-all text-foreground sm:block">{order.customer_email}</p>
+                            )}
                           </div>
 
                           <div className="rounded-2xl border border-border bg-background p-4 text-sm">
                             <p className="mb-1 text-muted-foreground">Delivery address</p>
                             <div className="flex items-start gap-2">
                               <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                              <p className="whitespace-pre-line font-medium text-foreground">
+                              <p className="line-clamp-3 whitespace-pre-line font-medium text-foreground sm:line-clamp-none">
                                 {order.delivery_address || "No address provided"}
                               </p>
                             </div>
@@ -1168,7 +1170,7 @@ export default function OrderTrackingPage() {
                         </div>
 
                         {order.notes && (
-                          <div className="mt-4 rounded-2xl border border-border bg-background p-4 text-sm">
+                          <div className="mt-4 hidden rounded-2xl border border-border bg-background p-4 text-sm sm:block">
                             <p className="mb-1 text-muted-foreground">Notes</p>
                             <p className="whitespace-pre-line leading-6 text-foreground">{order.notes}</p>
                           </div>
