@@ -20,10 +20,12 @@ import {
   Home,
   ChevronDown,
   ChevronUp,
+  LocateFixed,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import {
   geocodeSouthAfricaAddress,
+  reverseGeocodeSouthAfricaCoordinates,
 } from "@/lib/maps";
 import {
   useCheckoutFlow,
@@ -131,6 +133,7 @@ export default function CheckoutPage() {
   const [newSavedAddressLabel, setNewSavedAddressLabel] = useState("");
   const [showSavedAddresses, setShowSavedAddresses] = useState(false);
   const [showVoucherSummary, setShowVoucherSummary] = useState(false);
+  const [locatingCurrentAddress, setLocatingCurrentAddress] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState<{
     lat: number | null;
     lng: number | null;
@@ -321,6 +324,58 @@ export default function CheckoutPage() {
       lng: address.destination_lng,
     });
     toast.success(`${address.label} added to checkout.`);
+  };
+
+  const handleUseCurrentLocation = async () => {
+    if (locatingCurrentAddress) return;
+
+    if (!navigator.geolocation) {
+      toast.error("Location services are not available on this device.");
+      return;
+    }
+
+    setLocatingCurrentAddress(true);
+
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 0,
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+
+      if (!isWithinStarVillageGeofence({ lat: latitude, lng: longitude })) {
+        setTouched((prev) => ({ ...prev, address: true }));
+        toast.error(STAR_VILLAGE_DELIVERY_MESSAGE);
+        return;
+      }
+
+      setSelectedDestination({ lat: latitude, lng: longitude });
+
+      const suggestion = await reverseGeocodeSouthAfricaCoordinates(latitude, longitude);
+      if (suggestion?.place_name) {
+        update("address", suggestion.place_name);
+        toast.success("Pinned your current location.");
+        return;
+      }
+
+      update(
+        "address",
+        `${latitude.toFixed(6)}, ${longitude.toFixed(6)} (Live location pin)`
+      );
+      toast.success("Pinned your current location.");
+    } catch (error) {
+      const message =
+        error instanceof GeolocationPositionError && error.code === error.PERMISSION_DENIED
+          ? "Please allow location access to use live pin."
+          : "Could not fetch your current location. Try again.";
+      toast.error(message);
+    } finally {
+      setLocatingCurrentAddress(false);
+    }
   };
 
   const getCheckoutValidationMessages = () => {
@@ -1093,6 +1148,19 @@ export default function CheckoutPage() {
                       hasError={touched.address && Boolean(checkoutFieldErrors.address)}
                     />
                   </Suspense>
+                  <button
+                    type="button"
+                    onClick={() => void handleUseCurrentLocation()}
+                    disabled={locatingCurrentAddress}
+                    className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {locatingCurrentAddress ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <LocateFixed className="h-3.5 w-3.5" />
+                    )}
+                    Use my live location
+                  </button>
                   {touched.address && checkoutFieldErrors.address && (
                     <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
                   )}
