@@ -490,53 +490,6 @@ export default function OrderTrackingPage() {
   ]);
 
   useEffect(() => {
-    if (
-      !showMap ||
-      order?.driver_lat == null ||
-      order?.driver_lng == null ||
-      order?.destination_lat == null ||
-      order?.destination_lng == null
-    ) {
-      setLiveRouteMeta(null);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    const syncRouteMeta = async () => {
-      try {
-        const meta = await getSouthAfricaDrivingRouteMeta(
-          order.driver_lat as number,
-          order.driver_lng as number,
-          order.destination_lat as number,
-          order.destination_lng as number,
-          controller.signal
-        );
-
-        if (!controller.signal.aborted) {
-          setLiveRouteMeta(meta);
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          setLiveRouteMeta(null);
-        }
-      }
-    };
-
-    void syncRouteMeta();
-
-    return () => {
-      controller.abort();
-    };
-  }, [
-    showMap,
-    order?.driver_lat,
-    order?.driver_lng,
-    order?.destination_lat,
-    order?.destination_lng,
-  ]);
-
-  useEffect(() => {
     if (!showMap || !mapContainerRef.current || !order) return;
 
     const driverLngLat: [number, number] = [order.driver_lng as number, order.driver_lat as number];
