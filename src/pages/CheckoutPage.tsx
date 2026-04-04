@@ -122,7 +122,6 @@ export default function CheckoutPage() {
   const voucherInputRef = useRef<HTMLInputElement | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<CheckoutStep>(1);
   const [voucherCode, setVoucherCode] = useState("");
   const [voucherInfo, setVoucherInfo] = useState<VoucherInfo | null>(null);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
@@ -151,9 +150,6 @@ export default function CheckoutPage() {
     setTouched,
     update,
     markTouched: markCheckoutTouched,
-    canContinueFromDelivery: canContinueDeliveryStep,
-    canContinueFromPayment: canContinuePaymentStep,
-    handleStepChange: handleCheckoutStepChange,
   } = useCheckoutFlow({
     initialForm: {
       name: profile?.display_name || "",
@@ -311,7 +307,7 @@ export default function CheckoutPage() {
   };
 
   const focusFirstInvalidForPayment = () => {
-    if (form.payment === "voucher" && !canContinuePaymentStep) {
+    if (form.payment === "voucher" && !canContinueFromPayment) {
       focusAndRevealField(voucherInputRef.current);
     }
   };
@@ -433,8 +429,8 @@ export default function CheckoutPage() {
   );
 
   const handleStepChange = (targetStep: CheckoutStep) => {
-    if (targetStep <= currentStep) {
-      setCurrentStep(targetStep);
+    if (targetStep <= checkoutStep) {
+      setCheckoutStep(targetStep);
       return;
     }
 
@@ -449,7 +445,7 @@ export default function CheckoutPage() {
       return;
     }
 
-    setCurrentStep(targetStep);
+    setCheckoutStep(targetStep);
   };
 
   const orderButtonLabel = useMemo(() => {
@@ -982,16 +978,7 @@ export default function CheckoutPage() {
                       key={item.step}
                       type="button"
                       onClick={() => {
-                        const error = handleCheckoutStepChange(item.step);
-                        if (!error) return;
-
-                        if (item.step === 3 && !canContinuePaymentStep) {
-                          focusFirstInvalidForPayment();
-                        } else if (item.step >= 2) {
-                          focusFirstInvalidForDelivery();
-                        }
-
-                        toast.error(error);
+                        handleStepChange(item.step);
                       }}
                       className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors ${
                         checkoutStep === item.step
@@ -1530,7 +1517,7 @@ export default function CheckoutPage() {
                             address: true,
                             email: form.payment === "card" ? true : prev.email,
                           }));
-                          if (!canContinueDeliveryStep) {
+                          if (!canContinueFromDelivery) {
                             focusFirstInvalidForDelivery();
                             toast.error(
                               !user
@@ -1543,7 +1530,7 @@ export default function CheckoutPage() {
                           return;
                         }
 
-                        if (!canContinuePaymentStep) {
+                        if (!canContinueFromPayment) {
                           focusFirstInvalidForPayment();
                           toast.error("Apply a valid prepaid voucher to continue with voucher payment.");
                           return;
