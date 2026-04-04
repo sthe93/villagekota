@@ -192,8 +192,33 @@ function canAdminMoveOrderToStatus(
   nextStatus: OrderStatus
 ) {
   const currentStatus = normalizeValue(order.status);
+  const statusProgression: Record<string, number> = {
+    pending: 0,
+    confirmed: 1,
+    preparing: 2,
+    ready_for_delivery: 3,
+    on_the_way: 4,
+    arrived: 5,
+    delivered: 6,
+    cancelled: 7,
+  };
   const isCard = isCardPaymentMethod(order.payment_method);
   const isPaid = isPaidPaymentStatus(order.payment_status);
+
+  const currentStep = statusProgression[currentStatus];
+  const nextStep = statusProgression[nextStatus];
+
+  if (
+    Number.isFinite(currentStep) &&
+    Number.isFinite(nextStep) &&
+    nextStatus !== "cancelled" &&
+    nextStep < currentStep
+  ) {
+    return {
+      allowed: false,
+      message: "Order status can only move forward in the kitchen flow.",
+    };
+  }
 
   if (["on_the_way", "arrived", "delivered"].includes(nextStatus)) {
     return {

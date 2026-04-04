@@ -92,10 +92,36 @@ describe("searchSouthAfricaAddresses", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+
+  it("uses a delivery-zone bbox first without mutating the input query", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({ features: [] }),
+      });
+
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      await searchSouthAfricaAddresses("37547 pekwa crescent soweto");
+
+      const requestedUrls = fetchMock.mock.calls.map((args) => String(args[0]));
+      expect(requestedUrls[0]).toContain("bbox=");
+      expect(requestedUrls[0]).toContain("37547%20pekwa%20crescent%20soweto");
+      expect(requestedUrls[1]).not.toContain("bbox=");
+      expect(requestedUrls[0]).toContain("types=address%2Cstreet");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
 });
 
 describe("geocodeSouthAfricaAddress", () => {
-  it("falls back to a Star Village hinted query when needed", async () => {
+  it("falls back from delivery-zone bbox lookup to broader lookup when needed", async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi
       .fn()
