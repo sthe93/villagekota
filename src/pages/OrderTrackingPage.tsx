@@ -66,7 +66,7 @@ import {
   normalizeOrderStatus,
 } from "@/features/order-tracking/utils";
 import { formatDeliveryConfirmationCode } from "@/lib/deliveryConfirmation";
-import { getMapTilerStyleUrl } from "@/lib/maps";
+import { getMapTilerStyleUrl, getSouthAfricaDrivingRouteMeta } from "@/lib/maps";
 import { getProducts } from "@/data/products";
 import { buildReorderPlan } from "@/lib/reorder";
 import { getClientAppBaseUrl } from "@/lib/appBaseUrl";
@@ -89,6 +89,10 @@ export default function OrderTrackingPage() {
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [driverReassigned, setDriverReassigned] = useState(false);
+  const [liveRouteMeta, setLiveRouteMeta] = useState<{
+    durationMinutes: number | null;
+    distanceKm: number | null;
+  } | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
@@ -154,19 +158,24 @@ export default function OrderTrackingPage() {
   const showMap = useMemo(() => {
     return (isOnTheWay || isArrived) && order?.driver_lat != null && order?.driver_lng != null;
   }, [isOnTheWay, isArrived, order?.driver_lat, order?.driver_lng]);
+  const distanceKm = liveRouteMeta?.distanceKm ?? order?.driver_distance_km ?? null;
+  const etaTimestamp =
+    liveRouteMeta?.durationMinutes != null
+      ? new Date(Date.now() + liveRouteMeta.durationMinutes * 60000).toISOString()
+      : order?.estimated_delivery_time ?? null;
 
   const confidenceEta = useMemo(() => {
     if (isDelivered) return "Delivered";
     if (isArrived) return "Now";
-    if (!order?.estimated_delivery_time) return "ETA updating";
+    if (!etaTimestamp) return "ETA updating";
 
-    const etaTime = new Date(order.estimated_delivery_time).getTime();
+    const etaTime = new Date(etaTimestamp).getTime();
     const diffMinutes = Math.max(1, Math.round((etaTime - Date.now()) / 60000));
     const spread = isOnTheWay ? 2 : 4;
     const min = Math.max(1, diffMinutes - spread);
     const max = diffMinutes + spread;
     return `${min}–${max} min`;
-  }, [isArrived, isDelivered, isOnTheWay, order?.estimated_delivery_time]);
+  }, [etaTimestamp, isArrived, isDelivered, isOnTheWay]);
 
   const exceptionMicrocopy = useMemo(() => {
     const notes = normalize(order?.notes);
@@ -220,12 +229,12 @@ export default function OrderTrackingPage() {
 
     if (isOnTheWay) {
       const distance =
-        order.driver_distance_km != null
-          ? `Driver is ${order.driver_distance_km.toFixed(1)} km away`
+        distanceKm != null
+          ? `Driver is ${distanceKm.toFixed(1)} km away`
           : "Driver is on the way";
 
-      const eta = order.estimated_delivery_time
-        ? `ETA ${formatTime(order.estimated_delivery_time)}`
+      const eta = etaTimestamp
+        ? `ETA ${formatTime(etaTimestamp)}`
         : "ETA updating";
 
       return `Your order is on the way · ${distance} · ${eta}`;
@@ -271,6 +280,8 @@ export default function OrderTrackingPage() {
     hasAssignedDriver,
     driver,
     paymentIsPaid,
+    distanceKm,
+    etaTimestamp,
   ]);
 
   const paymentBanner = useMemo<PaymentBanner | null>(() => {
@@ -426,6 +437,53 @@ export default function OrderTrackingPage() {
       window.clearInterval(pollId);
     };
   }, [orderId, fetchOrder]);
+
+  useEffect(() => {
+    if (
+      !showMap ||
+      order?.driver_lat == null ||
+      order?.driver_lng == null ||
+      order?.destination_lat == null ||
+      order?.destination_lng == null
+    ) {
+      setLiveRouteMeta(null);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const syncRouteMeta = async () => {
+      try {
+        const meta = await getSouthAfricaDrivingRouteMeta(
+          order.driver_lat as number,
+          order.driver_lng as number,
+          order.destination_lat as number,
+          order.destination_lng as number,
+          controller.signal
+        );
+
+        if (!controller.signal.aborted) {
+          setLiveRouteMeta(meta);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setLiveRouteMeta(null);
+        }
+      }
+    };
+
+    void syncRouteMeta();
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    showMap,
+    order?.driver_lat,
+    order?.driver_lng,
+    order?.destination_lat,
+    order?.destination_lng,
+  ]);
 
   useEffect(() => {
     if (!showMap || !mapContainerRef.current || !order) return;
@@ -796,8 +854,8 @@ export default function OrderTrackingPage() {
                   }
                   subValue={
                     isOnTheWay || isArrived
-                      ? order.driver_distance_km != null
-                        ? `${order.driver_distance_km.toFixed(1)} km away`
+                      ? distanceKm != null
+                        ? `${distanceKm.toFixed(1)} km away`
                         : "Delivery in progress"
                       : formatRelativeTime(order.created_at)
                   }
@@ -869,8 +927,8 @@ export default function OrderTrackingPage() {
                       <InfoTile
                         label="Driver distance"
                         value={
-                          order.driver_distance_km != null
-                            ? `${order.driver_distance_km.toFixed(1)} km`
+                          distanceKm != null
+                            ? `${distanceKm.toFixed(1)} km`
                             : isArrived
                               ? "At your location"
                               : "Calculating..."
@@ -880,8 +938,8 @@ export default function OrderTrackingPage() {
                         label={isArrived ? "Arrival time" : "Estimated arrival"}
                         value={
                           isArrived
-                            ? formatTime(order.arrived_at || order.estimated_delivery_time)
-                            : formatTime(order.estimated_delivery_time)
+                            ? formatTime(order.arrived_at || etaTimestamp)
+                            : formatTime(etaTimestamp)
                         }
                       />
                       <InfoTile
