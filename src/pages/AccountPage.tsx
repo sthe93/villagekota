@@ -50,6 +50,7 @@ import {
 import {
   disablePushNotifications,
   getPushNotificationPermissionState,
+  registerNativePushToken,
   requestPushNotificationPermission,
 } from "@/lib/pushNotifications";
 import { geocodeSouthAfricaAddress } from "@/lib/maps";
@@ -532,9 +533,27 @@ export default function AccountPage() {
     }
   };
 
-  const handleDisableNotifications = () => {
+  const handleDisableNotifications = async () => {
     disablePushNotifications();
     setNotificationsState(getPushNotificationPermissionState());
+
+    try {
+      const registration = await registerNativePushToken();
+
+      if (registration) {
+        await supabase.functions.invoke("register-push-device", {
+          body: {
+            token: registration.token,
+            platform: registration.platform,
+            role: isAdmin ? "admin" : driverProfile ? "driver" : "customer",
+            enabled: false,
+          },
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to disable native push token", error);
+    }
+
     toast.success("Push notifications disabled for this device.");
   };
 

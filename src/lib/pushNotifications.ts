@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { PushNotifications } from "@capacitor/push-notifications";
 
 const PUSH_NOTIFICATIONS_ENABLED_KEY = "villagekota.pushNotifications.enabled";
 
@@ -17,6 +18,11 @@ export interface AppNotificationPermissionState {
   supported: boolean;
   enabled: boolean;
   permission: NotificationPermission | "unsupported";
+}
+
+export interface NativePushRegistrationResult {
+  token: string;
+  platform: "ios" | "android";
 }
 
 function canUseWindow() {
@@ -88,8 +94,14 @@ export async function requestPushNotificationPermission() {
   }
 
   if (Capacitor.isNativePlatform()) {
-    const permissions = await LocalNotifications.requestPermissions();
-    const enabled = permissions.display === "granted";
+    const [localPermissions, pushPermissions] = await Promise.all([
+      LocalNotifications.requestPermissions(),
+      PushNotifications.requestPermissions(),
+    ]);
+
+    const enabled =
+      localPermissions.display === "granted" && pushPermissions.receive === "granted";
+
     setStoredPushNotificationsEnabled(enabled);
 
     return {
@@ -108,6 +120,50 @@ export async function requestPushNotificationPermission() {
     enabled,
     permission,
   } satisfies AppNotificationPermissionState;
+}
+
+export async function registerNativePushToken(): Promise<NativePushRegistrationResult | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+
+  const permissions = await PushNotifications.checkPermissions();
+  const receivePermission =
+    permissions.receive === "prompt"
+      ? (await PushNotifications.requestPermissions()).receive
+      : permissions.receive;
+
+  if (receivePermission !== "granted") return null;
+
+  const platform = Capacitor.getPlatform() === "ios" ? "ios" : "android";
+
+  return await new Promise<NativePushRegistrationResult>((resolve, reject) => {
+    void (async () => {
+      const [registrationSubscription, errorSubscription] = await Promise.all([
+        PushNotifications.addListener("registration", (token) => {
+          cleanup();
+          resolve({ token: token.value, platform });
+        }),
+        PushNotifications.addListener("registrationError", (error) => {
+          cleanup();
+          reject(new Error(error.error));
+        }),
+      ]);
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Timed out while registering push token"));
+      }, 10000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        void registrationSubscription.remove();
+        void errorSubscription.remove();
+      }
+
+      void PushNotifications.register();
+    })().catch((error) => {
+      reject(error instanceof Error ? error : new Error("Failed to register native push token"));
+    });
+  });
 }
 
 export function disablePushNotifications() {
@@ -259,6 +315,7 @@ export async function showAppNotification(payload: AppNotificationPayload) {
     badge: iconUrl,
     data: {
       url: payload.url,
+      audience: payload.audience,
     },
   });
 
