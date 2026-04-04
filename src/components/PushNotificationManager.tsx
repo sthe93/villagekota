@@ -7,6 +7,7 @@ import {
   buildOrderNotification,
   buildPaymentNotification,
   getPushNotificationPermissionState,
+  registerNativePushToken,
   registerPushNotificationsServiceWorker,
   showAppNotification,
 } from "@/lib/pushNotifications";
@@ -55,6 +56,41 @@ export default function PushNotificationManager() {
       cancelled = true;
     };
   }, [user, isDriver]);
+
+
+  useEffect(() => {
+    if (!user || !getPushNotificationPermissionState().enabled) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const registration = await registerNativePushToken();
+        if (!registration || cancelled) return;
+
+        const role = isAdmin ? "admin" : isDriver ? "driver" : "customer";
+
+        const { error } = await supabase.functions.invoke("register-push-device", {
+          body: {
+            token: registration.token,
+            platform: registration.platform,
+            role,
+            enabled: true,
+          },
+        });
+
+        if (error) {
+          console.warn("Failed to register native push token", error.message);
+        }
+      } catch (error) {
+        console.warn("Failed to register native push token", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isAdmin, isDriver]);
 
   useEffect(() => {
     if (!user) return;
