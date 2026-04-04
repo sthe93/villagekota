@@ -50,30 +50,23 @@ export function normalizeSouthAfricaAddressQuery(query: string) {
   return query.replace(/\s+/g, " ").trim();
 }
 
-const STAR_VILLAGE_HINT = "Star Village, Soweto";
 const STAR_VILLAGE_PROXIMITY = "27.8585,-26.3188";
+const DELIVERY_ZONE_BBOX = "27.8200,-26.3500,27.9000,-26.2800";
 
-function getAddressQueryVariants(query: string) {
+function getAddressLookupPlan(query: string) {
   const normalizedQuery = normalizeSouthAfricaAddressQuery(query);
 
   if (!normalizedQuery) {
     return [];
   }
 
-  const lowerQuery = normalizedQuery.toLowerCase();
-  const includesStarVillageHint =
-    lowerQuery.includes("star village") ||
-    lowerQuery.includes("soweto") ||
-    lowerQuery.includes("johannesburg");
-
-  if (includesStarVillageHint) {
-    return [normalizedQuery];
-  }
-
-  return [normalizedQuery, `${normalizedQuery}, ${STAR_VILLAGE_HINT}`];
+  return [
+    { query: normalizedQuery, useDeliveryZoneBbox: true },
+    { query: normalizedQuery, useDeliveryZoneBbox: false },
+  ] as const;
 }
 
-function buildMapTilerUrl(query: string, limit: number) {
+function buildMapTilerUrl(query: string, limit: number, useDeliveryZoneBbox: boolean) {
   const key = getMapTilerKey();
   const normalizedQuery = normalizeSouthAfricaAddressQuery(query);
 
@@ -81,9 +74,20 @@ function buildMapTilerUrl(query: string, limit: number) {
     return null;
   }
 
-  return `https://api.maptiler.com/geocoding/${encodeURIComponent(
-    normalizedQuery
-  )}.json?limit=${limit}&country=za&proximity=${STAR_VILLAGE_PROXIMITY}&key=${key}`;
+  const searchParams = new URLSearchParams({
+    limit: String(limit),
+    country: "za",
+    proximity: STAR_VILLAGE_PROXIMITY,
+    language: "en",
+    types: "address,street",
+    key,
+  });
+
+  if (useDeliveryZoneBbox) {
+    searchParams.set("bbox", DELIVERY_ZONE_BBOX);
+  }
+
+  return `https://api.maptiler.com/geocoding/${encodeURIComponent(normalizedQuery)}.json?${searchParams.toString()}`;
 }
 
 function rankAddressSuggestion(placeName: string, inputTokens: string[]) {
@@ -137,8 +141,8 @@ export async function searchSouthAfricaAddresses(
   query: string,
   signal?: AbortSignal
 ) {
-  const queryVariants = getAddressQueryVariants(query);
-  if (queryVariants.length === 0) return [];
+  const lookupPlan = getAddressLookupPlan(query);
+  if (lookupPlan.length === 0) return [];
 
   const inputTokens = normalizeSouthAfricaAddressQuery(query)
     .toLowerCase()
@@ -146,8 +150,8 @@ export async function searchSouthAfricaAddresses(
     .filter((token) => token.length > 1);
 
   const responses = await Promise.all(
-    queryVariants.map(async (variant) => {
-      const url = buildMapTilerUrl(variant, 6);
+    lookupPlan.map(async (step) => {
+      const url = buildMapTilerUrl(step.query, 6, step.useDeliveryZoneBbox);
       if (!url) return [] as AddressSuggestion[];
 
       const response = await fetch(url, { signal });
@@ -180,10 +184,10 @@ export async function geocodeSouthAfricaAddress(
   address: string,
   signal?: AbortSignal
 ) {
-  const queryVariants = getAddressQueryVariants(address);
+  const lookupPlan = getAddressLookupPlan(address);
 
-  for (const variant of queryVariants) {
-    const url = buildMapTilerUrl(variant, 1);
+  for (const step of lookupPlan) {
+    const url = buildMapTilerUrl(step.query, 1, step.useDeliveryZoneBbox);
     if (!url) continue;
 
     const response = await fetch(url, { signal });
@@ -201,6 +205,31 @@ export async function geocodeSouthAfricaAddress(
   }
 
   return null;
+}
+
+export async function reverseGeocodeSouthAfricaCoordinates(
+  lat: number,
+  lng: number,
+  signal?: AbortSignal
+) {
+  const key = getMapTilerKey();
+  if (!key) return null;
+
+  const searchParams = new URLSearchParams({
+    limit: "1",
+    country: "za",
+    language: "en",
+    types: "address,street",
+    key,
+  });
+
+  const url = `https://api.maptiler.com/geocoding/${lng},${lat}.json?${searchParams.toString()}`;
+  const response = await fetch(url, { signal });
+  if (!response.ok) return null;
+
+  const payload: unknown = await response.json();
+  const [first] = parseAddressSuggestions(payload);
+  return first ?? null;
 }
 
 export async function getSouthAfricaDrivingRouteMeta(
