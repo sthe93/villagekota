@@ -41,6 +41,8 @@ type OrderItemOptionRow = {
   option_item_name: string;
 };
 
+type ReceiptLogStatus = "sent" | "failed" | "skipped_missing_email" | "skipped_already_sent";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -228,6 +230,30 @@ async function sendReceiptEmail(params: {
   return payload;
 }
 
+async function logReceiptEvent(params: {
+  supabaseAdmin: ReturnType<typeof createClient>;
+  orderId: string;
+  emailTo: string | null;
+  status: ReceiptLogStatus;
+  providerMessageId?: string | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const { error } = await params.supabaseAdmin.from("order_email_logs").insert({
+    order_id: params.orderId,
+    email_to: params.emailTo,
+    template_key: "order_receipt",
+    status: params.status,
+    provider_message_id: params.providerMessageId ?? null,
+    error_message: params.errorMessage ?? null,
+    metadata: params.metadata ?? {},
+  });
+
+  if (error) {
+    console.error("Failed to write order email log", error.message);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { status: 200, headers: corsHeaders });
@@ -335,6 +361,13 @@ Deno.serve(async (req) => {
 
     const customerEmail = order.customer_email?.trim();
     if (!customerEmail) {
+      await logReceiptEvent({
+        supabaseAdmin,
+        orderId,
+        emailTo: null,
+        status: "skipped_missing_email",
+        metadata: { reason: "missing_customer_email" },
+      });
       return new Response(JSON.stringify({ skipped: true, reason: "missing_customer_email" }), {
         status: 200,
         headers: corsHeaders,
@@ -342,6 +375,13 @@ Deno.serve(async (req) => {
     }
 
     if (order.receipt_emailed_at) {
+      await logReceiptEvent({
+        supabaseAdmin,
+        orderId,
+        emailTo: customerEmail,
+        status: "skipped_already_sent",
+        metadata: { receiptEmailedAt: order.receipt_emailed_at },
+      });
       return new Response(
         JSON.stringify({ success: true, skipped: true, receiptEmailedAt: order.receipt_emailed_at }),
         { status: 200, headers: corsHeaders }
@@ -386,13 +426,22 @@ Deno.serve(async (req) => {
     const receipt = buildReceiptMarkup(order as OrderRow, receiptItems);
 
     try {
-      await sendReceiptEmail({
+      const providerResponse = await sendReceiptEmail({
         apiKey: resendApiKey,
         from: fromEmail,
         to: customerEmail,
         subject: receipt.subject,
         html: receipt.html,
         text: receipt.text,
+      });
+
+      await logReceiptEvent({
+        supabaseAdmin,
+        orderId,
+        emailTo: customerEmail,
+        status: "sent",
+        providerMessageId:
+          typeof providerResponse?.id === "string" ? providerResponse.id : null,
       });
 
       await supabaseAdmin
@@ -410,6 +459,14 @@ Deno.serve(async (req) => {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to send receipt email";
+
+      await logReceiptEvent({
+        supabaseAdmin,
+        orderId,
+        emailTo: customerEmail,
+        status: "failed",
+        errorMessage: message,
+      });
 
       await supabaseAdmin
         .from("orders")

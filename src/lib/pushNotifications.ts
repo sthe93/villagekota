@@ -1,3 +1,6 @@
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
+
 const PUSH_NOTIFICATIONS_ENABLED_KEY = "villagekota.pushNotifications.enabled";
 
 export type AppNotificationAudience = "customer" | "driver" | "admin";
@@ -21,6 +24,10 @@ function canUseWindow() {
 }
 
 export function arePushNotificationsSupported() {
+  if (Capacitor.isNativePlatform()) {
+    return true;
+  }
+
   return (
     canUseWindow() &&
     "Notification" in window &&
@@ -47,6 +54,15 @@ export function getPushNotificationPermissionState(): AppNotificationPermissionS
     };
   }
 
+  if (Capacitor.isNativePlatform()) {
+    const enabled = getStoredPushNotificationsEnabled();
+    return {
+      supported: true,
+      enabled,
+      permission: enabled ? "granted" : "default",
+    };
+  }
+
   return {
     supported: true,
     enabled: getStoredPushNotificationsEnabled() && Notification.permission === "granted",
@@ -55,6 +71,7 @@ export function getPushNotificationPermissionState(): AppNotificationPermissionS
 }
 
 export async function registerPushNotificationsServiceWorker() {
+  if (Capacitor.isNativePlatform()) return null;
   if (!arePushNotificationsSupported()) return null;
 
   const registration = await navigator.serviceWorker.register(
@@ -68,6 +85,18 @@ export async function registerPushNotificationsServiceWorker() {
 export async function requestPushNotificationPermission() {
   if (!arePushNotificationsSupported()) {
     return getPushNotificationPermissionState();
+  }
+
+  if (Capacitor.isNativePlatform()) {
+    const permissions = await LocalNotifications.requestPermissions();
+    const enabled = permissions.display === "granted";
+    setStoredPushNotificationsEnabled(enabled);
+
+    return {
+      supported: true,
+      enabled,
+      permission: enabled ? "granted" : "denied",
+    } satisfies AppNotificationPermissionState;
   }
 
   const permission = await Notification.requestPermission();
@@ -199,8 +228,26 @@ export function buildAdminOrderNotification(orderId: string): AppNotificationPay
 
 export async function showAppNotification(payload: AppNotificationPayload) {
   if (!arePushNotificationsSupported()) return false;
-  if (Notification.permission !== "granted") return false;
   if (!getStoredPushNotificationsEnabled()) return false;
+
+  if (Capacitor.isNativePlatform()) {
+    const id = Math.floor(Date.now() % 1_000_000_000);
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id,
+          title: payload.title,
+          body: payload.body,
+          extra: { url: payload.url, tag: payload.tag, audience: payload.audience },
+          schedule: { at: new Date(Date.now() + 300) },
+        },
+      ],
+    });
+
+    return true;
+  }
+
+  if (Notification.permission !== "granted") return false;
 
   const registration = await navigator.serviceWorker.ready;
   const iconUrl = `${import.meta.env.BASE_URL}favicon.ico`;
