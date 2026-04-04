@@ -77,7 +77,12 @@ interface DriverOrder {
   cash_collected_amount: number | null;
   cash_collected_at: string | null;
   delivery_confirmation_verified_at: string | null;
+  destination_lat: number | null;
+  destination_lng: number | null;
 }
+
+const ROUTE_RECALC_MIN_INTERVAL_MS = 10_000;
+const ROUTE_RECALC_MIN_MOVEMENT_METERS = 40;
 
 function normalizeValue(value?: string | null) {
   return (value || "").trim().toLowerCase();
@@ -156,6 +161,22 @@ function getTrackerStatus(order: DriverOrder): DeliveryStatus {
   return "pending";
 }
 
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const earthRadiusMeters = 6371000;
+  const deltaLat = toRadians(bLat - aLat);
+  const deltaLng = toRadians(bLng - aLng);
+  const lat1 = toRadians(aLat);
+  const lat2 = toRadians(bLat);
+  const inner =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  return earthRadiusMeters * (2 * Math.atan2(Math.sqrt(inner), Math.sqrt(1 - inner)));
+}
+
 export default function DriverPage() {
   const { user, loading } = useAuth();
   const [driver, setDriver] = useState<DriverRecord | null>(null);
@@ -167,7 +188,11 @@ export default function DriverPage() {
   const [newOrderIds, setNewOrderIds] = useState<string[]>([]);
   const [deliveryCodes, setDeliveryCodes] = useState<Record<string, string>>({});
   const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
+  const [queuedRefreshAfterPin, setQueuedRefreshAfterPin] = useState(false);
   const audioUnlockedRef = useRef(false);
+  const destinationCacheRef = useRef<Record<string, { lat: number; lng: number } | null>>({});
+  const lastRouteRefreshAtRef = useRef<Record<string, number>>({});
+  const lastRouteRefreshPositionRef = useRef<Record<string, { lat: number; lng: number }>>({});
 
   const playNotificationSound = () => {
     try {
@@ -297,7 +322,9 @@ export default function DriverPage() {
         cash_collected,
         cash_collected_amount,
         cash_collected_at,
-        delivery_confirmation_verified_at
+        delivery_confirmation_verified_at,
+        destination_lat,
+        destination_lng
       `)
       .in("status", ["ready_for_delivery", "on_the_way", "arrived"])
       .order("created_at", { ascending: false });
@@ -315,16 +342,40 @@ export default function DriverPage() {
     const order = orders.find((o) => o.id === orderId);
     const timestamp = new Date().toISOString();
 
-    let driver_distance_km: number | null = null;
-    let estimated_delivery_time: string | null = null;
+    let driver_distance_km: number | null = order?.driver_distance_km ?? null;
+    let estimated_delivery_time: string | null = order?.estimated_delivery_time ?? null;
 
-    if (order?.delivery_address) {
-      const dest = await geocodeSouthAfricaAddress(order.delivery_address);
-      if (dest) {
-        const route = await getSouthAfricaDrivingRouteMeta(lat, lng, dest.lat, dest.lng);
+    const now = Date.now();
+    const lastRouteRefreshAt = lastRouteRefreshAtRef.current[orderId] || 0;
+    const lastPosition = lastRouteRefreshPositionRef.current[orderId];
+    const movementSinceLastRefresh = lastPosition
+      ? distanceMeters(lastPosition.lat, lastPosition.lng, lat, lng)
+      : Number.POSITIVE_INFINITY;
+
+    const shouldRefreshRoute =
+      now - lastRouteRefreshAt >= ROUTE_RECALC_MIN_INTERVAL_MS ||
+      movementSinceLastRefresh >= ROUTE_RECALC_MIN_MOVEMENT_METERS ||
+      driver_distance_km == null ||
+      estimated_delivery_time == null;
+
+    if (shouldRefreshRoute && order) {
+      let destination =
+        order.destination_lat != null && order.destination_lng != null
+          ? { lat: order.destination_lat, lng: order.destination_lng }
+          : destinationCacheRef.current[orderId] || null;
+
+      if (!destination && order.delivery_address) {
+        destination = await geocodeSouthAfricaAddress(order.delivery_address);
+        destinationCacheRef.current[orderId] = destination;
+      }
+
+      if (destination) {
+        const route = await getSouthAfricaDrivingRouteMeta(lat, lng, destination.lat, destination.lng);
         if (route) {
           driver_distance_km = route.distanceKm;
           estimated_delivery_time = new Date(Date.now() + route.durationMinutes * 60000).toISOString();
+          lastRouteRefreshAtRef.current[orderId] = now;
+          lastRouteRefreshPositionRef.current[orderId] = { lat, lng };
         }
       }
     }
@@ -567,11 +618,22 @@ export default function DriverPage() {
         return;
       }
 
-      void supabase.functions
-        .invoke("send-order-receipt", {
-          body: { orderId },
-        })
-        .catch(() => undefined);
+      try {
+        const { data: receiptData, error: receiptError } = await supabase.functions.invoke(
+          "send-order-receipt",
+          {
+            body: { orderId },
+          }
+        );
+
+        if (receiptError) {
+          toast.message("Delivery completed, but receipt email was not sent.");
+        } else if (receiptData?.skipped && receiptData?.reason === "missing_customer_email") {
+          toast.message("Delivery completed. Add customer email to enable receipt sending.");
+        }
+      } catch {
+        toast.message("Delivery completed, but receipt email could not be confirmed.");
+      }
 
       if (trackingOrderId === orderId) {
         stopLiveTracking();
@@ -629,6 +691,11 @@ export default function DriverPage() {
             toast.success("New delivery available");
           }
 
+          if (confirmingOrderId) {
+            setQueuedRefreshAfterPin(true);
+            return;
+          }
+
           await loadDriverAndOrders();
         }
       )
@@ -637,7 +704,14 @@ export default function DriverPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [driver, loadDriverAndOrders]);
+  }, [confirmingOrderId, driver, loadDriverAndOrders]);
+
+  useEffect(() => {
+    if (confirmingOrderId || !queuedRefreshAfterPin) return;
+
+    void loadDriverAndOrders();
+    setQueuedRefreshAfterPin(false);
+  }, [confirmingOrderId, loadDriverAndOrders, queuedRefreshAfterPin]);
 
   useEffect(() => {
     return () => {
