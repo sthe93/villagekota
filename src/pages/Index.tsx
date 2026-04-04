@@ -8,9 +8,9 @@ import heroBg from "@/assets/hero-bunny-chow.jpg";
 import { useProducts } from "@/hooks/use-products";
 
 const testimonials = [
-  { name: "Thabo M.", text: "Village Eats makes it easy to order for the whole family. Great flavour, generous portions, and reliable delivery.", rating: 5 },
-  { name: "Naledi S.", text: "Love the variety. From bunny chow to hearty meals and drinks, it feels like one app for every craving.", rating: 5 },
-  { name: "James P.", text: "Premium food, smooth ordering, and a menu that goes way beyond one type of dish. Exactly what our area needed.", rating: 5 },
+  { name: "Thabo M.", text: "Lekker quality every time. Big flavour, clean packaging, and smooth delivery to the gate.", rating: 5 },
+  { name: "Naledi S.", text: "From kota cravings to family supper, this app just gets it. Proper Mzansi comfort food.", rating: 5 },
+  { name: "James P.", text: "Premium look, kasi soul. Fast checkout and the food always arrives hot and fresh.", rating: 5 },
 ];
 
 export default function HomePage() {
@@ -71,27 +71,27 @@ export default function HomePage() {
         <div className="container relative z-10 py-20">
           <div className="max-w-xl">
             <span className="inline-block bg-accent text-accent-foreground text-xs font-bold px-3 py-1 rounded-md mb-4 font-body uppercase tracking-wider">
-              🔥 Now Delivering in Joburg
+              🔥 Premium chow, Joburg style
             </span>
             <h1 className="font-display text-5xl sm:text-7xl text-primary-foreground leading-none mb-4">
               VILLAGE EATS, <br />
-              <span className="text-primary">ALL YOUR FAVOURITES</span>
+              <span className="text-primary">MZANSI FAVOURITES</span>
             </h1>
             <p className="text-primary-foreground/70 text-lg mb-8 font-body max-w-md">
-              From street-food classics to hearty meals, sides, and drinks, Village Eats brings bold flavour straight to your door.
+              Kota energy, bunny classics, and premium local flavour — delivered fast to your door.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
                 to="/menu"
                 className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-8 py-3.5 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
               >
-                Order Now <ArrowRight className="w-4 h-4" />
+                Order Chow <ArrowRight className="w-4 h-4" />
               </Link>
               <a
                 href="#featured"
                 className="inline-flex items-center gap-2 bg-primary-foreground/10 text-primary-foreground border border-primary-foreground/20 px-8 py-3.5 rounded-lg font-medium hover:bg-primary-foreground/20 transition-colors text-sm"
               >
-                View Menu
+                See Menu
               </a>
             </div>
           </div>
@@ -119,7 +119,7 @@ export default function HomePage() {
           <div className="container py-3">
             <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-full bg-primary px-4 py-2 text-primary-foreground shadow-card">
               <p className="text-sm font-semibold tracking-wide">
-                🎉 Use code <span className="text-accent">KOTA20</span> for 20% off your first order
+                🎉 Use code <span className="text-accent">MZANSI20</span> for 20% off your first order
               </p>
               <button
                 type="button"
@@ -221,7 +221,7 @@ export default function HomePage() {
 
       <section className="bg-muted">
         <div className="container py-16">
-          <h2 className="font-display text-4xl text-center text-foreground mb-10">WHAT OUR CUSTOMERS SAY</h2>
+          <h2 className="font-display text-4xl text-center text-foreground mb-10">WHAT THE KASI SAYS</h2>
           <div className="hidden md:grid grid-cols-1 md:grid-cols-3 gap-6">
             {testimonials.map((t) => (
               <div key={t.name} className="bg-card rounded-lg p-6 shadow-card">
