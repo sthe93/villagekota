@@ -167,6 +167,7 @@ export default function DriverPage() {
   const [newOrderIds, setNewOrderIds] = useState<string[]>([]);
   const [deliveryCodes, setDeliveryCodes] = useState<Record<string, string>>({});
   const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
+  const [queuedRefreshAfterPin, setQueuedRefreshAfterPin] = useState(false);
   const audioUnlockedRef = useRef(false);
 
   const playNotificationSound = () => {
@@ -629,6 +630,11 @@ export default function DriverPage() {
             toast.success("New delivery available");
           }
 
+          if (confirmingOrderId) {
+            setQueuedRefreshAfterPin(true);
+            return;
+          }
+
           await loadDriverAndOrders();
         }
       )
@@ -637,7 +643,14 @@ export default function DriverPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [driver, loadDriverAndOrders]);
+  }, [confirmingOrderId, driver, loadDriverAndOrders]);
+
+  useEffect(() => {
+    if (confirmingOrderId || !queuedRefreshAfterPin) return;
+
+    void loadDriverAndOrders();
+    setQueuedRefreshAfterPin(false);
+  }, [confirmingOrderId, loadDriverAndOrders, queuedRefreshAfterPin]);
 
   useEffect(() => {
     return () => {
