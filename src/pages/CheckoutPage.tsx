@@ -151,7 +151,6 @@ export default function CheckoutPage() {
     setTouched,
     update,
     markTouched: markCheckoutTouched,
-    fieldErrors: checkoutFieldErrors,
     canContinueFromDelivery: canContinueDeliveryStep,
     canContinueFromPayment: canContinuePaymentStep,
     handleStepChange: handleCheckoutStepChange,
@@ -295,17 +294,17 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (checkoutFieldErrors.name) {
+    if (fieldErrors.name) {
       focusAndRevealField(nameInputRef.current);
       return;
     }
 
-    if (checkoutFieldErrors.phone) {
+    if (fieldErrors.phone) {
       focusAndRevealField(phoneInputRef.current);
       return;
     }
 
-    if (checkoutFieldErrors.address) {
+    if (fieldErrors.address) {
       focusAndRevealField(addressInputRef.current);
       return;
     }
@@ -1041,14 +1040,14 @@ export default function CheckoutPage() {
                       onChange={(e) => updateField("name", e.target.value)}
                       onBlur={() => markCheckoutTouched("name")}
                       className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
-                        touched.name && checkoutFieldErrors.name
+                        touched.name && fieldErrors.name
                           ? "border-destructive focus:border-destructive"
                           : "border-border"
                       }`}
                       required
                     />
-                    {touched.name && checkoutFieldErrors.name && (
-                      <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.name}</p>
+                    {touched.name && fieldErrors.name && (
+                      <p className="mt-1 text-xs text-destructive">{fieldErrors.name}</p>
                     )}
                   </div>
 
@@ -1067,7 +1066,7 @@ export default function CheckoutPage() {
                         placeholder="0XXXXXXXXX"
                         inputMode="numeric"
                         className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
-                          touched.phone && checkoutFieldErrors.phone
+                          touched.phone && fieldErrors.phone
                             ? "border-destructive focus:border-destructive"
                             : "border-border"
                         }`}
@@ -1076,8 +1075,8 @@ export default function CheckoutPage() {
                       <p className="mt-2 text-xs text-muted-foreground">
                         South African cell phone numbers should be 10 digits.
                       </p>
-                      {touched.phone && checkoutFieldErrors.phone && (
-                        <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.phone}</p>
+                      {touched.phone && fieldErrors.phone && (
+                        <p className="mt-1 text-xs text-destructive">{fieldErrors.phone}</p>
                       )}
                     </div>
 
@@ -1093,13 +1092,13 @@ export default function CheckoutPage() {
                         onChange={(e) => updateField("email", e.target.value)}
                         onBlur={() => markCheckoutTouched("email")}
                         className={`w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary ${
-                          touched.email && checkoutFieldErrors.email
+                          touched.email && fieldErrors.email
                             ? "border-destructive focus:border-destructive"
                             : "border-border"
                         }`}
                       />
-                      {touched.email && checkoutFieldErrors.email && (
-                        <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.email}</p>
+                      {touched.email && fieldErrors.email && (
+                        <p className="mt-1 text-xs text-destructive">{fieldErrors.email}</p>
                       )}
                     </div>
                   </div>
@@ -1145,7 +1144,7 @@ export default function CheckoutPage() {
                       required
                       selected={selectedDestination.lat != null && selectedDestination.lng != null}
                       selectedMessage="Address suggestion selected"
-                      hasError={touched.address && Boolean(checkoutFieldErrors.address)}
+                      hasError={touched.address && Boolean(fieldErrors.address)}
                     />
                   </Suspense>
                   <button
@@ -1161,8 +1160,8 @@ export default function CheckoutPage() {
                     )}
                     Use my live location
                   </button>
-                  {touched.address && checkoutFieldErrors.address && (
-                    <p className="mt-1 text-xs text-destructive">{checkoutFieldErrors.address}</p>
+                  {touched.address && fieldErrors.address && (
+                    <p className="mt-1 text-xs text-destructive">{fieldErrors.address}</p>
                   )}
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
