@@ -20,6 +20,7 @@ import {
 } from "@/data/productOptions";
 import { useCart } from "@/context/CartContext";
 import { toast } from "@/components/ui/sonner";
+import ProductRowSummary from "@/components/ProductRowSummary";
 
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
@@ -468,6 +469,8 @@ export default function ProductQuickAddSheet({
                       src={product.image}
                       alt={product.name}
                       className="aspect-[4/3] h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
                     />
                   ) : (
                     <div className="flex aspect-[4/3] items-center justify-center text-muted-foreground">
@@ -704,7 +707,6 @@ export default function ProductQuickAddSheet({
                     ) : (
                       <div className="grid gap-3 sm:grid-cols-2">
                         {recommendations.map((item) => {
-                          const suggestionHasImage = Boolean(item.image?.trim());
                           const suggestionHasReviews =
                             item.reviewCount > 0 && item.rating > 0;
 
@@ -713,34 +715,21 @@ export default function ProductQuickAddSheet({
                               key={item.id}
                               className="overflow-hidden rounded-2xl border border-border bg-card"
                             >
-                              <div className="flex gap-3 p-3">
-                                {suggestionHasImage ? (
-                                  <img
-                                    src={item.image}
-                                    alt={item.name}
-                                    className="h-20 w-20 rounded-xl object-cover"
-                                  />
-                                ) : (
-                                  <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                                    <ImageOff className="h-5 w-5" />
-                                  </div>
-                                )}
-
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0">
-                                      <p className="truncate font-semibold text-foreground">
-                                        {item.name}
-                                      </p>
-                                      <p className="mt-1 text-sm font-semibold text-primary">
-                                        {priceFormatter.format(item.price)}
-                                      </p>
-                                    </div>
-
+                              <div className="p-3">
+                                <ProductRowSummary
+                                  imageSrc={item.image}
+                                  imageAlt={item.name}
+                                  title={item.name}
+                                  subtitle={priceFormatter.format(item.price)}
+                                  imageClassName="h-20 w-20 rounded-xl object-cover"
+                                  titleClassName="truncate font-semibold text-foreground"
+                                  subtitleClassName="mt-1 text-sm font-semibold text-primary"
+                                  rightSlot={
                                     <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                                       {item.category}
                                     </span>
-                                  </div>
+                                  }
+                                >
 
                                   <div className="mt-2 flex flex-wrap items-center gap-2">
                                     {item.hasOptions && (
@@ -784,7 +773,7 @@ export default function ProductQuickAddSheet({
                                       </>
                                     )}
                                   </button>
-                                </div>
+                                </ProductRowSummary>
                               </div>
                             </div>
                           );
