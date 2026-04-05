@@ -49,6 +49,7 @@ import {
 } from "@/lib/orderMeta";
 import {
   disablePushNotifications,
+  getStoredNativePushRegistration,
   getPushNotificationPermissionState,
   requestPushNotificationPermission,
 } from "@/lib/pushNotifications";
@@ -532,9 +533,32 @@ export default function AccountPage() {
     }
   };
 
-  const handleDisableNotifications = () => {
+  const handleDisableNotifications = async () => {
+    const cachedRegistration = getStoredNativePushRegistration();
     disablePushNotifications();
     setNotificationsState(getPushNotificationPermissionState());
+
+    try {
+      if (cachedRegistration) {
+        await supabase.functions.invoke("register-push-device", {
+          body: {
+            token: cachedRegistration.token,
+            platform: cachedRegistration.platform,
+            role: isAdmin ? "admin" : driverProfile ? "driver" : "customer",
+            enabled: false,
+          },
+        });
+
+        await supabase.functions.invoke("unregister-push-device", {
+          body: {
+            token: cachedRegistration.token,
+          },
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to disable native push token", error);
+    }
+
     toast.success("Push notifications disabled for this device.");
   };
 
