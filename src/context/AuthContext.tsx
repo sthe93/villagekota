@@ -119,10 +119,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setLoading(true);
-      await resolveUserState(nextSession.user.id);
-
-      if (!isMounted) return;
-      setLoading(false);
+      try {
+        await resolveUserState(nextSession.user.id);
+      } catch (error) {
+        console.error("[auth] Failed to resolve user state", error);
+        resetAuthState();
+      } finally {
+        if (!isMounted) return;
+        setLoading(false);
+      }
     };
 
     const {
@@ -194,7 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (authDebugEnabled) {
-      console.info("[auth] signInWithGoogle oauthUrl", { oauthUrl: data?.url ?? null });
+      console.info("[auth] signInWithGoogle oauthUrl", { hasOauthUrl: !!data?.url });
     }
 
     if (nativePlatform && data?.url) {
