@@ -14,7 +14,6 @@ import {
   Landmark,
   ShieldCheck,
   Clock3,
-  ImageOff,
   CheckCircle2,
   BookmarkPlus,
   Home,
@@ -52,6 +51,7 @@ import {
   buildCheckoutValidationMessages,
   getPhoneDigits,
 } from "@/lib/checkoutValidation";
+import ProductRowSummary from "@/components/ProductRowSummary";
 
 const AddressAutocompleteField = lazy(() => import("@/components/AddressAutocompleteField"));
 
@@ -1597,62 +1597,44 @@ export default function CheckoutPage() {
 
                   <div className="mt-4 space-y-3">
                     {items.map((item) => {
-                      const hasImage = Boolean(item.product.image?.trim());
-
                       return (
                         <div
                           key={item.id}
                           className="rounded-2xl border border-border bg-background p-3"
                         >
-                          <div className="flex gap-3">
-                            {hasImage ? (
-                              <img
-                                src={item.product.image}
-                                alt={item.product.name}
-                                className="h-16 w-16 rounded-xl object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                                <ImageOff className="h-4 w-4" />
+                          <ProductRowSummary
+                            imageSrc={item.product.image}
+                            imageAlt={item.product.name}
+                            title={item.product.name}
+                            subtitle={`${item.quantity} × ${priceFormatter.format(item.finalUnitPrice)}`}
+                            imageClassName="h-16 w-16 rounded-xl object-cover"
+                            titleClassName="truncate font-semibold text-foreground"
+                            subtitleClassName="mt-1 text-xs text-muted-foreground"
+                            rightSlot={
+                              <p className="text-sm font-semibold text-foreground">
+                                {priceFormatter.format(item.finalUnitPrice * item.quantity)}
+                              </p>
+                            }
+                          >
+                            {item.selectedOptions?.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {item.selectedOptions.map((option) => (
+                                  <span
+                                    key={`${item.id}-${option.groupId}-${option.itemId}`}
+                                    className="rounded-full bg-card px-2 py-1 text-[10px] font-medium text-muted-foreground"
+                                  >
+                                    {option.groupName}: {option.itemName}
+                                  </span>
+                                ))}
                               </div>
                             )}
 
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="truncate font-semibold text-foreground">
-                                    {item.product.name}
-                                  </p>
-                                  <p className="mt-1 text-xs text-muted-foreground">
-                                    {item.quantity} × {priceFormatter.format(item.finalUnitPrice)}
-                                  </p>
-
-                                  {item.selectedOptions?.length > 0 && (
-                                    <div className="mt-2 flex flex-wrap gap-1">
-                                      {item.selectedOptions.map((option) => (
-                                        <span
-                                          key={`${item.id}-${option.groupId}-${option.itemId}`}
-                                          className="rounded-full bg-card px-2 py-1 text-[10px] font-medium text-muted-foreground"
-                                        >
-                                          {option.groupName}: {option.itemName}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-
-                                <p className="text-sm font-semibold text-foreground">
-                                  {priceFormatter.format(item.finalUnitPrice * item.quantity)}
-                                </p>
-                              </div>
-
-                              {item.note && (
-                                <p className="mt-2 rounded-lg bg-card px-2.5 py-2 text-xs text-muted-foreground">
-                                  Note: {item.note}
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                            {item.note && (
+                              <p className="mt-2 rounded-lg bg-card px-2.5 py-2 text-xs text-muted-foreground">
+                                Note: {item.note}
+                              </p>
+                            )}
+                          </ProductRowSummary>
                         </div>
                       );
                     })}

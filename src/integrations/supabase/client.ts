@@ -51,6 +51,24 @@ const SUPABASE_PUBLISHABLE_KEY =
     ? configuredPublishableKey
     : FALLBACK_SUPABASE_PUBLISHABLE_KEY;
 
+const usingFallbackCredentials =
+  SUPABASE_URL === FALLBACK_SUPABASE_URL || SUPABASE_PUBLISHABLE_KEY === FALLBACK_SUPABASE_PUBLISHABLE_KEY;
+
+if (usingFallbackCredentials) {
+  const enforceConfig =
+    import.meta.env.VITE_ENFORCE_SUPABASE_CONFIG === 'true';
+
+  if (import.meta.env.PROD && enforceConfig) {
+    throw new Error(
+      'Missing Supabase runtime configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.'
+    );
+  }
+
+  console.warn(
+    `[supabase] Using fallback Supabase credentials${import.meta.env.PROD ? ' in production' : ' in local/dev'}. Configure VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.`
+  );
+}
+
 const authStorage =
   typeof window !== 'undefined'
     ? Capacitor.isNativePlatform()
