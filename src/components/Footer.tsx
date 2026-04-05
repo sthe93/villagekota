@@ -14,7 +14,7 @@ export default function Footer() {
             <div className="inline-flex items-center gap-3 rounded-xl border border-secondary-foreground/20 bg-secondary-foreground/10 px-3 py-2">
               <img
                 src={appLogo}
-                alt="Village Eats logo"
+                alt={`${appContent.brand_name} logo`}
                 className="h-9 w-9 rounded-full border border-secondary-foreground/30 bg-black object-cover object-center p-0.5 shadow-sm"
               />
               <span className="text-base font-semibold tracking-tight text-secondary-foreground">
@@ -77,7 +77,7 @@ export default function Footer() {
 
       <div className="border-t border-secondary-foreground/12">
         <div className="container py-4 text-center text-xs text-secondary-foreground/65">
-          © {new Date().getFullYear()} Village Eats. All rights reserved. Made with ❤️ in South Africa.
+          © {new Date().getFullYear()} {appContent.brand_name}. All rights reserved. Made with ❤️ in South Africa.
         </div>
       </div>
     </footer>

@@ -52,7 +52,7 @@ export default function Navbar() {
           <div className="inline-flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary">
             <img
               src={appLogo}
-              alt="Village Eats logo"
+              alt={`${appContent.brand_name} logo`}
               className="h-9 w-9 rounded-full border border-primary/30 bg-black object-cover object-center p-0.5 shadow-sm"
             />
             <span className="text-sm font-semibold tracking-tight md:text-base">{appContent.brand_name}</span>
