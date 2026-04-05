@@ -5,7 +5,6 @@ import {
   Plus,
   Trash2,
   ShoppingBag,
-  ImageOff,
   Sparkles,
   Star,
   Loader2,
@@ -19,6 +18,7 @@ import { Link } from "react-router-dom";
 import { getProducts, type Category, type Product } from "@/data/products";
 import { toast } from "@/components/ui/sonner";
 import ProductQuickAddSheet from "@/components/ProductQuickAddSheet";
+import ProductRowSummary from "@/components/ProductRowSummary";
 
 const priceFormatter = new Intl.NumberFormat("en-ZA", {
   style: "currency",
@@ -379,7 +379,6 @@ export default function CartDrawer() {
 
               <div className="mt-4 space-y-3">
                 {items.map((item) => {
-                  const hasImage = Boolean(item.product.image?.trim());
                   const groupedOptions = groupSelectedOptions(item.selectedOptions || []);
 
                   return (
@@ -387,41 +386,23 @@ export default function CartDrawer() {
                       key={item.id}
                       className="rounded-2xl border border-border bg-background p-3"
                     >
-                      <div className="flex gap-3">
-                        {hasImage ? (
-                          <img
-                            src={item.product.image}
-                            alt={item.product.name}
-                            className="h-20 w-20 rounded-xl object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                            <ImageOff className="h-5 w-5" />
-                          </div>
-                        )}
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <h4 className="truncate font-display text-xl leading-tight text-foreground">
-                                {item.product.name}
-                              </h4>
-
-                              <p className="mt-1 text-sm font-semibold text-foreground">
-                                {priceFormatter.format(item.finalUnitPrice)}
-                                <span className="ml-1 font-normal text-muted-foreground">
-                                  each
-                                </span>
-                              </p>
-                            </div>
-
-                            <button
-                              onClick={() => removeItem(item.id)}
-                              className="rounded-lg p-1.5 text-destructive transition-colors hover:bg-destructive/10"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
+                      <ProductRowSummary
+                        imageSrc={item.product.image}
+                        imageAlt={item.product.name}
+                        title={item.product.name}
+                        subtitle={`${priceFormatter.format(item.finalUnitPrice)} each`}
+                        imageClassName="h-20 w-20 rounded-xl object-cover"
+                        titleClassName="truncate font-display text-xl leading-tight text-foreground"
+                        subtitleClassName="mt-1 text-sm font-semibold text-foreground"
+                        rightSlot={
+                          <button
+                            onClick={() => removeItem(item.id)}
+                            className="rounded-lg p-1.5 text-destructive transition-colors hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        }
+                      >
 
                           {groupedOptions.length > 0 && (
                             <div className="mt-2 space-y-1.5">
@@ -477,8 +458,7 @@ export default function CartDrawer() {
                               </p>
                             </div>
                           </div>
-                        </div>
-                      </div>
+                      </ProductRowSummary>
                     </div>
                   );
                 })}
@@ -535,6 +515,8 @@ export default function CartDrawer() {
                                   src={product.image}
                                   alt={product.name}
                                   className="h-16 w-16 rounded-xl object-cover"
+                                  loading="lazy"
+                                  decoding="async"
                                 />
                               ) : (
                                 <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-muted text-muted-foreground">

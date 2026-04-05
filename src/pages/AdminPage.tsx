@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -31,8 +31,6 @@ import {
   ChevronRight,
 } from "lucide-react";
 import Footer from "@/components/Footer";
-import MapView, { Layer, Marker, NavigationControl, Source } from "react-map-gl/maplibre";
-import "maplibre-gl/dist/maplibre-gl.css";
 import { getMapTilerStyleUrl } from "@/lib/maps";
 
 interface DbProduct {
@@ -255,6 +253,7 @@ const selectClassName =
   "w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary";
 
 const DELIVERY_ZONE_MAP_STYLE = getMapTilerStyleUrl();
+const DeliveryZoneMapEditor = lazy(() => import("@/components/DeliveryZoneMapEditor"));
 
 function Badge({
   children,
@@ -393,6 +392,8 @@ export default function AdminPage() {
     latitude: -26.2856,
     zoom: 12,
   });
+  const [shouldLoadDeliveryZoneMap, setShouldLoadDeliveryZoneMap] = useState(false);
+  const deliveryZoneMapContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [pageLoading, setPageLoading] = useState(false);
 
@@ -1266,6 +1267,26 @@ export default function AdminPage() {
       properties: {},
     };
   }, [deliveryZoneSettings?.polygon_coordinates]);
+
+  useEffect(() => {
+    if (shouldLoadDeliveryZoneMap) return;
+    if (!deliveryZoneMapContainerRef.current) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoadDeliveryZoneMap(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(deliveryZoneMapContainerRef.current);
+
+    return () => observer.disconnect();
+  }, [shouldLoadDeliveryZoneMap]);
 
   const tabs = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -3242,55 +3263,43 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    <MapView
-                      {...deliveryZoneMapView}
-                      onMove={(evt) => setDeliveryZoneMapView(evt.viewState)}
-                      onClick={(evt) => {
-                        const lat = Number(evt.lngLat.lat.toFixed(6));
-                        const lng = Number(evt.lngLat.lng.toFixed(6));
-
-                        setDeliveryZoneSettings((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                polygon_coordinates: [...(prev.polygon_coordinates || []), [lat, lng]],
-                              }
-                            : prev
-                        );
-                      }}
-                      mapStyle={DELIVERY_ZONE_MAP_STYLE}
-                      reuseMaps
-                      style={{ width: "100%", height: 320 }}
-                    >
-                      <NavigationControl position="top-right" />
-
-                      {deliveryZonePolygonFeature && (
-                        <Source id="delivery-zone-polygon" type="geojson" data={deliveryZonePolygonFeature}>
-                          <Layer
-                            id="delivery-zone-fill"
-                            type="fill"
-                            paint={{
-                              "fill-color": "#ef4444",
-                              "fill-opacity": 0.25,
+                    <div ref={deliveryZoneMapContainerRef}>
+                      {shouldLoadDeliveryZoneMap ? (
+                        <Suspense
+                          fallback={
+                            <div className="flex h-80 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
+                              Loading map…
+                            </div>
+                          }
+                        >
+                          <DeliveryZoneMapEditor
+                            viewState={deliveryZoneMapView}
+                            onMove={setDeliveryZoneMapView}
+                            onMapClick={({ lat, lng }) => {
+                              setDeliveryZoneSettings((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      polygon_coordinates: [...(prev.polygon_coordinates || []), [lat, lng]],
+                                    }
+                                  : prev
+                              );
                             }}
+                            mapStyle={DELIVERY_ZONE_MAP_STYLE}
+                            polygonFeature={deliveryZonePolygonFeature}
+                            polygonCoordinates={deliveryZoneSettings.polygon_coordinates || []}
                           />
-                          <Layer
-                            id="delivery-zone-line"
-                            type="line"
-                            paint={{
-                              "line-color": "#b91c1c",
-                              "line-width": 2.5,
-                            }}
-                          />
-                        </Source>
+                        </Suspense>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setShouldLoadDeliveryZoneMap(true)}
+                          className="flex h-80 w-full items-center justify-center rounded-xl border border-dashed border-border bg-card px-4 text-sm font-medium text-foreground hover:bg-muted"
+                        >
+                          Load interactive map
+                        </button>
                       )}
-
-                      {(deliveryZoneSettings.polygon_coordinates || []).map(([lat, lng], index) => (
-                        <Marker key={`${lat}-${lng}-${index}`} longitude={lng} latitude={lat} anchor="center">
-                          <div className="h-3 w-3 rounded-full border border-white bg-red-600 shadow" />
-                        </Marker>
-                      ))}
-                    </MapView>
+                    </div>
 
                     <p className="mt-2 text-xs text-muted-foreground">
                       Click map to add polygon points in order. Use at least 3 points, then save settings.
