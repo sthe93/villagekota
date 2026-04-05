@@ -42,8 +42,9 @@ export default function Navbar() {
   ];
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-border bg-background/95 shadow-sm backdrop-blur-md">
-      <div className="container flex h-20 items-center justify-between">
+    <>
+      <nav className="sticky top-0 z-50 border-b border-border bg-background/95 shadow-sm backdrop-blur-md">
+        <div className="container flex h-20 items-center justify-between">
         <Link to="/" className="flex items-center">
           <div className="inline-flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary">
             <img
@@ -127,9 +128,10 @@ export default function Navbar() {
           </button>
 
         </div>
-      </div>
+        </div>
+      </nav>
 
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-[#223149] bg-[#111c2d] px-2 pb-[calc(0.45rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-10px_30px_-20px_rgba(0,0,0,0.9)] md:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-[70] border-t border-[#223149] bg-[#111c2d] px-2 pb-[calc(0.45rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-10px_30px_-20px_rgba(0,0,0,0.9)] md:hidden">
         <div className="grid grid-cols-5 items-end gap-1">
           {mobileNavItems.slice(0, 2).map((item) => {
             const Icon = item.icon;
@@ -196,6 +198,6 @@ export default function Navbar() {
           })}
         </div>
       </div>
-    </nav>
+    </>
   );
 }

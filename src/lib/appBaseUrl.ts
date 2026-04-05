@@ -1,5 +1,16 @@
+import { Capacitor } from "@capacitor/core";
+
 export function getClientAppBaseUrl() {
   if (typeof window === "undefined") {
+    return "";
+  }
+
+  const configuredAppBaseUrl = import.meta.env.VITE_APP_BASE_URL?.trim();
+  if (configuredAppBaseUrl) {
+    return configuredAppBaseUrl.replace(/\/+$/, "");
+  }
+
+  if (Capacitor.isNativePlatform()) {
     return "";
   }
 

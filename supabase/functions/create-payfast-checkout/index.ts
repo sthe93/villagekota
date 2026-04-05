@@ -70,6 +70,16 @@ function normalizeAppBaseUrl(value?: string | null) {
   }
 }
 
+function isLocalRuntimeOrigin(origin: string | null) {
+  if (!origin) return false;
+  return (
+    origin.includes("://localhost") ||
+    origin.includes("://127.0.0.1") ||
+    origin.startsWith("capacitor://") ||
+    origin.startsWith("ionic://")
+  );
+}
+
 function getAllowedOrigins(configuredAppBaseUrl: string | null) {
   const configuredOrigins = (Deno.env.get("ALLOWED_APP_ORIGINS") || "")
     .split(",")
@@ -154,9 +164,11 @@ Deno.serve(async (req) => {
     const body = (await req.json()) as Payload;
     const requestAppBaseUrl = normalizeAppBaseUrl(body.appBaseUrl);
     const requestAppOrigin = normalizeOrigin(requestAppBaseUrl);
+    const allowRequestAppBaseUrl =
+      !requestOrigin || requestAppOrigin === requestOrigin || isLocalRuntimeOrigin(requestOrigin);
 
     const appBaseUrl =
-      requestAppBaseUrl && (!requestOrigin || requestAppOrigin === requestOrigin)
+      requestAppBaseUrl && allowRequestAppBaseUrl
         ? requestAppBaseUrl
         : configuredAppBaseUrl &&
             requestOrigin &&
