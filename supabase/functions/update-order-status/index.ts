@@ -21,6 +21,15 @@ type MobilePushDevice = {
   platform: "ios" | "android";
 };
 
+type PushQueueRow = {
+  id: string;
+  user_id: string;
+  order_id: string;
+  status: OrderStatus;
+  attempt_count: number;
+  max_attempts: number;
+};
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -269,18 +278,16 @@ async function sendApnsPush(params: {
   }
 }
 
-async function dispatchOrderStatusPushes(params: {
+async function dispatchQueuedPushJob(params: {
   supabaseAdmin: ReturnType<typeof createClient>;
-  userId: string | null;
-  orderId: string;
-  status: OrderStatus;
+  job: PushQueueRow;
 }) {
-  if (!params.userId) return;
+  const { job } = params;
 
   const { data: devices, error: devicesError } = await params.supabaseAdmin
     .from("mobile_push_devices")
     .select("token, platform")
-    .eq("user_id", params.userId)
+    .eq("user_id", job.user_id)
     .eq("role", "customer")
     .eq("enabled", true);
 
@@ -291,8 +298,8 @@ async function dispatchOrderStatusPushes(params: {
     return;
   }
 
-  const notification = getOrderStatusNotification(params.status);
-  const url = `/order-tracking/${params.orderId}`;
+  const notification = getOrderStatusNotification(job.status);
+  const url = `/order-tracking/${job.order_id}`;
 
   const fcmServerKey = optionalEnv("FCM_SERVER_KEY");
   const apnsTeamId = optionalEnv("APNS_TEAM_ID");
@@ -301,7 +308,8 @@ async function dispatchOrderStatusPushes(params: {
   const apnsBundleId = optionalEnv("APNS_BUNDLE_ID");
   const apnsUseSandbox = optionalEnv("APNS_USE_SANDBOX") === "true";
 
-  const inactiveTokens: string[] = [];
+  const invalidTokens: string[] = [];
+  let jobErrorMessage = "";
 
   await Promise.all(
     (devices as MobilePushDevice[]).map(async (device) => {
@@ -340,24 +348,126 @@ async function dispatchOrderStatusPushes(params: {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        jobErrorMessage = message;
         console.error(`Failed to send push for token ${device.token.slice(0, 8)}…`, message);
 
         if (message.includes("410") || message.includes("404") || message.includes("NotRegistered")) {
-          inactiveTokens.push(device.token);
+          invalidTokens.push(device.token);
         }
       }
     })
   );
 
-  if (inactiveTokens.length > 0) {
+  if (invalidTokens.length > 0) {
     const { error: deactivateError } = await params.supabaseAdmin
       .from("mobile_push_devices")
       .update({ enabled: false, updated_at: new Date().toISOString() })
-      .in("token", inactiveTokens);
+      .in("token", invalidTokens);
 
     if (deactivateError) {
       console.error("Failed to disable inactive push tokens", deactivateError.message);
     }
+  }
+
+  const hadFailures = !!jobErrorMessage;
+
+  if (!hadFailures) {
+    await params.supabaseAdmin
+      .from("push_dispatch_queue")
+      .update({
+        state: "sent",
+        sent_at: new Date().toISOString(),
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+    return;
+  }
+
+  const nextAttemptCount = job.attempt_count + 1;
+  const shouldGiveUp = nextAttemptCount >= job.max_attempts;
+  const retryDelayMs = Math.min(15 * 60_000, 15_000 * 2 ** Math.min(nextAttemptCount, 6));
+  const nextAttemptAt = new Date(Date.now() + retryDelayMs).toISOString();
+
+  await params.supabaseAdmin
+    .from("push_dispatch_queue")
+    .update({
+      state: shouldGiveUp ? "failed" : "pending",
+      attempt_count: nextAttemptCount,
+      next_attempt_at: shouldGiveUp ? null : nextAttemptAt,
+      last_error: jobErrorMessage,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", job.id);
+}
+
+async function processQueuedPushes(params: {
+  supabaseAdmin: ReturnType<typeof createClient>;
+  limit?: number;
+}) {
+  const nowIso = new Date().toISOString();
+  const limit = params.limit ?? 20;
+
+  const { data: jobs, error: jobsError } = await params.supabaseAdmin
+    .from("push_dispatch_queue")
+    .select("id, user_id, order_id, status, attempt_count, max_attempts")
+    .eq("state", "pending")
+    .lte("next_attempt_at", nowIso)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (jobsError || !jobs?.length) {
+    if (jobsError) {
+      console.error("Failed to read push queue", jobsError.message);
+    }
+    return;
+  }
+
+  for (const job of jobs as PushQueueRow[]) {
+    const { error: lockError } = await params.supabaseAdmin
+      .from("push_dispatch_queue")
+      .update({
+        state: "processing",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id)
+      .eq("state", "pending");
+
+    if (lockError) {
+      console.error("Failed to claim push queue job", lockError.message);
+      continue;
+    }
+
+    await dispatchQueuedPushJob({
+      supabaseAdmin: params.supabaseAdmin,
+      job,
+    });
+  }
+}
+
+async function enqueueOrderStatusPush(params: {
+  supabaseAdmin: ReturnType<typeof createClient>;
+  userId: string | null;
+  orderId: string;
+  status: OrderStatus;
+}) {
+  if (!params.userId) return;
+
+  const { error } = await params.supabaseAdmin.from("push_dispatch_queue").insert({
+    user_id: params.userId,
+    order_id: params.orderId,
+    status: params.status,
+    payload: {
+      url: `/order-tracking/${params.orderId}`,
+    },
+    state: "pending",
+    attempt_count: 0,
+    max_attempts: 5,
+    next_attempt_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    console.error("Failed to enqueue order status push", error.message);
   }
 }
 
@@ -471,11 +581,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    void dispatchOrderStatusPushes({
+    await enqueueOrderStatusPush({
       supabaseAdmin,
       userId: order.user_id,
       orderId,
       status: nextStatus,
+    });
+
+    void processQueuedPushes({
+      supabaseAdmin,
     });
 
     return new Response(JSON.stringify({ success: true, status: nextStatus }), {

@@ -3,6 +3,8 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import { PushNotifications } from "@capacitor/push-notifications";
 
 const PUSH_NOTIFICATIONS_ENABLED_KEY = "villagekota.pushNotifications.enabled";
+const NATIVE_PUSH_TOKEN_KEY = "villagekota.pushNotifications.nativeToken";
+const NATIVE_PUSH_PLATFORM_KEY = "villagekota.pushNotifications.nativePlatform";
 
 export type AppNotificationAudience = "customer" | "driver" | "admin";
 
@@ -23,6 +25,31 @@ export interface AppNotificationPermissionState {
 export interface NativePushRegistrationResult {
   token: string;
   platform: "ios" | "android";
+}
+
+export function getStoredNativePushRegistration(): NativePushRegistrationResult | null {
+  if (!canUseWindow()) return null;
+
+  const token = window.localStorage.getItem(NATIVE_PUSH_TOKEN_KEY);
+  const platform = window.localStorage.getItem(NATIVE_PUSH_PLATFORM_KEY);
+
+  if (!token || (platform !== "ios" && platform !== "android")) {
+    return null;
+  }
+
+  return { token, platform };
+}
+
+export function setStoredNativePushRegistration(registration: NativePushRegistrationResult) {
+  if (!canUseWindow()) return;
+  window.localStorage.setItem(NATIVE_PUSH_TOKEN_KEY, registration.token);
+  window.localStorage.setItem(NATIVE_PUSH_PLATFORM_KEY, registration.platform);
+}
+
+export function clearStoredNativePushRegistration() {
+  if (!canUseWindow()) return;
+  window.localStorage.removeItem(NATIVE_PUSH_TOKEN_KEY);
+  window.localStorage.removeItem(NATIVE_PUSH_PLATFORM_KEY);
 }
 
 function canUseWindow() {
@@ -137,10 +164,12 @@ export async function registerNativePushToken(): Promise<NativePushRegistrationR
 
   return await new Promise<NativePushRegistrationResult>((resolve, reject) => {
     void (async () => {
-      const [registrationSubscription, errorSubscription] = await Promise.all([
+    const [registrationSubscription, errorSubscription] = await Promise.all([
         PushNotifications.addListener("registration", (token) => {
           cleanup();
-          resolve({ token: token.value, platform });
+          const registration = { token: token.value, platform } satisfies NativePushRegistrationResult;
+          setStoredNativePushRegistration(registration);
+          resolve(registration);
         }),
         PushNotifications.addListener("registrationError", (error) => {
           cleanup();
@@ -168,6 +197,7 @@ export async function registerNativePushToken(): Promise<NativePushRegistrationR
 
 export function disablePushNotifications() {
   setStoredPushNotificationsEnabled(false);
+  clearStoredNativePushRegistration();
 
   if (canUseWindow() && "Notification" in window) {
     Notification.get?.().forEach((notification) => notification.close());

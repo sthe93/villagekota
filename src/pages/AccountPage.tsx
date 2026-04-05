@@ -49,6 +49,7 @@ import {
 } from "@/lib/orderMeta";
 import {
   disablePushNotifications,
+  getStoredNativePushRegistration,
   getPushNotificationPermissionState,
   registerNativePushToken,
   requestPushNotificationPermission,
@@ -534,19 +535,24 @@ export default function AccountPage() {
   };
 
   const handleDisableNotifications = async () => {
+    const cachedRegistration = getStoredNativePushRegistration();
     disablePushNotifications();
     setNotificationsState(getPushNotificationPermissionState());
 
     try {
-      const registration = await registerNativePushToken();
-
-      if (registration) {
+      if (cachedRegistration) {
         await supabase.functions.invoke("register-push-device", {
           body: {
-            token: registration.token,
-            platform: registration.platform,
+            token: cachedRegistration.token,
+            platform: cachedRegistration.platform,
             role: isAdmin ? "admin" : driverProfile ? "driver" : "customer",
             enabled: false,
+          },
+        });
+
+        await supabase.functions.invoke("unregister-push-device", {
+          body: {
+            token: cachedRegistration.token,
           },
         });
       }

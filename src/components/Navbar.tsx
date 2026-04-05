@@ -7,7 +7,6 @@ import {
   House,
   UtensilsCrossed,
   Package,
-  Star,
   MapPinned,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
@@ -15,6 +14,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import DriverNavbarBadge from "@/components/DriverNavbarBadge";
 import { useState } from "react";
+import appLogo from "@/assets/star-village-logo.png";
 
 export default function Navbar() {
   const { toggleCart, itemCount, total } = useCart();
@@ -48,7 +48,7 @@ export default function Navbar() {
       <div className="container flex h-20 items-center justify-between">
         <Link to="/" className="flex items-center">
           <div className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary">
-            <Star className="h-5 w-5 fill-current" />
+            <img src={appLogo} alt="Village Eats logo" className="h-6 w-6 rounded-md object-cover" />
             <span className="text-sm font-semibold tracking-tight md:text-base">Village Eats</span>
           </div>
         </Link>
