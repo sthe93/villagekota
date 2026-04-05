@@ -47,8 +47,12 @@ export default function Navbar() {
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 shadow-sm backdrop-blur-md">
       <div className="container flex h-20 items-center justify-between">
         <Link to="/" className="flex items-center">
-          <div className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary">
-            <img src={appLogo} alt="Village Eats logo" className="h-6 w-6 rounded-md object-cover" />
+          <div className="inline-flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary">
+            <img
+              src={appLogo}
+              alt="Village Eats logo"
+              className="h-9 w-9 rounded-full border border-primary/30 bg-black object-cover object-center p-0.5 shadow-sm"
+            />
             <span className="text-sm font-semibold tracking-tight md:text-base">Village Eats</span>
           </div>
         </Link>

@@ -8,8 +8,12 @@ export default function Footer() {
       <div className="container py-14 grid grid-cols-1 md:grid-cols-3 gap-10">
         <div>
           <div className="flex items-center mb-5">
-            <div className="inline-flex items-center gap-2 rounded-xl border border-secondary-foreground/20 bg-secondary-foreground/10 px-3 py-2">
-              <img src={appLogo} alt="Village Eats logo" className="h-6 w-6 rounded-md object-cover" />
+            <div className="inline-flex items-center gap-3 rounded-xl border border-secondary-foreground/20 bg-secondary-foreground/10 px-3 py-2">
+              <img
+                src={appLogo}
+                alt="Village Eats logo"
+                className="h-9 w-9 rounded-full border border-secondary-foreground/30 bg-black object-cover object-center p-0.5 shadow-sm"
+              />
               <span className="text-base font-semibold tracking-tight text-secondary-foreground">
                 Village Eats
               </span>
