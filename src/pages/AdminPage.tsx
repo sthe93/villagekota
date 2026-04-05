@@ -104,6 +104,26 @@ interface DeliveryZoneSettings {
   polygon_coordinates: Array<[number, number]> | null;
 }
 
+interface AppContentSettings {
+  id: number;
+  brand_name: string;
+  footer_description: string;
+  contact_address: string;
+  contact_phone: string;
+  contact_email: string;
+  business_hours: string;
+  hero_badge_text: string;
+  hero_title_text: string;
+  hero_subtitle_text: string;
+  hero_primary_cta_text: string;
+  offer_banner_text: string;
+  offer_banner_code: string;
+  trust_badge_delivery_text: string;
+  trust_badge_eta_text: string;
+  trust_badge_quality_text: string;
+  trust_badge_rating_text: string;
+}
+
 type GeoJsonLike =
   | {
       type?: "FeatureCollection";
@@ -195,7 +215,8 @@ type AdminTab =
   | "vouchers"
   | "customers"
   | "drivers"
-  | "delivery_zone";
+  | "delivery_zone"
+  | "content";
 
 const statusColors: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700 border-amber-200",
@@ -339,6 +360,7 @@ export default function AdminPage() {
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [deliveryZoneSettings, setDeliveryZoneSettings] = useState<DeliveryZoneSettings | null>(null);
+  const [appContentSettings, setAppContentSettings] = useState<AppContentSettings | null>(null);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [userRoles, setUserRoles] = useState<UserRoleRow[]>([]);
   const [orderItems, setOrderItems] = useState<OrderItemRow[]>([]);
@@ -364,6 +386,7 @@ export default function AdminPage() {
   const [voucherSearch, setVoucherSearch] = useState("");
   const [driverSearch, setDriverSearch] = useState("");
   const [savingDeliveryZone, setSavingDeliveryZone] = useState(false);
+  const [savingAppContent, setSavingAppContent] = useState(false);
   const [geoJsonInput, setGeoJsonInput] = useState("");
   const [deliveryZoneMapView, setDeliveryZoneMapView] = useState({
     longitude: 27.7594,
@@ -395,6 +418,7 @@ export default function AdminPage() {
         fetchVouchers(),
         fetchDrivers(),
         fetchDeliveryZoneSettings(),
+        fetchAppContentSettings(),
         fetchProfiles(),
         fetchUserRoles(),
         fetchOrderItems(),
@@ -473,6 +497,67 @@ export default function AdminPage() {
     };
 
     setDeliveryZoneSettings(nextSettings);
+  };
+
+  const fetchAppContentSettings = async () => {
+    const { data, error } = await supabase
+      .from("app_content_settings" as never)
+      .select(
+        "id, brand_name, footer_description, contact_address, contact_phone, contact_email, business_hours, hero_badge_text, hero_title_text, hero_subtitle_text, hero_primary_cta_text, offer_banner_text, offer_banner_code, trust_badge_delivery_text, trust_badge_eta_text, trust_badge_quality_text, trust_badge_rating_text"
+      )
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (error) {
+      toast.error(error.message || "Failed to load app content settings.");
+      return;
+    }
+
+    if (!data) return;
+    setAppContentSettings(data as unknown as AppContentSettings);
+  };
+
+  const handleSaveAppContent = async () => {
+    if (!appContentSettings) {
+      toast.error("App content settings are not loaded yet.");
+      return;
+    }
+
+    setSavingAppContent(true);
+
+    try {
+      const payload = {
+        id: 1,
+        brand_name: appContentSettings.brand_name.trim(),
+        footer_description: appContentSettings.footer_description.trim(),
+        contact_address: appContentSettings.contact_address.trim(),
+        contact_phone: appContentSettings.contact_phone.trim(),
+        contact_email: appContentSettings.contact_email.trim(),
+        business_hours: appContentSettings.business_hours.trim(),
+        hero_badge_text: appContentSettings.hero_badge_text.trim(),
+        hero_title_text: appContentSettings.hero_title_text.trim(),
+        hero_subtitle_text: appContentSettings.hero_subtitle_text.trim(),
+        hero_primary_cta_text: appContentSettings.hero_primary_cta_text.trim(),
+        offer_banner_text: appContentSettings.offer_banner_text.trim(),
+        offer_banner_code: appContentSettings.offer_banner_code.trim(),
+        trust_badge_delivery_text: appContentSettings.trust_badge_delivery_text.trim(),
+        trust_badge_eta_text: appContentSettings.trust_badge_eta_text.trim(),
+        trust_badge_quality_text: appContentSettings.trust_badge_quality_text.trim(),
+        trust_badge_rating_text: appContentSettings.trust_badge_rating_text.trim(),
+      };
+
+      const { error } = await supabase
+        .from("app_content_settings" as never)
+        .upsert(payload, { onConflict: "id" });
+
+      if (error) throw error;
+      toast.success("App content settings updated.");
+      await fetchAppContentSettings();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save app content settings.");
+    } finally {
+      setSavingAppContent(false);
+    }
   };
 
   useEffect(() => {
@@ -1191,6 +1276,7 @@ export default function AdminPage() {
     { key: "customers", label: "Users", icon: Users },
     { key: "drivers", label: "Drivers", icon: Bike },
     { key: "delivery_zone", label: "Delivery Zone", icon: MapPin },
+    { key: "content", label: "Content", icon: Pencil },
   ] as const;
 
   if (loading || pageLoading) {
@@ -2743,6 +2829,298 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "content" && (
+          <div className="mx-auto max-w-3xl space-y-4">
+            <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
+              <div className="mb-4">
+                <h2 className="font-display text-2xl text-foreground">App Content Settings</h2>
+                <p className="text-sm text-muted-foreground">
+                  Manage brand name, footer copy, and contact details shown publicly in the app.
+                </p>
+              </div>
+
+              {!appContentSettings ? (
+                <p className="text-sm text-muted-foreground">Loading app content settings...</p>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Brand Name
+                    </label>
+                    <input
+                      type="text"
+                      value={appContentSettings.brand_name}
+                      onChange={(e) =>
+                        setAppContentSettings((prev) =>
+                          prev ? { ...prev, brand_name: e.target.value } : prev
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Footer Description
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={appContentSettings.footer_description}
+                      onChange={(e) =>
+                        setAppContentSettings((prev) =>
+                          prev ? { ...prev, footer_description: e.target.value } : prev
+                        )
+                      }
+                      className={textareaClassName}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Contact Address
+                      </label>
+                      <input
+                        type="text"
+                        value={appContentSettings.contact_address}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, contact_address: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Contact Phone
+                      </label>
+                      <input
+                        type="text"
+                        value={appContentSettings.contact_phone}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, contact_phone: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Contact Email
+                      </label>
+                      <input
+                        type="email"
+                        value={appContentSettings.contact_email}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, contact_email: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Business Hours
+                      </label>
+                      <input
+                        type="text"
+                        value={appContentSettings.business_hours}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, business_hours: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Hero Badge Text
+                    </label>
+                    <input
+                      type="text"
+                      value={appContentSettings.hero_badge_text}
+                      onChange={(e) =>
+                        setAppContentSettings((prev) =>
+                          prev ? { ...prev, hero_badge_text: e.target.value } : prev
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Hero Title Text
+                    </label>
+                    <input
+                      type="text"
+                      value={appContentSettings.hero_title_text}
+                      onChange={(e) =>
+                        setAppContentSettings((prev) =>
+                          prev ? { ...prev, hero_title_text: e.target.value } : prev
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Hero Subtitle Text
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={appContentSettings.hero_subtitle_text}
+                      onChange={(e) =>
+                        setAppContentSettings((prev) =>
+                          prev ? { ...prev, hero_subtitle_text: e.target.value } : prev
+                        )
+                      }
+                      className={textareaClassName}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Hero Primary Button Text
+                    </label>
+                    <input
+                      type="text"
+                      value={appContentSettings.hero_primary_cta_text}
+                      onChange={(e) =>
+                        setAppContentSettings((prev) =>
+                          prev ? { ...prev, hero_primary_cta_text: e.target.value } : prev
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Offer Banner Code
+                      </label>
+                      <input
+                        type="text"
+                        value={appContentSettings.offer_banner_code}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, offer_banner_code: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Offer Banner Text
+                      </label>
+                      <input
+                        type="text"
+                        value={appContentSettings.offer_banner_text}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, offer_banner_text: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Trust Badge: Delivery Text
+                    </label>
+                    <input
+                      type="text"
+                      value={appContentSettings.trust_badge_delivery_text}
+                      onChange={(e) =>
+                        setAppContentSettings((prev) =>
+                          prev ? { ...prev, trust_badge_delivery_text: e.target.value } : prev
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Trust Badge: ETA Text
+                      </label>
+                      <input
+                        type="text"
+                        value={appContentSettings.trust_badge_eta_text}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, trust_badge_eta_text: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Trust Badge: Quality Text
+                      </label>
+                      <input
+                        type="text"
+                        value={appContentSettings.trust_badge_quality_text}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, trust_badge_quality_text: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Trust Badge: Rating Text
+                      </label>
+                      <input
+                        type="text"
+                        value={appContentSettings.trust_badge_rating_text}
+                        onChange={(e) =>
+                          setAppContentSettings((prev) =>
+                            prev ? { ...prev, trust_badge_rating_text: e.target.value } : prev
+                          )
+                        }
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveAppContent}
+                    disabled={savingAppContent}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+                  >
+                    {savingAppContent ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Save Content Settings
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

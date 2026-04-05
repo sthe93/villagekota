@@ -1,8 +1,11 @@
 import { MapPin, Phone, Mail, Clock, UtensilsCrossed, ShoppingBag, Package, FileText, ShieldCheck, Database } from "lucide-react";
 import { Link } from "react-router-dom";
 import appLogo from "@/assets/star-village-logo.png";
+import { usePublicAppContentSettings } from "@/lib/appContentSettings";
 
 export default function Footer() {
+  const appContent = usePublicAppContentSettings();
+
   return (
     <footer className="bg-secondary text-secondary-foreground">
       <div className="container py-14 grid grid-cols-1 md:grid-cols-3 gap-10">
@@ -15,14 +18,13 @@ export default function Footer() {
                 className="h-9 w-9 rounded-full border border-secondary-foreground/30 bg-black object-cover object-center p-0.5 shadow-sm"
               />
               <span className="text-base font-semibold tracking-tight text-secondary-foreground">
-                Village Eats
+                {appContent.brand_name}
               </span>
             </div>
           </div>
 
           <p className="text-sm leading-7 text-secondary-foreground/85 font-body max-w-xs">
-            Village Eats brings together bold local flavour, comfort food favourites, and
-            everyday meal options in one elevated delivery experience.
+            {appContent.footer_description}
           </p>
         </div>
 
@@ -31,19 +33,19 @@ export default function Footer() {
           <div className="space-y-3 text-sm text-secondary-foreground/85">
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-accent shrink-0" />
-              <span>123 Durban Road, Johannesburg, 2000</span>
+              <span>{appContent.contact_address}</span>
             </div>
             <div className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-accent shrink-0" />
-              <span>+27 11 234 5678</span>
+              <span>{appContent.contact_phone}</span>
             </div>
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-accent shrink-0" />
-              <span>hello@villageeats.co.za</span>
+              <span>{appContent.contact_email}</span>
             </div>
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-accent shrink-0" />
-              <span>Mon – Sun: 10:00 – 22:00</span>
+              <span>{appContent.business_hours}</span>
             </div>
           </div>
         </div>

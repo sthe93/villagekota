@@ -15,12 +15,14 @@ import { useAuth } from "@/context/AuthContext";
 import DriverNavbarBadge from "@/components/DriverNavbarBadge";
 import { useState } from "react";
 import appLogo from "@/assets/star-village-logo.png";
+import { usePublicAppContentSettings } from "@/lib/appContentSettings";
 
 export default function Navbar() {
   const { toggleCart, itemCount, total } = useCart();
   const { user, isAdmin } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const appContent = usePublicAppContentSettings();
 
   const priceFormatter = new Intl.NumberFormat("en-ZA", {
     style: "currency",
@@ -53,7 +55,7 @@ export default function Navbar() {
               alt="Village Eats logo"
               className="h-9 w-9 rounded-full border border-primary/30 bg-black object-cover object-center p-0.5 shadow-sm"
             />
-            <span className="text-sm font-semibold tracking-tight md:text-base">Village Eats</span>
+            <span className="text-sm font-semibold tracking-tight md:text-base">{appContent.brand_name}</span>
           </div>
         </Link>
 
