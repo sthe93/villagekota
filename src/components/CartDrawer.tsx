@@ -302,11 +302,11 @@ export default function CartDrawer() {
   return (
     <>
       <div
-        className="fixed inset-0 z-50 bg-secondary/45 backdrop-blur-sm"
+        className="fixed inset-0 z-[80] bg-secondary/45 backdrop-blur-sm"
         onClick={closeDrawer}
       />
 
-      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl animate-slide-in-right">
+      <aside className="fixed right-0 top-0 z-[81] flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl animate-slide-in-right">
         <div className="flex items-center justify-between border-b border-border px-4 py-4">
           <div>
             <h2 className="font-display text-2xl text-foreground">
@@ -350,7 +350,7 @@ export default function CartDrawer() {
           </div>
         ) : (
           <>
-            <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               <div className="sticky top-0 z-10 rounded-2xl border border-primary/25 bg-primary/5 p-3 backdrop-blur-sm">
                 <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
                   <span>Free delivery progress</span>
@@ -624,7 +624,7 @@ export default function CartDrawer() {
               </div>
             </div>
 
-            <div className="border-t border-border bg-card p-4">
+            <div className="sticky bottom-0 z-20 border-t border-border bg-background p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-20px_hsl(var(--foreground)/0.45)]">
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
@@ -654,7 +654,7 @@ export default function CartDrawer() {
                   onClick={closeDrawer}
                   className="block w-full rounded-xl bg-primary py-3 text-center text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                 >
-                  Checkout
+                  Continue to Pay
                 </Link>
 
                 <button
