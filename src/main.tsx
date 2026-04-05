@@ -3,7 +3,6 @@ import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { supabase } from "@/integrations/supabase/client";
-import appLogo from "@/assets/star-village-logo.png";
 import App from "./App.tsx";
 import "./index.css";
 
@@ -22,7 +21,7 @@ function ensureBrandIcons() {
     }
 
     if (type) link.type = type;
-    link.href = appLogo;
+    link.href = "/favicon.ico";
   });
 }
 

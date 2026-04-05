@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             "vendor-react": ["react", "react-dom", "react-router-dom"],
             "vendor-supabase": ["@supabase/supabase-js", "@tanstack/react-query"],
-            "vendor-maps": ["maplibre-gl"],
+            "vendor-maps": ["maplibre-gl", "react-map-gl/maplibre"],
             "vendor-ui": ["@radix-ui/react-dialog", "@radix-ui/react-toast", "sonner"],
           },
         },

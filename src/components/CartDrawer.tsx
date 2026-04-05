@@ -393,6 +393,8 @@ export default function CartDrawer() {
                             src={item.product.image}
                             alt={item.product.name}
                             className="h-20 w-20 rounded-xl object-cover"
+                            loading="lazy"
+                            decoding="async"
                           />
                         ) : (
                           <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-muted text-muted-foreground">
@@ -535,6 +537,8 @@ export default function CartDrawer() {
                                   src={product.image}
                                   alt={product.name}
                                   className="h-16 w-16 rounded-xl object-cover"
+                                  loading="lazy"
+                                  decoding="async"
                                 />
                               ) : (
                                 <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-muted text-muted-foreground">

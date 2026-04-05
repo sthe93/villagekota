@@ -468,6 +468,8 @@ export default function ProductQuickAddSheet({
                       src={product.image}
                       alt={product.name}
                       className="aspect-[4/3] h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
                     />
                   ) : (
                     <div className="flex aspect-[4/3] items-center justify-center text-muted-foreground">
@@ -719,6 +721,8 @@ export default function ProductQuickAddSheet({
                                     src={item.image}
                                     alt={item.name}
                                     className="h-20 w-20 rounded-xl object-cover"
+                                    loading="lazy"
+                                    decoding="async"
                                   />
                                 ) : (
                                   <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-muted text-muted-foreground">
