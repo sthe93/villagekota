@@ -194,7 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (authDebugEnabled) {
-      console.info("[auth] signInWithGoogle oauthUrl", { oauthUrl: data?.url ?? null });
+      console.info("[auth] signInWithGoogle oauthUrl", { hasOauthUrl: !!data?.url });
     }
 
     if (nativePlatform && data?.url) {
