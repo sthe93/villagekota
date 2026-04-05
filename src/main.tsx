@@ -36,8 +36,17 @@ if (Capacitor.isNativePlatform()) {
     if (!url) return;
 
     const authDebugEnabled = import.meta.env.VITE_AUTH_DEBUG_REDIRECT === "true";
+    const redactUrl = (value: string) => {
+      try {
+        const parsed = new URL(value);
+        return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+      } catch {
+        return "invalid-url";
+      }
+    };
+
     if (authDebugEnabled) {
-      console.info("[auth] appUrlOpen received", { url });
+      console.info("[auth] appUrlOpen received", { url: redactUrl(url) });
     }
 
     const expectedPrefix = `${nativeAuthScheme}://auth`;
@@ -72,9 +81,16 @@ if (Capacitor.isNativePlatform()) {
       }
     }
 
-    const targetUrl = `${window.location.origin}/auth${callbackUrl.search}${callbackUrl.hash}`;
+    const safeQuery = new URLSearchParams();
+    const allowedQueryParams = ["error", "error_code", "error_description"];
+    allowedQueryParams.forEach((key) => {
+      const value = callbackUrl.searchParams.get(key);
+      if (value) safeQuery.set(key, value);
+    });
+
+    const targetUrl = `${window.location.origin}/auth${safeQuery.size ? `?${safeQuery.toString()}` : ""}`;
     if (authDebugEnabled) {
-      console.info("[auth] appUrlOpen targetUrl", { targetUrl });
+      console.info("[auth] appUrlOpen targetUrl", { targetUrl: redactUrl(targetUrl) });
     }
 
     window.location.href = targetUrl;
@@ -82,8 +98,15 @@ if (Capacitor.isNativePlatform()) {
 
   void LocalNotifications.addListener("localNotificationActionPerformed", (event) => {
     const url = event.notification?.extra?.url;
-    if (typeof url === "string" && url.startsWith("/")) {
-      window.location.href = `${window.location.origin}${url}`;
+    if (typeof url !== "string") return;
+
+    try {
+      const parsedUrl = new URL(url, window.location.origin);
+      if (parsedUrl.origin === window.location.origin) {
+        window.location.href = `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+      }
+    } catch {
+      // Ignore malformed URLs.
     }
   });
 }

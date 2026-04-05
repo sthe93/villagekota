@@ -1,5 +1,5 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CartProvider } from "@/context/CartContext";
@@ -11,7 +11,8 @@ import CartFAB from "@/components/CartFAB";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
+import { queryClient } from "@/lib/queryClient";
 
 const MenuPage = lazy(() => import("./pages/MenuPage"));
 const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
@@ -27,9 +28,6 @@ const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const DataDisclosurePage = lazy(() => import("./pages/DataDisclosurePage"));
 
-const queryClient = new QueryClient();
-
-
 const isCapacitorRuntime =
   typeof window !== "undefined" &&
   (window.location.protocol === "capacitor:" || window.location.href.startsWith("ionic://"));
@@ -39,6 +37,13 @@ const normalizedBaseUrl = import.meta.env.BASE_URL.replace(/\/$/, "") || "/";
 const routerBasename =
   import.meta.env.VITE_ROUTER_BASENAME ||
   (isCapacitorRuntime ? "/" : normalizedBaseUrl);
+
+const preloadPageModules = [
+  () => import("./pages/MenuPage"),
+  () => import("./pages/CheckoutPage"),
+  () => import("./pages/AccountPage"),
+  () => import("./pages/AuthPage"),
+];
 
 function FullScreenLoader({ label = "Loading..." }: { label?: string }) {
   return (
@@ -82,67 +87,87 @@ function DriverRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Sonner />
-      <AuthProvider>
-        <PushNotificationManager />
-        <CartProvider>
-          <BrowserRouter basename={routerBasename}>
-            <Navbar />
-            <CartDrawer />
-            <CartFAB />
+const App = () => {
+  useEffect(() => {
+    const preloadRoutes = () => {
+      preloadPageModules.forEach((loader) => {
+        void loader();
+      });
+    };
 
-            <Suspense fallback={<FullScreenLoader label="Loading page" />}>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/menu" element={<MenuPage />} />
-                <Route path="/checkout" element={<CheckoutPage />} />
-                <Route path="/auth" element={<AuthPage />} />
-                <Route path="/account" element={<AccountPage />} />
+    if (typeof window === "undefined") return;
 
-                <Route
-                  path="/admin"
-                  element={
-                    <AdminRoute>
-                      <AdminPage />
-                    </AdminRoute>
-                  }
-                />
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(preloadRoutes, { timeout: 2000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
 
-                <Route
-                  path="/admin/orders"
-                  element={
-                    <AdminRoute>
-                      <AdminOrdersPage />
-                    </AdminRoute>
-                  }
-                />
+    const timeoutId = window.setTimeout(preloadRoutes, 800);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
-                <Route
-                  path="/driver"
-                  element={
-                    <DriverRoute>
-                      <DriverPage />
-                    </DriverRoute>
-                  }
-                />
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Sonner />
+        <AuthProvider>
+          <PushNotificationManager />
+          <CartProvider>
+            <BrowserRouter basename={routerBasename}>
+              <Navbar />
+              <CartDrawer />
+              <CartFAB />
 
-                <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
-                <Route path="/payment/success" element={<PaymentSuccessPage />} />
-                <Route path="/payment/cancel" element={<PaymentCancelPage />} />
-                <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-                <Route path="/terms-of-service" element={<TermsPage />} />
-                <Route path="/data-disclosure" element={<DataDisclosurePage />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Suspense>
-          </BrowserRouter>
-        </CartProvider>
-      </AuthProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+              <Suspense fallback={<FullScreenLoader label="Loading page" />}>
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/menu" element={<MenuPage />} />
+                  <Route path="/checkout" element={<CheckoutPage />} />
+                  <Route path="/auth" element={<AuthPage />} />
+                  <Route path="/account" element={<AccountPage />} />
+
+                  <Route
+                    path="/admin"
+                    element={
+                      <AdminRoute>
+                        <AdminPage />
+                      </AdminRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/admin/orders"
+                    element={
+                      <AdminRoute>
+                        <AdminOrdersPage />
+                      </AdminRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/driver"
+                    element={
+                      <DriverRoute>
+                        <DriverPage />
+                      </DriverRoute>
+                    }
+                  />
+
+                  <Route path="/order-tracking/:orderId" element={<OrderTrackingPage />} />
+                  <Route path="/payment/success" element={<PaymentSuccessPage />} />
+                  <Route path="/payment/cancel" element={<PaymentCancelPage />} />
+                  <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                  <Route path="/terms-of-service" element={<TermsPage />} />
+                  <Route path="/data-disclosure" element={<DataDisclosurePage />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </BrowserRouter>
+          </CartProvider>
+        </AuthProvider>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;
