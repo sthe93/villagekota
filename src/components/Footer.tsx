@@ -1,5 +1,6 @@
-import { MapPin, Phone, Mail, Clock, Star } from "lucide-react";
+import { MapPin, Phone, Mail, Clock, UtensilsCrossed, ShoppingBag, Package, FileText, ShieldCheck, Database } from "lucide-react";
 import { Link } from "react-router-dom";
+import appLogo from "@/assets/star-village-logo.png";
 
 export default function Footer() {
   return (
@@ -7,8 +8,12 @@ export default function Footer() {
       <div className="container py-14 grid grid-cols-1 md:grid-cols-3 gap-10">
         <div>
           <div className="flex items-center mb-5">
-            <div className="inline-flex items-center gap-2 rounded-xl border border-secondary-foreground/20 bg-secondary-foreground/10 px-3 py-2">
-              <Star className="h-5 w-5 fill-current text-accent" />
+            <div className="inline-flex items-center gap-3 rounded-xl border border-secondary-foreground/20 bg-secondary-foreground/10 px-3 py-2">
+              <img
+                src={appLogo}
+                alt="Village Eats logo"
+                className="h-9 w-9 rounded-full border border-secondary-foreground/30 bg-black object-cover object-center p-0.5 shadow-sm"
+              />
               <span className="text-base font-semibold tracking-tight text-secondary-foreground">
                 Village Eats
               </span>
@@ -46,20 +51,23 @@ export default function Footer() {
         <div>
           <h4 className="font-display text-2xl mb-4 text-secondary-foreground">QUICK LINKS</h4>
           <div className="space-y-2 text-sm text-secondary-foreground/85">
-            <Link to="/menu" className="block hover:text-accent transition-colors">
-              Full Menu
+            <Link to="/menu" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <UtensilsCrossed className="h-4 w-4" /> Menu
             </Link>
-            <Link to="/checkout" className="block hover:text-accent transition-colors">
-              Checkout
+            <Link to="/checkout" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <ShoppingBag className="h-4 w-4" /> Cart
             </Link>
-            <Link to="/terms-of-service" className="block hover:text-accent transition-colors">
-              Terms of Service
+            <Link to="/account?tab=orders" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <Package className="h-4 w-4" /> Track
             </Link>
-            <Link to="/privacy-policy" className="block hover:text-accent transition-colors">
-              Privacy Policy
+            <Link to="/terms-of-service" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <FileText className="h-4 w-4" /> Terms
             </Link>
-            <Link to="/data-disclosure" className="block hover:text-accent transition-colors">
-              Data Disclosure
+            <Link to="/privacy-policy" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <ShieldCheck className="h-4 w-4" /> Privacy
+            </Link>
+            <Link to="/data-disclosure" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <Database className="h-4 w-4" /> Data
             </Link>
           </div>
         </div>

@@ -1,9 +1,20 @@
-import { ShoppingBag, Menu, X, User, Shield, House, UtensilsCrossed, Package, Star } from "lucide-react";
+import {
+  ShoppingBag,
+  Menu,
+  X,
+  User,
+  Shield,
+  House,
+  UtensilsCrossed,
+  Package,
+  MapPinned,
+} from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import DriverNavbarBadge from "@/components/DriverNavbarBadge";
 import { useState } from "react";
+import appLogo from "@/assets/star-village-logo.png";
 
 export default function Navbar() {
   const { toggleCart, itemCount, total } = useCart();
@@ -19,9 +30,10 @@ export default function Navbar() {
   });
 
   const links = [
-    { to: "/", label: "Home" },
-    { to: "/menu", label: "Menu" },
-    { to: "/checkout", label: "Checkout" },
+    { to: "/", label: "Home", icon: House },
+    { to: "/menu", label: "Menu", icon: UtensilsCrossed },
+    { to: "/checkout", label: "Cart", icon: ShoppingBag },
+    { to: "/account?tab=orders", label: "Track", icon: MapPinned },
   ];
 
   const mobileNavItems = [
@@ -35,24 +47,37 @@ export default function Navbar() {
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 shadow-sm backdrop-blur-md">
       <div className="container flex h-20 items-center justify-between">
         <Link to="/" className="flex items-center">
-          <div className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary">
-            <Star className="h-5 w-5 fill-current" />
+          <div className="inline-flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-primary">
+            <img
+              src={appLogo}
+              alt="Village Eats logo"
+              className="h-9 w-9 rounded-full border border-primary/30 bg-black object-cover object-center p-0.5 shadow-sm"
+            />
             <span className="text-sm font-semibold tracking-tight md:text-base">Village Eats</span>
           </div>
         </Link>
 
         <div className="hidden items-center gap-10 md:flex">
-          {links.map((l) => (
-            <Link
-              key={l.to}
-              to={l.to}
-              className={`text-lg font-medium transition-colors hover:text-primary ${
-                location.pathname === l.to ? "text-primary" : "text-foreground/75"
-              }`}
-            >
-              {l.label}
-            </Link>
-          ))}
+          {links.map((l) => {
+            const Icon = l.icon;
+            const isActive =
+              l.to === "/account?tab=orders"
+                ? location.pathname === "/account" && location.search.includes("tab=orders")
+                : location.pathname === l.to;
+
+            return (
+              <Link
+                key={l.to}
+                to={l.to}
+                className={`inline-flex items-center gap-2 text-base font-medium transition-colors hover:text-primary ${
+                  isActive ? "text-primary" : "text-foreground/75"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {l.label}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-2">
@@ -113,18 +138,26 @@ export default function Navbar() {
 
       {mobileOpen && (
         <div className="animate-fade-in border-t border-border bg-background md:hidden">
-          {links.map((l) => (
+          {links.map((l) => {
+            const Icon = l.icon;
+            const isActive =
+              l.to === "/account?tab=orders"
+                ? location.pathname === "/account" && location.search.includes("tab=orders")
+                : location.pathname === l.to;
+
+            return (
             <Link
               key={l.to}
               to={l.to}
               onClick={() => setMobileOpen(false)}
-              className={`block px-6 py-3 text-sm font-medium transition-colors hover:bg-muted ${
-                location.pathname === l.to ? "text-primary" : "text-foreground/75"
+              className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-colors hover:bg-muted ${
+                isActive ? "text-primary" : "text-foreground/75"
               }`}
             >
+              <Icon className="h-4 w-4" />
               {l.label}
             </Link>
-          ))}
+          )})}
 
           <Link
             to={user ? "/account" : "/auth"}

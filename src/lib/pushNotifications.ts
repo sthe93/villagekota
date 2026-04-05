@@ -1,4 +1,10 @@
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
+import { PushNotifications } from "@capacitor/push-notifications";
+
 const PUSH_NOTIFICATIONS_ENABLED_KEY = "villagekota.pushNotifications.enabled";
+const NATIVE_PUSH_TOKEN_KEY = "villagekota.pushNotifications.nativeToken";
+const NATIVE_PUSH_PLATFORM_KEY = "villagekota.pushNotifications.nativePlatform";
 
 export type AppNotificationAudience = "customer" | "driver" | "admin";
 
@@ -16,11 +22,45 @@ export interface AppNotificationPermissionState {
   permission: NotificationPermission | "unsupported";
 }
 
+export interface NativePushRegistrationResult {
+  token: string;
+  platform: "ios" | "android";
+}
+
+export function getStoredNativePushRegistration(): NativePushRegistrationResult | null {
+  if (!canUseWindow()) return null;
+
+  const token = window.localStorage.getItem(NATIVE_PUSH_TOKEN_KEY);
+  const platform = window.localStorage.getItem(NATIVE_PUSH_PLATFORM_KEY);
+
+  if (!token || (platform !== "ios" && platform !== "android")) {
+    return null;
+  }
+
+  return { token, platform };
+}
+
+export function setStoredNativePushRegistration(registration: NativePushRegistrationResult) {
+  if (!canUseWindow()) return;
+  window.localStorage.setItem(NATIVE_PUSH_TOKEN_KEY, registration.token);
+  window.localStorage.setItem(NATIVE_PUSH_PLATFORM_KEY, registration.platform);
+}
+
+export function clearStoredNativePushRegistration() {
+  if (!canUseWindow()) return;
+  window.localStorage.removeItem(NATIVE_PUSH_TOKEN_KEY);
+  window.localStorage.removeItem(NATIVE_PUSH_PLATFORM_KEY);
+}
+
 function canUseWindow() {
   return typeof window !== "undefined";
 }
 
 export function arePushNotificationsSupported() {
+  if (Capacitor.isNativePlatform()) {
+    return true;
+  }
+
   return (
     canUseWindow() &&
     "Notification" in window &&
@@ -47,6 +87,15 @@ export function getPushNotificationPermissionState(): AppNotificationPermissionS
     };
   }
 
+  if (Capacitor.isNativePlatform()) {
+    const enabled = getStoredPushNotificationsEnabled();
+    return {
+      supported: true,
+      enabled,
+      permission: enabled ? "granted" : "default",
+    };
+  }
+
   return {
     supported: true,
     enabled: getStoredPushNotificationsEnabled() && Notification.permission === "granted",
@@ -55,6 +104,7 @@ export function getPushNotificationPermissionState(): AppNotificationPermissionS
 }
 
 export async function registerPushNotificationsServiceWorker() {
+  if (Capacitor.isNativePlatform()) return null;
   if (!arePushNotificationsSupported()) return null;
 
   const registration = await navigator.serviceWorker.register(
@@ -70,6 +120,24 @@ export async function requestPushNotificationPermission() {
     return getPushNotificationPermissionState();
   }
 
+  if (Capacitor.isNativePlatform()) {
+    const [localPermissions, pushPermissions] = await Promise.all([
+      LocalNotifications.requestPermissions(),
+      PushNotifications.requestPermissions(),
+    ]);
+
+    const enabled =
+      localPermissions.display === "granted" && pushPermissions.receive === "granted";
+
+    setStoredPushNotificationsEnabled(enabled);
+
+    return {
+      supported: true,
+      enabled,
+      permission: enabled ? "granted" : "denied",
+    } satisfies AppNotificationPermissionState;
+  }
+
   const permission = await Notification.requestPermission();
   const enabled = permission === "granted";
   setStoredPushNotificationsEnabled(enabled);
@@ -81,8 +149,55 @@ export async function requestPushNotificationPermission() {
   } satisfies AppNotificationPermissionState;
 }
 
+export async function registerNativePushToken(): Promise<NativePushRegistrationResult | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+
+  const permissions = await PushNotifications.checkPermissions();
+  const receivePermission =
+    permissions.receive === "prompt"
+      ? (await PushNotifications.requestPermissions()).receive
+      : permissions.receive;
+
+  if (receivePermission !== "granted") return null;
+
+  const platform = Capacitor.getPlatform() === "ios" ? "ios" : "android";
+
+  return await new Promise<NativePushRegistrationResult>((resolve, reject) => {
+    void (async () => {
+    const [registrationSubscription, errorSubscription] = await Promise.all([
+        PushNotifications.addListener("registration", (token) => {
+          cleanup();
+          const registration = { token: token.value, platform } satisfies NativePushRegistrationResult;
+          setStoredNativePushRegistration(registration);
+          resolve(registration);
+        }),
+        PushNotifications.addListener("registrationError", (error) => {
+          cleanup();
+          reject(new Error(error.error));
+        }),
+      ]);
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Timed out while registering push token"));
+      }, 10000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        void registrationSubscription.remove();
+        void errorSubscription.remove();
+      }
+
+      void PushNotifications.register();
+    })().catch((error) => {
+      reject(error instanceof Error ? error : new Error("Failed to register native push token"));
+    });
+  });
+}
+
 export function disablePushNotifications() {
   setStoredPushNotificationsEnabled(false);
+  clearStoredNativePushRegistration();
 
   if (canUseWindow() && "Notification" in window) {
     Notification.get?.().forEach((notification) => notification.close());
@@ -199,8 +314,26 @@ export function buildAdminOrderNotification(orderId: string): AppNotificationPay
 
 export async function showAppNotification(payload: AppNotificationPayload) {
   if (!arePushNotificationsSupported()) return false;
-  if (Notification.permission !== "granted") return false;
   if (!getStoredPushNotificationsEnabled()) return false;
+
+  if (Capacitor.isNativePlatform()) {
+    const id = Math.floor(Date.now() % 1_000_000_000);
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id,
+          title: payload.title,
+          body: payload.body,
+          extra: { url: payload.url, tag: payload.tag, audience: payload.audience },
+          schedule: { at: new Date(Date.now() + 300) },
+        },
+      ],
+    });
+
+    return true;
+  }
+
+  if (Notification.permission !== "granted") return false;
 
   const registration = await navigator.serviceWorker.ready;
   const iconUrl = `${import.meta.env.BASE_URL}favicon.ico`;
@@ -212,6 +345,7 @@ export async function showAppNotification(payload: AppNotificationPayload) {
     badge: iconUrl,
     data: {
       url: payload.url,
+      audience: payload.audience,
     },
   });
 
