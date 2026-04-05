@@ -1,23 +1,30 @@
-import { MapPin, Phone, Mail, Clock, Star } from "lucide-react";
+import { MapPin, Phone, Mail, Clock, UtensilsCrossed, ShoppingBag, Package, FileText, ShieldCheck, Database } from "lucide-react";
 import { Link } from "react-router-dom";
+import appLogo from "@/assets/star-village-logo.png";
+import { usePublicAppContentSettings } from "@/lib/appContentSettings";
 
 export default function Footer() {
+  const appContent = usePublicAppContentSettings();
+
   return (
     <footer className="bg-secondary text-secondary-foreground">
       <div className="container py-14 grid grid-cols-1 md:grid-cols-3 gap-10">
         <div>
           <div className="flex items-center mb-5">
-            <div className="inline-flex items-center gap-2 rounded-xl border border-secondary-foreground/20 bg-secondary-foreground/10 px-3 py-2">
-              <Star className="h-5 w-5 fill-current text-accent" />
+            <div className="inline-flex items-center gap-3 rounded-xl border border-secondary-foreground/20 bg-secondary-foreground/10 px-3 py-2">
+              <img
+                src={appLogo}
+                alt="Village Eats logo"
+                className="h-9 w-9 rounded-full border border-secondary-foreground/30 bg-black object-cover object-center p-0.5 shadow-sm"
+              />
               <span className="text-base font-semibold tracking-tight text-secondary-foreground">
-                Village Eats
+                {appContent.brand_name}
               </span>
             </div>
           </div>
 
           <p className="text-sm leading-7 text-secondary-foreground/85 font-body max-w-xs">
-            Village Eats brings together bold local flavour, comfort food favourites, and
-            everyday meal options in one elevated delivery experience.
+            {appContent.footer_description}
           </p>
         </div>
 
@@ -26,19 +33,19 @@ export default function Footer() {
           <div className="space-y-3 text-sm text-secondary-foreground/85">
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-accent shrink-0" />
-              <span>123 Durban Road, Johannesburg, 2000</span>
+              <span>{appContent.contact_address}</span>
             </div>
             <div className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-accent shrink-0" />
-              <span>+27 11 234 5678</span>
+              <span>{appContent.contact_phone}</span>
             </div>
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-accent shrink-0" />
-              <span>hello@villageeats.co.za</span>
+              <span>{appContent.contact_email}</span>
             </div>
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-accent shrink-0" />
-              <span>Mon – Sun: 10:00 – 22:00</span>
+              <span>{appContent.business_hours}</span>
             </div>
           </div>
         </div>
@@ -46,20 +53,23 @@ export default function Footer() {
         <div>
           <h4 className="font-display text-2xl mb-4 text-secondary-foreground">QUICK LINKS</h4>
           <div className="space-y-2 text-sm text-secondary-foreground/85">
-            <Link to="/menu" className="block hover:text-accent transition-colors">
-              Full Menu
+            <Link to="/menu" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <UtensilsCrossed className="h-4 w-4" /> Menu
             </Link>
-            <Link to="/checkout" className="block hover:text-accent transition-colors">
-              Checkout
+            <Link to="/checkout" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <ShoppingBag className="h-4 w-4" /> Cart
             </Link>
-            <Link to="/terms-of-service" className="block hover:text-accent transition-colors">
-              Terms of Service
+            <Link to="/account?tab=orders" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <Package className="h-4 w-4" /> Track
             </Link>
-            <Link to="/privacy-policy" className="block hover:text-accent transition-colors">
-              Privacy Policy
+            <Link to="/terms-of-service" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <FileText className="h-4 w-4" /> Terms
             </Link>
-            <Link to="/data-disclosure" className="block hover:text-accent transition-colors">
-              Data Disclosure
+            <Link to="/privacy-policy" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <ShieldCheck className="h-4 w-4" /> Privacy
+            </Link>
+            <Link to="/data-disclosure" className="flex items-center gap-2 hover:text-accent transition-colors">
+              <Database className="h-4 w-4" /> Data
             </Link>
           </div>
         </div>
