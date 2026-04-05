@@ -119,10 +119,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setLoading(true);
-      await resolveUserState(nextSession.user.id);
-
-      if (!isMounted) return;
-      setLoading(false);
+      try {
+        await resolveUserState(nextSession.user.id);
+      } catch (error) {
+        console.error("[auth] Failed to resolve user state", error);
+        resetAuthState();
+      } finally {
+        if (!isMounted) return;
+        setLoading(false);
+      }
     };
 
     const {
