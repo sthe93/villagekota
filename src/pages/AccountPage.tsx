@@ -51,6 +51,7 @@ import {
   disablePushNotifications,
   getStoredNativePushRegistration,
   getPushNotificationPermissionState,
+  registerNativePushToken,
   requestPushNotificationPermission,
 } from "@/lib/pushNotifications";
 import { geocodeSouthAfricaAddress } from "@/lib/maps";
